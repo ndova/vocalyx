@@ -1,0 +1,275 @@
+import { S } from './state.js';
+import { $ } from './dom.js';
+import { ico } from './icons-tabler.js';
+import { showModal, showAlert } from './modal.js';
+import { _rgGainCache, rgTargetDb, ensureVolumeGain, applyEnhanceState, saveDownloadOptions, setEnhPromptBlocked, sweepEnhance, renderMainView, renderSearchView, tauriWin, refreshCudaStatus } from '../app.js';
+
+$('#btnMin').onclick = () => tauriWin((w) => w.minimize());
+async function syncMaxBtn(){
+  const btn = document.getElementById('btnMax');
+  if (!btn) return;
+  try {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window');
+    const max = await getCurrentWindow().isMaximized();
+    btn.textContent = max ? '❐' : '▢';
+    btn.title = max ? 'Restore' : 'Maximize';
+  } catch {}
+}
+$('#btnMax').onclick = async () => {
+  await tauriWin(async (w) => {
+    const max = await w.isMaximized();
+    if (max) await w.unmaximize();
+    else await w.maximize();
+  });
+  syncMaxBtn();
+};
+syncMaxBtn();
+try {
+  import('@tauri-apps/api/event').then(({ listen }) => {
+    listen('tauri://resize', () => syncMaxBtn()).catch(()=>{});
+  }).catch(()=>{});
+} catch {}
+$('#btnClose').onclick = () => tauriWin((w) => w.close());
+
+function attachDrag(el) {
+  if (!el) return;
+  el.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    if (e.target.closest('button, input, select, textarea, a, label, [data-no-drag]')) return;
+    tauriWin((w) => w.startDragging());
+  });
+}
+attachDrag(document.querySelector('.topbar'));
+attachDrag(document.querySelector('.playlist-head'));
+
+document.getElementById('btnWaveSettings')?.addEventListener('click', ()=>{ // satu-satunya pintu Settings; topbar sekarang #btnAbout
+  document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
+  S.activeView='settings'; renderMainView();
+});
+
+document.querySelectorAll('.nav-item').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    const nav = btn.dataset.nav;
+    document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    if (nav==='local') { S.activeView='local'; renderMainView(); }
+    else if (nav==='playlists') { S.activeView='playlists'; renderMainView(); }
+    else if (nav==='search') { S.activeView='search'; renderMainView(); }
+    else if (nav==='downloads') { S.activeView='downloads'; renderMainView(); }
+    else if (nav==='device') { S.activeView='device'; renderMainView(); }
+    else if (nav==='music') { S.activeView='search'; renderMainView(); }
+  });
+});
+const ICON_MOON = ico('moon');
+const ICON_SUN = ico('sun');
+function getTheme() {
+  try {
+    const t = localStorage.getItem('vocalyx_theme_v1');
+    if (t === 'dark' || t === 'light') return t;
+  } catch {}
+  return (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+}
+function applyTheme(t, save = true) {
+  const dark = t === 'dark';
+  if (dark) document.documentElement.dataset.theme = 'dark';
+  else delete document.documentElement.dataset.theme;
+  if (save) { try { localStorage.setItem('vocalyx_theme_v1', dark ? 'dark' : 'light'); } catch {} }
+  const b = document.getElementById('btnTheme');
+  if (b) {
+    b.innerHTML = dark ? ICON_SUN : ICON_MOON;
+    b.title = dark ? 'Mode terang' : 'Mode gelap';
+  }
+  document.querySelectorAll('.brand-logo').forEach((el) => { el.src = dark ? './logo-dark.png' : './logo.png'; });
+}
+document.getElementById('btnTheme')?.addEventListener('click', () => {
+  applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+});
+if (window.matchMedia) {
+  try {
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+      let saved = null;
+      try { saved = localStorage.getItem('vocalyx_theme_v1'); } catch {}
+      if (!saved) applyTheme(e.matches ? 'dark' : 'light', false);
+    });
+  } catch {}
+}
+applyTheme(getTheme(), false);
+{
+  const searchViewInput = document.getElementById('searchViewInput');
+  searchViewInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); renderSearchView(); }
+  });
+}
+document.getElementById('searchFilter')?.addEventListener('change', () => {
+  const el = document.getElementById('searchViewInput');
+  if (el && (el.value || '').trim()) renderSearchView();
+});
+document.getElementById('searchSource')?.addEventListener('change', () => {
+  const el = document.getElementById('searchViewInput');
+  if (el && (el.value || '').trim()) renderSearchView();
+});
+try {
+  const savedSrc = localStorage.getItem('vocalyx_searchSource_v1');
+  const srcEl = document.getElementById('searchSource');
+  if (savedSrc && srcEl && [...srcEl.options].some(o => o.value === savedSrc)) srcEl.value = savedSrc;
+} catch {}
+const searchViewBox = document.getElementById('searchViewBox');
+document.getElementById('btnOnlineSearch')?.addEventListener('click', ()=>{
+  const input = document.getElementById('searchViewInput');
+  if (!searchViewBox || !input) { input?.focus(); return; }
+  const willOpen = !searchViewBox.classList.contains('open');
+  searchViewBox.classList.toggle('open', willOpen);
+  if (willOpen) setTimeout(()=>input.focus(), 180);
+  else { input.value=''; renderSearchView(); }
+});
+document.getElementById('btnClearSearch')?.addEventListener('click', ()=>{ const el=document.getElementById('searchViewInput'); if(el){ el.value=''; renderSearchView(); } });
+document.querySelectorAll('.filter-btn').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    document.querySelectorAll('.filter-btn').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    const el = document.getElementById('searchViewInput');
+    if (el && (el.value || '').trim()) renderSearchView();
+  });
+});
+document.querySelectorAll('.dl-format').forEach(b=>{
+  b.addEventListener('click', ()=>{ document.querySelectorAll('.dl-format').forEach(x=>x.classList.remove('active')); b.classList.add('active'); saveDownloadOptions({format:b.dataset.format}); });
+});
+document.querySelectorAll('[data-strict-src]').forEach(el=>{
+  el.addEventListener('change', ()=>{
+    const map = { ...(S.downloadOptions.strictSources || {}) };
+    map[el.dataset.strictSrc] = el.checked;
+    saveDownloadOptions({ strictSources: map });
+  });
+});
+document.getElementById('dlEnhance')?.addEventListener('change', (e)=>{
+  saveDownloadOptions({ audioEnhance: e.target.checked });
+  applyEnhanceState();
+  setEnhPromptBlocked(false);
+  if (e.target.checked) sweepEnhance({ auto:true });
+});
+document.getElementById('dlNormalize')?.addEventListener('change', (e)=>{
+  saveDownloadOptions({ normalizeVolume: e.target.checked });
+  applyEnhanceState();
+  setEnhPromptBlocked(false);
+  if (e.target.checked) sweepEnhance({ auto:true });
+});
+document.getElementById('dlTargetLufs')?.addEventListener('change', (e)=>{
+  const v = parseInt(e.target.value, 10);
+  if (!isNaN(v) && v >= -30 && v <= -1) { saveDownloadOptions({ targetLufs: v }); applyEnhanceState(); setEnhPromptBlocked(false); sweepEnhance({ auto:true }); }
+});
+document.getElementById('vgEnabled')?.addEventListener('change', (e)=>{
+  saveDownloadOptions({ replayGainEnabled: e.target.checked });
+  applyEnhanceState();
+  ensureVolumeGain({ notify: e.target.checked });
+});
+document.getElementById('vgTarget')?.addEventListener('input', (e)=>{
+  const v = parseInt(e.target.value, 10);
+  if (isNaN(v)) return;
+  const clamped = Math.max(-20, Math.min(-10, v));
+  const lab = document.getElementById('vgTargetVal');
+  if (lab) lab.textContent = clamped + ' LUFS';
+  saveDownloadOptions({ replayGainTarget: clamped });
+});
+document.getElementById('vgTarget')?.addEventListener('change', ()=>{
+  applyEnhanceState();
+  ensureVolumeGain({ notify: true });
+});
+document.getElementById('vgPreamp')?.addEventListener('input', (e)=>{
+  const v = parseInt(e.target.value, 10);
+  if (isNaN(v)) return;
+  const clamped = Math.max(-6, Math.min(6, v));
+  const lab = document.getElementById('vgPreampVal');
+  if (lab) lab.textContent = (clamped > 0 ? '+' : '') + clamped + ' dB';
+  saveDownloadOptions({ replayGainPreAmp: clamped });
+});
+document.getElementById('vgPreamp')?.addEventListener('change', ()=>{
+  applyEnhanceState();
+});
+document.getElementById('vgClip')?.addEventListener('change', (e)=>{
+  saveDownloadOptions({ replayGainClipPrevention: e.target.checked });
+  applyEnhanceState();
+});
+document.getElementById('vgBrowseFolder')?.addEventListener('click', async ()=>{
+  try {
+    const { open } = await import('@tauri-apps/plugin-dialog');
+    const p = await open({ directory: true });
+    if (p) {
+      localStorage.setItem('vocalyx_gainFolder', p);
+      const el = document.getElementById('vgFolder');
+      if (el) el.value = p;
+    }
+  } catch {}
+});
+document.getElementById('vgBulk')?.addEventListener('click', async ()=>{
+  if (S._vgBulkBusy) return;
+  const folder = (localStorage.getItem('vocalyx_gainFolder') || S.downloadFolder || '').trim();
+  if (!folder || folder.startsWith('Default:')) {
+    await showAlert('Gain Massal', 'Pilih folder ukur dulu (Browse).');
+    return;
+  }
+  const target = rgTargetDb();
+  const ok = await showModal({
+    title: 'Gain Massal',
+    message: `Ukur semua audio di:\n${folder}\nke target ${target} LUFS?\n\nFile asli tidak diubah → simpan ke .gain-cache.json.`,
+    confirmText: 'Mulai',
+    cancelText: 'Batal',
+  });
+  if (!ok) return;
+  S._vgBulkBusy = true;
+  const btn = document.getElementById('vgBulk');
+  const prog = document.getElementById('vgBulkProgress');
+  if (btn) btn.disabled = true;
+  if (prog) { prog.style.display = ''; prog.textContent = 'Mengukur… 0/…'; }
+  let offset = 0;
+  let measured = 0, skipped = 0, failed = 0, total = 0;
+  const errors = [];
+  try {
+    for (let round = 0; round < 40; round++) {
+      const r = await fetch('http://127.0.0.1:8001/gain/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder, target, offset, limit: 6 }),
+      });
+      const j = await r.json().catch(() => null);
+      if (!j || !j.ok) {
+        throw new Error((j && j.error) || `HTTP ${r.status}`);
+      }
+      measured += j.measured || 0;
+      skipped += j.skipped || 0;
+      failed += j.failed || 0;
+      total = j.total || total;
+      if (j.errors && j.errors.length) errors.push(...j.errors);
+      if (prog) prog.textContent = `Mengukur… ${j.done}/${j.total} (+${measured} baru)`;
+      if (j.complete || !j.nextOffset || j.nextOffset <= offset) break;
+      offset = j.nextOffset;
+    }
+    let msg = `Selesai: ${measured} terukur, ${skipped} cache, ${failed} gagal (total ${total}).`;
+    if (errors.length) msg += `\nContoh gagal: ${errors.slice(0, 3).join('; ')}`;
+    await showAlert('Gain Massal', msg);
+    Object.keys(_rgGainCache).forEach(k => { if (k.endsWith('|' + target)) delete _rgGainCache[k]; });
+  } catch (err) {
+    await showAlert('Gain Massal', 'Gagal: ' + (err?.message || err));
+  } finally {
+    S._vgBulkBusy = false;
+    if (btn) btn.disabled = false;
+    if (prog) { prog.style.display = 'none'; prog.textContent = ''; }
+  }
+});
+document.getElementById('karaokeDevice')?.addEventListener('change', (e)=>{
+  saveDownloadOptions({ karaokeDevice: e.target.value });
+  try { refreshCudaStatus().catch(() => {}); } catch {}
+});
+document.getElementById('karaokeQuality')?.addEventListener('change', (e)=>{
+  saveDownloadOptions({ karaokeQuality: e.target.value });
+});
+document.getElementById('karaokeFormat')?.addEventListener('change', (e)=>{
+  saveDownloadOptions({ karaokeFormat: e.target.value });
+});
+document.getElementById('ytCookies')?.addEventListener('change', (e)=>{
+  saveDownloadOptions({ ytCookies: e.target.value });
+});
+document.getElementById('ytCookiesPath')?.addEventListener('change', (e)=>{
+  saveDownloadOptions({ ytCookiesPath: e.target.value.trim() });
+});
+
+export { syncMaxBtn, attachDrag, ICON_MOON, ICON_SUN, getTheme, applyTheme, searchViewBox };

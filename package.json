@@ -1,0 +1,28 @@
+{
+  "name": "vocalyx",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "engine": "python -u python-engine/server.py",
+    "dev:all": "concurrently -k \"python -u python-engine/server.py\" \"tauri dev\"",
+    "smoke": "node tests/smoke.mjs"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "concurrently": "^9.2.4",
+    "jsdom": "^30.0.1",
+    "vite": "^5.4.0"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-dialog": "^2.7.3",
+    "@tauri-apps/plugin-fs": "^2.5.2",
+    "@tauri-apps/plugin-opener": "^2.5.5",
+    "music-metadata-browser": "^2.5.10"
+  }
+}

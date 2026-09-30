@@ -1,0 +1,13 @@
+# Core: torch CUDA sudah terinstal di laptop (2.5.1+cu121). Jangan reinstall kecuali perlu.
+torch>=2.1
+fastapi
+uvicorn[standard]
+python-multipart
+demucs==4.0.1
+audio-separator[gpu]==0.47.0  # BS-RoFormer + GPU untuk karaoke
+mutagen
+Pillow  # konversi cover WebP/PNG -> JPEG sebelum embed
+imageio-ffmpeg  # ffmpeg portable untuk convert m4a->wav (tanpa install sistem)
+numpy
+onnxruntime-gpu
+pymobiledevice3  # iPhone ATC protocol for music transfer

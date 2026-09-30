@@ -1,0 +1,640 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VocaLyx</title>
+  <script>
+    try {
+      var _t = localStorage.getItem('vocalyx_theme_v1');
+      if (!_t) _t = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+      if (_t === 'dark') document.documentElement.dataset.theme = 'dark';
+    } catch (e) {}
+  </script>
+
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div id="app" class="window">
+    <header class="topbar" data-tauri-drag-region>
+      <div class="brand">
+        <img src="./logo.png" class="brand-logo" alt="VocaLyx" />
+      </div>
+      <div class="topbar-title"><span id="topbarViewTitle">Local Music</span><span id="downloadCount" style="color:var(--muted);font-size:11px"></span><span id="deviceConnDot" style="width:8px;height:8px;border-radius:50%;background:var(--muted);display:none"></span></div>
+      <div class="topbar-right">
+        <button class="win-btn" id="btnAbout" title="About"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="info-circle"></svg></button>
+        <button class="win-btn" id="btnTheme" title="Mode gelap"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="moon"></svg></button>
+        <button class="win-btn" id="btnMin" title="Minimize"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="minus"></svg></button>
+        <button class="win-btn" id="btnMax" title="Maximize"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="square"></svg></button>
+        <button class="win-btn close" id="btnClose" title="Close"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="x"></svg></button>
+      </div>
+    </header>
+    <input id="globalSearch" type="text" hidden />
+
+    <div class="layout">
+      <aside class="sidebar">
+        <nav class="nav">
+          <button class="nav-toggle"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="menu-2"></svg></button>
+          <button class="nav-item" data-nav="search">
+            <span class="nav-icon" aria-hidden="true"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" width="17" height="17" data-ico="search"></svg></span>
+            <span class="nav-label">Pencarian Lagu</span>
+          </button>
+          <button class="nav-item active" data-nav="local">
+            <span class="nav-icon" aria-hidden="true"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" width="17" height="17" data-ico="music"></svg></span>
+            <span class="nav-label">Local Music</span>
+          </button>
+          <button class="nav-item" data-nav="playlists">
+            <span class="nav-icon" aria-hidden="true"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" width="17" height="17" data-ico="playlist-add"></svg></span>
+            <span class="nav-label">Playlists</span>
+          </button>
+          <button class="nav-item" data-nav="downloads">
+            <span class="nav-icon" aria-hidden="true"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" width="17" height="17" data-ico="download"></svg></span>
+            <span class="nav-label">Downloads</span>
+          </button>
+          <button class="nav-item" data-nav="device">
+            <span class="nav-icon" aria-hidden="true"><svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" width="17" height="17" data-ico="device-mobile"></svg></span>
+            <span class="nav-label">Device</span>
+          </button>
+        </nav>
+        <div class="now-playing">
+          <div class="np-cover-wrap" id="npCoverWrap">
+            <div class="np-cover placeholder" id="npCover"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="music"></svg></div>
+          </div>
+          <div class="np-title" id="npTitle">No track</div>
+          <div class="np-artist" id="npArtist">Add Folder di Local Music</div>
+          <div class="np-controls">
+            <button id="btnShuffle" title="Shuffle" aria-label="Shuffle">
+              <svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" data-ico="arrows-shuffle"></svg>
+            </button>
+            <button id="btnPrev" title="Previous" aria-label="Previous">
+              <svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" data-ico="player-skip-back-filled"></svg>
+            </button>
+            <button id="btnPlay" class="play" title="Play/Pause" aria-label="Play">
+              <svg class="icon-play ico" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true" data-ico="player-play-filled"></svg>
+              <svg class="icon-pause ico" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true" style="display:none" data-ico="player-pause-filled"></svg>
+            </button>
+            <button id="btnNext" title="Next" aria-label="Next">
+              <svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" data-ico="player-skip-forward-filled"></svg>
+            </button>
+            <button id="btnRepeat" title="Repeat Off" aria-label="Repeat">
+              <svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" data-ico="repeat"></svg>
+              <span class="repeat-one-badge" aria-hidden="true">1</span>
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <main class="center">
+        <section class="playlist-card" id="viewSearch" style="display:none">
+          <div class="playlist-head">
+            <div class="playlist-tools">
+              <select id="searchFilter" class="btn-add-folder" style="min-width:110px">
+                <option value="all">Semua</option>
+                <option value="artist">Artis</option>
+                <option value="title">Title</option>
+                <option value="album">Album</option>
+              </select>
+              <select id="searchSource" class="btn-add-folder" style="min-width:120px" title="Sumber download (resource)">
+                <option value="all">Semua resource</option>
+                <option value="spotify">Spotify</option>
+                <option value="deezer">Deezer</option>
+                <option value="soundcloud">SoundCloud</option>
+                <option value="archive">Archive.org</option>
+                <option value="4shared">4shared</option>
+              </select>
+              <button title="Cari lagu online" id="btnOnlineSearch"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="search"></svg></button>
+              <div id="searchViewBox" class="local-search-box">
+                <div class="search-box" style="flex:1; min-width:0">
+                  <span class="search-ico"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="search"></svg></span>
+                  <input id="searchViewInput" placeholder="Cari judul / artis... (Enter untuk cari)" />
+                  <button id="btnClearSearch" class="btn-more" title="Clear"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="x"></svg></button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div id="searchStatus" style="font-size:11px; color:var(--muted); padding-top:8px"></div>
+          <div class="table-head" id="searchTableHead">
+            <span class="c-check"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="check"></svg></span><span class="c-title">Title<div class="resizer" data-scol="1"></div></span><span class="c-dur">Duration<div class="resizer" data-scol="2"></div></span><span class="c-more"></span>
+          </div>
+          <div class="track-list" id="searchTrackList"></div>
+          <div id="searchPagination" style="display:none; gap:6px; justify-content:center; align-items:center; padding:8px 0 2px"></div>
+        </section>
+        <section class="playlist-card" id="viewLocal">
+            <div class="playlist-head" data-tauri-drag-region>
+            <div class="playlist-tools">
+              <button id="btnAddFolder" class="btn-add-folder" title="Pilih folder musik (mp3/m4a)"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="plus"></svg> Add Folder</button>
+              <select id="localSearchFilter" class="btn-add-folder" style="min-width:100px" title="Tampilan Local Music">
+                <option value="artist">Artis</option>
+                <option value="title" selected>Title</option>
+                <option value="album">Album</option>
+              </select>
+              <button title="Search in playlist" id="btnListSearch"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="search"></svg></button>
+              <div id="localSearchBox" class="local-search-box">
+                <div class="search-box" style="flex:1; min-width:0">
+                  <span class="search-ico"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="search"></svg></span>
+                  <input id="localSearchInput" placeholder="Search Title/ Artist/ Album (Enter)" />
+                  <button id="btnClearLocalSearch" class="btn-more" title="Clear"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="x"></svg></button>
+                </div>
+              </div>
+              <span class="tools-right">
+              <button id="btnRefreshLocal" title="Refresh library (scan ulang folder musik)"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="refresh"></svg></button>
+              <button id="btnSelectLocal" title="Mode pilih satu-persatu"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="checkbox"></svg></button>
+              </span>
+            </div>
+          </div>
+          <div class="table-head" id="tableHead">
+            <span class="c-check" data-sel-head="local" title="Pilih/deselect semua"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="check"></svg></span>
+            <span class="c-title" data-sort="title" title="Urutkan judul">Title<div class="resizer" data-col="1"></div></span>
+            <span class="c-type" data-sort="type" title="Urutkan tipe">Type<div class="resizer" data-col="2"></div></span>
+            <span class="c-size" data-sort="size" title="Urutkan ukuran">Size<div class="resizer" data-col="3"></div></span>
+            <span class="c-dur" data-sort="duration" title="Urutkan durasi">Duration<div class="resizer" data-col="4"></div></span>
+          </div>
+          <div class="track-list" id="trackList"></div>
+        </section>
+        <section class="playlist-card" id="viewPlaylists" style="display:none">
+            <div class="playlist-head">
+            <div class="playlist-tools">
+              <button id="btnNewPlaylist" class="btn-add-folder"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="plus"></svg> New Playlist</button>
+            </div>
+          </div>
+          <div id="playlistGrid" class="playlist-grid"></div>
+        </section>
+        <section class="playlist-card" id="viewPlaylistDetail" style="display:none">
+          <div class="playlist-head">
+            <button id="btnBackPlaylists" class="btn-add-folder"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="arrow-left"></svg> Back</button>
+            <h2 id="detailPlaylistName" style="flex:1; text-align:center; font-size:16px; margin:0"></h2>
+            <div class="playlist-tools">
+              <button id="btnPlayAll" class="btn-add-folder"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="player-play-filled"></svg> Play All</button>
+            </div>
+          </div>
+          <div class="table-head" id="detailTableHead">
+            <span class="c-check"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="check"></svg></span>
+            <span class="c-title">Title</span>
+            <span class="c-type">Type</span>
+            <span class="c-size">Size</span>
+            <span class="c-dur">Duration</span>
+            <span class="c-more"></span>
+          </div>
+          <div class="track-list" id="detailTrackList"></div>
+        </section>
+        <section class="playlist-card" id="viewAlbumDetail" style="display:none">
+          <div class="playlist-head">
+            <button id="btnBackAlbums" class="btn-add-folder"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="arrow-left"></svg> Back</button>
+            <h2 id="detailAlbumName" style="flex:1; text-align:center; font-size:16px; margin:0"></h2>
+            <div class="playlist-tools">
+              <button id="btnPlayAllAlbum" class="btn-add-folder"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="player-play-filled"></svg> Play All</button>
+            </div>
+          </div>
+          <div class="table-head" id="albumDetailTableHead">
+            <span class="c-check"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="check"></svg></span>
+            <span class="c-title">Title</span>
+            <span class="c-type">Type</span>
+            <span class="c-size">Size</span>
+            <span class="c-dur">Duration</span>
+          </div>
+          <div class="track-list" id="detailAlbumList"></div>
+        </section>
+        <section class="playlist-card" id="viewArtistDetail" style="display:none">
+          <div class="playlist-head">
+            <button id="btnBackArtists" class="btn-add-folder"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="arrow-left"></svg> Back</button>
+            <h2 id="detailArtistName" style="flex:1; text-align:center; font-size:16px; margin:0"></h2>
+            <div class="playlist-tools">
+              <button id="btnPlayAllArtist" class="btn-add-folder"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="player-play-filled"></svg> Play All</button>
+            </div>
+          </div>
+          <div class="table-head" id="artistDetailTableHead">
+            <span class="c-check"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="check"></svg></span>
+            <span class="c-title">Title</span>
+            <span class="c-type">Type</span>
+            <span class="c-size">Size</span>
+            <span class="c-dur">Duration</span>
+          </div>
+          <div class="track-list" id="detailArtistList"></div>
+        </section>
+        <section class="playlist-card" id="viewDownloads" style="display:none">
+          <div class="playlist-head">
+            <div class="playlist-tools">
+              <span class="tools-right">
+              <button id="btnSelectDownloads" class="btn-more" title="Mode pilih satu-persatu"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="checkbox"></svg></button>
+              </span>
+            </div>
+          </div>
+          <div class="table-head" id="downloadTableHead">
+            <span class="c-check" data-sel-head="downloads" title="Pilih/deselect semua"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="check"></svg></span>
+            <span class="c-title" data-sort="title" title="Urutkan judul">Title</span>
+            <span class="c-type" data-sort="type" title="Urutkan tipe">Type</span>
+            <span class="c-size" data-sort="progress" title="Urutkan progres">Progress</span>
+            <span class="c-dur" data-sort="status" title="Urutkan status">Status</span>
+          </div>
+          <div id="downloadList" class="track-list"></div>
+        </section>
+        <section id="viewDevice" class="device-split" style="display:none">
+          <div class="playlist-card device-panel">
+            <div class="playlist-head">
+              <div class="playlist-tools">
+                <button id="btnDeviceRefresh" class="btn-add-folder"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="refresh"></svg> Refresh</button>
+              </div>
+            </div>
+            <div class="device-status-body">
+              <div id="deviceStatusText" style="font-size:11px; color:var(--muted)">Mengecek...</div>
+              <div id="deviceMeta" style="font-size:11px; color:var(--muted); margin-top:4px"></div>
+              <span id="iphoneLibraryCount" style="font-size:11px; color:var(--muted); display:none"></span>
+            </div>
+          </div>
+          <div class="playlist-card device-panel device-library-panel">
+            <div class="playlist-head"><h4 style="margin:0; font-size:13px; font-weight:700">Library iPhone <span id="iphoneTrackCount" style="font-weight:400; font-size:11px; color:var(--muted)"></span></h4></div>
+            <div class="device-library-body">
+              <div style="display:flex; gap:6px; margin-bottom:6px">
+                <div style="position:relative">
+                  <button id="btnDeviceImport" class="btn-add-folder" style="font-size:11px"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="upload"></svg> Import</button>
+                  <div class="more-menu" id="deviceImportMenu">
+                    <button id="btnImportFile">📄 Import File</button>
+                    <button id="btnImportFolder">📁 Import Folder</button>
+                  </div>
+                </div>
+                <button id="btnDeviceExportAll" class="btn-add-folder" style="font-size:11px"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="download"></svg> Export Semua</button>
+                <button id="btnDeviceExportSelected" class="btn-add-folder" style="font-size:11px" disabled><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="download"></svg> Export Terpilih</button>
+                <button id="btnDeviceDeleteSelected" class="btn-more" style="font-size:11px" disabled><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="trash"></svg> Hapus</button>
+              </div>
+              <div id="exportProgressBar" style="display:none; margin-bottom:6px">
+                <div style="height:6px; background:var(--line); border-radius:6px; overflow:hidden"><div id="exportProgressFill" style="height:100%; width:0%; background:var(--accent); transition:width 0.3s"></div></div>
+                <div style="display:flex; gap:6px; align-items:center; margin-top:4px">
+                  <span id="exportProgressText" style="font-size:11px; color:var(--muted); flex:1"></span>
+                  <button id="btnCancelExport" class="btn-more" style="font-size:11px; display:none">Batal</button>
+                </div>
+              </div>
+              <div id="importProgressBar" style="display:none; margin-bottom:6px">
+                <div style="height:6px; background:var(--line); border-radius:6px; overflow:hidden"><div id="importProgressFill" style="height:100%; width:0%; background:var(--accent); transition:width 0.3s"></div></div>
+                <div style="display:flex; gap:6px; align-items:center; margin-top:4px">
+                  <span id="importProgressText" style="font-size:11px; color:var(--muted); flex:1"></span>
+                  <button id="btnCancelImport" class="btn-more" style="font-size:11px; display:none">Batal</button>
+                </div>
+              </div>
+              <div class="table-head" id="iphoneTableHead" style="display:none">
+                <span class="c-check"><input type="checkbox" data-iphone-sel-all title="Pilih/deselect semua"></span>
+                <span class="c-title" data-sort="title" title="Urutkan judul">Title</span>
+                <span class="c-type" data-sort="type" title="Urutkan tipe">Type</span>
+                <span class="c-size" data-sort="size" title="Urutkan ukuran">Size</span>
+                <span class="c-dur" data-sort="duration" title="Urutkan durasi">Duration</span>
+              </div>
+              <div id="iphoneTrackList" class="track-list" style="max-height:320px; overflow:auto"></div>
+            </div>
+          </div>
+        </section>
+        <section class="playlist-card" id="viewSettings" style="display:none">
+          <div class="settings-body">
+
+            <div class="settings-group">
+              <div class="settings-group-title">Unduhan</div>
+              <div class="settings-group-hint">Format file &amp; tujuan simpan</div>
+
+              <div class="settings-block">
+                <div class="settings-label">Folder Download (semua sumber)</div>
+                <div class="settings-row">
+                  <input id="dlFolder" class="modal-input settings-grow" readonly placeholder="Default: ./downloads" />
+                  <button id="btnBrowseFolder" class="btn-add-folder">Browse</button>
+                </div>
+                <div class="settings-desc">Satu folder untuk semua hasil unduhan dari semua sumber.</div>
+              </div>
+
+              <div class="settings-block" style="border-top:0; padding-top:0">
+                <div class="settings-label">Download Format</div>
+                <div class="settings-row">
+                  <button class="btn-add-folder dl-format active" data-format="m4a">M4A (AAC)</button>
+                  <button class="btn-add-folder dl-format" data-format="mp3">MP3</button>
+                  <span class="settings-aside">Kualitas: asli sumber</span>
+                </div>
+              </div>
+
+            </div>
+
+            <div class="settings-group">
+              <div class="settings-group-title">Sumber Asli per Source</div>
+              <div class="settings-group-hint">ON: ambil asli dari sumber • OFF: fallback YouTube</div>
+              <div class="settings-list">
+                <div class="settings-row"><span>Spotify</span><label class="switch"><input type="checkbox" data-strict-src="spotify" /><span></span></label></div>
+                <div class="settings-row"><span>SoundCloud</span><label class="switch"><input type="checkbox" data-strict-src="soundcloud" /><span></span></label></div>
+                <div class="settings-row"><span>Archive.org</span><label class="switch"><input type="checkbox" data-strict-src="archive" /><span></span></label></div>
+                <div class="settings-row"><span>Deezer</span><label class="switch"><input type="checkbox" data-strict-src="deezer" /><span></span></label></div>
+                <div class="settings-row"><span>4shared</span><label class="switch"><input type="checkbox" data-strict-src="4shared" /><span></span></label></div>
+              </div>
+            </div>
+
+            <div class="settings-group">
+              <div class="settings-group-title">VolumeGain</div>
+              <div class="settings-group-hint">Samakan kerasnya lagu saat diputar (ReplayGain / EBU R128). Tidak mengubah file asli. Preview &amp; karaoke: suara asli. Hasil ukur disimpan di cache <code>.gain-cache.json</code> — play berikutnya langsung pakai gain tanpa delay.</div>
+
+              <div class="settings-list">
+                <div class="settings-row">
+                  <span>Aktif</span>
+                  <label class="switch"><input type="checkbox" id="vgEnabled" /><span></span></label>
+                </div>
+                <div class="settings-row">
+                  <span class="settings-aside">Target</span>
+                  <input type="range" id="vgTarget" class="wfill hfill" min="-20" max="-10" step="1" value="-14" style="flex:1; min-width:0" />
+                  <span id="vgTargetVal" style="font-size:12px; font-weight:700; min-width:64px; text-align:right">-14 LUFS</span>
+                </div>
+                <div class="settings-row">
+                  <span class="settings-aside">Pre-amp</span>
+                  <input type="range" id="vgPreamp" class="wfill hfill" min="-6" max="6" step="1" value="0" style="flex:1; min-width:0" />
+                  <span id="vgPreampVal" style="font-size:12px; font-weight:700; min-width:48px; text-align:right">0 dB</span>
+                </div>
+                <div class="settings-row">
+                  <span>Cegah clipping</span>
+                  <label class="switch"><input type="checkbox" id="vgClip" checked /><span></span></label>
+                </div>
+                <div class="settings-desc">Mode track (per lagu). Gain dihitung saat putar pertama lalu di-cache. Ubah Target → play ulang / ganti lagu.</div>
+              </div>
+
+              <div class="settings-block">
+                <div class="settings-label">Gain Massal</div>
+                <div class="settings-desc">Ukur semua file audio di folder ini ke target LUFS aktif → simpan ke <code>.gain-cache.json</code>. File asli tidak diubah. Sudah terukur (target sama) dilewati otomatis.</div>
+                <div class="settings-row" style="justify-content:flex-start; gap:8px">
+                  <input type="text" id="vgFolder" class="modal-input settings-grow" placeholder="Folder ukur (default: Download Folder)" readonly />
+                  <button type="button" id="vgBrowseFolder" class="btn-add-folder" style="font-size:11px; padding:5px 10px">Browse</button>
+                </div>
+                <div class="settings-row" style="justify-content:flex-start; gap:8px">
+                  <button type="button" id="vgBulk" class="btn-add-folder" style="font-size:12px; padding:6px 14px">Gain Massal</button>
+                  <span id="vgBulkProgress" class="settings-status" style="display:none"></span>
+                </div>
+                <div class="settings-desc">Ubah Target → jalankan Gain Massal ulang agar terdengar (nilai lama tetap dipakai sampai diukur ulang).</div>
+              </div>
+            </div>
+
+            <div class="settings-group">
+              <div class="settings-group-title">Pembersih Audio</div>
+              <div class="settings-group-hint">OFF by default. Untuk file download/enhance. Hanya sumber lossy.</div>
+
+              <div class="settings-list">
+                <div class="settings-row">
+                  <span>Declip</span>
+                  <label class="switch"><input type="checkbox" id="dlEnhance" /><span></span></label>
+                </div>
+                <div class="settings-row">
+                  <span>Normalisasi Volume (LUFS)</span>
+                  <label class="switch"><input type="checkbox" id="dlNormalize" /><span></span></label>
+                </div>
+                <div class="settings-row">
+                  <span class="settings-aside">Target LUFS</span>
+                  <input type="number" id="dlTargetLufs" class="modal-input" style="width:80px" min="-30" max="-1" step="1" value="-14" />
+                </div>
+                <div class="settings-desc">Declip = perbaiki clipping. LUFS = samakan loudness. Bisa salah satu / keduanya.</div>
+              </div>
+            </div>
+
+            <div class="settings-group">
+              <div class="settings-group-title">Karaoke BS-RoFormer</div>
+              <div class="settings-group-hint">Kim_Vocal_2 (terbukti di RTX 3050). Klik Karaoke lagi untuk Batal.</div>
+
+              <div class="settings-row">
+                <label class="settings-select">Device
+                  <select id="karaokeDevice" class="modal-input">
+                    <option value="auto">Auto</option>
+                    <option value="cuda">CUDA</option>
+                    <option value="cpu">CPU</option>
+                  </select>
+                </label>
+                <label class="settings-select">Quality
+                  <select id="karaokeQuality" class="modal-input">
+                    <option value="standard">Standard</option>
+                    <option value="high">Best</option>
+                  </select>
+                </label>
+                <label class="settings-select">Format
+                  <select id="karaokeFormat" class="modal-input">
+                    <option value="flac">FLAC (15-25MB/mnt)</option>
+                    <option value="ogg">OGG (3-4MB/mnt)</option>
+                    <option value="wav">WAV (30-50MB/mnt)</option>
+                  </select>
+                </label>
+              </div>
+              <div class="settings-row" style="align-items:center">
+                <span id="cudaConnDot" style="width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none"></span>
+                <div id="karaokeCudaStatus" class="settings-desc" style="flex:1">CUDA: mengecek…</div>
+              </div>
+            </div>
+
+            <div class="settings-group">
+              <div class="settings-group-title">Akun &amp; API</div>
+              <div class="settings-group-hint">Kredensial pencarian &amp; download — disimpan lokal</div>
+
+              <div class="settings-block">
+                <div class="settings-label">Spotify Client <span class="settings-desc">untuk Pencarian</span></div>
+                <input id="spClientId" class="modal-input" placeholder="Client ID" style="margin-bottom:8px" />
+                <input id="spClientSecret" class="modal-input" placeholder="Client Secret" type="password" style="margin-bottom:8px" />
+                <div class="settings-row">
+                  <button id="btnSaveCreds" class="btn-add-folder">Save</button>
+                  <button id="btnTestCreds" class="btn-add-folder">Test →</button>
+                  <span id="credsStatus" class="settings-status"></span>
+                </div>
+              </div>
+
+              <div class="settings-block">
+                <div class="settings-label">Deezer ARL <span class="settings-desc">download full</span></div>
+                <input id="dzArl" class="modal-input" placeholder="ARL (192+ chars, dari cookie deezer.com)" type="password" style="margin-bottom:8px" />
+                <div class="settings-row">
+                  <button id="btnSaveArl" class="btn-add-folder">Save</button>
+                  <button id="btnTestArl" class="btn-add-folder">Test →</button>
+                  <span id="arlStatus" class="settings-status"></span>
+                </div>
+                <div class="settings-desc">Tempel token ARL agar track Deezer di-download full kualitas asli (tanpa YouTube). Free = MP3 128 asli; Premium = 320/FLAC asli. Tanpa ARL, download Deezer ditolak tegas.</div>
+              </div>
+
+              <div class="settings-block">
+                <div class="settings-label">Spotify Premium <span class="settings-desc">Original Audio</span></div>
+                <input id="spUser" class="modal-input" placeholder="Premium Username" style="margin-bottom:8px" />
+                <input id="spPass" class="modal-input" placeholder="Premium Password" type="password" style="margin-bottom:8px" />
+                <div class="settings-row settings-row-wrap">
+                  <button id="btnSavePremium" class="btn-add-folder">Save User/Pass</button>
+                  <button id="btnTestPremium" class="btn-add-folder">Test Login</button>
+                  <button id="btnConnectPremium" class="btn-add-folder">Connect</button>
+                  <button id="btnDisconnectPremium" class="btn-add-folder" style="background:transparent !important">Disconnect</button>
+                  <span id="premiumStatus" class="settings-status"></span>
+                </div>
+                <div class="settings-desc">Keduanya didukung — manual User/Pass atau Connect via Zeroconf (VocaLyx-XXXX, tanpa simpan password).</div>
+              </div>
+
+              <div class="settings-block">
+                <div class="settings-label">YouTube Cookies <span class="settings-desc">anti bot-check</span></div>
+                <div class="settings-row">
+                  <span>Sumber cookies</span>
+                  <select id="ytCookies" class="modal-input" style="flex:1; min-width:0">
+                    <option value="off">Off (tanpa cookies)</option>
+                    <option value="auto">Auto (cookies.txt / Chrome)</option>
+                    <option value="chrome">Chrome</option>
+                    <option value="edge">Edge</option>
+                    <option value="firefox">Firefox</option>
+                    <option value="brave">Brave</option>
+                    <option value="opera">Opera</option>
+                  </select>
+                </div>
+                <div class="settings-row">
+                  <span>Path cookies.txt</span>
+                  <input id="ytCookiesPath" class="modal-input" placeholder="(opsional) C:\path\cookies.txt" style="flex:1; min-width:0" />
+                </div>
+                <div class="settings-desc">Bila download YouTube gagal "Sign in to confirm you're not a bot", isi cookies: ekstensi "Get cookies.txt LOCALLY" → export dari youtube.com → tempel path di atas (menang atas mode), atau pilih Chrome/Edge. Mode Auto = cari cookies.txt di Downloads/.vocalyx/./.</div>
+              </div>
+            </div>
+
+            <div class="settings-footer">
+              <button id="btnSaveSettings" class="btn-add-folder" style="background:var(--accent) !important; color:#fff !important; border-color:var(--accent) !important">Save Settings</button>
+            </div>
+
+          </div>
+        </section>
+
+        <section class="wave-card">
+          <div class="wave-tools">
+            <button id="btnHideViz" title="Hide Visualizer"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="activity"></svg></button>
+            <button id="btnHideEq" title="Hide Equalizer"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="chart-bar"></svg></button>
+            <button id="btnWaveSettings" title="Settings"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="settings"></svg></button>
+            <button id="btnDeleteSelected" title="Hapus yang dipilih"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="trash"></svg></button>
+          </div>
+          <div class="wave-viz" id="waveViz">
+            <canvas id="waveCanvas" height="110"></canvas>
+          </div>
+          <div class="progress-row">
+            <span id="tCur">00:00</span>
+            <input id="seek" class="wfill hfill" type="range" min="0" max="1000" value="0" />
+            <span id="tLeft">-0:00</span>
+          </div>
+          <audio id="audio" crossorigin="anonymous"></audio>
+        </section>
+      </main>
+
+      <aside class="right">
+        <section class="lyrics-card">
+          <div class="lyrics-sub"><span>Synced Lyrics</span><span class="lyrics-sub-tools"><button id="lyrEditOpen" class="lyr-off-toggle" title="Buka editor lirik per baris"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="pencil"></svg></button><button id="lyrOffToggle" class="lyr-off-toggle" style="display:none" title="Tampilkan/sembunyikan kontrol offset lirik"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="clock"></svg> <span class="lyr-offset-badge" id="lyrOffBadge" title="Offset waktu lirik">+0ms</span></button></span></div>
+          <h3 id="lyTitle">No track</h3>
+          <div class="ly-artist" id="lyArtist">—</div>
+          <div id="lyrOffsetWrap" style="display:none">
+            <div id="lyrOffBody">
+              <div class="lyr-offset-row">
+                <button data-lyr-off="-1000" title="Mundurkan highlight 1 detik">−1s</button>
+                <button data-lyr-off="-500" title="Mundurkan highlight 0,5 detik">−0.5s</button>
+                <button data-lyr-off="-100" title="Mundurkan highlight 100ms">−100</button>
+                <button data-lyr-off="0" id="lyrOffReset" title="Kembalikan offset ke 0">reset</button>
+                <button data-lyr-off="100" title="Majukan highlight 100ms">+100</button>
+                <button data-lyr-off="500" title="Majukan highlight 0,5 detik">+0.5s</button>
+                <button data-lyr-off="1000" title="Majukan highlight 1 detik">+1s</button>
+              </div>
+              <div class="lyr-offset-slider"><span>−10s</span><input id="lyrOffSlider" class="wfill hfill" type="range" min="-10000" max="10000" step="50" value="0" title="Geser halus ±10 detik"><span>+10s</span></div>
+            </div>
+          </div>
+          <div class="lyrics" id="lyrics"></div>
+        </section>
+
+        <section class="audio-card">
+          <div class="btn-row">
+            <label class="pill-switch switch" title="Equalizer on/off">Equalizer<input type="checkbox" id="btnEqToggle" checked><span></span></label>
+            <label class="pill-switch switch" title="Karaoke mode">Karaoke<input type="checkbox" id="btnKaraoke"><span></span></label>
+          </div>
+          <div id="sepStatus" class="sep-status" style="display:none"></div>
+          <div class="eq" id="eq"></div>
+          <div class="vol-row">
+            <span>Volume</span>
+            <div class="preset-wrap" id="presetWrap">
+              <button id="btnPreset" class="preset-btn" title="Preset EQ">Flat <svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="chevron-down"></svg></button>
+              <div id="presetMenu" class="preset-menu">
+                <button data-preset="Flat">Flat</button>
+                <button data-preset="Rock">Rock</button>
+                <button data-preset="Pop">Pop</button>
+                <button data-preset="Jazz">Jazz</button>
+                <button data-preset="Electro">Electro</button>
+                <button data-preset="HipHop">Hip-Hop</button>
+                <button data-preset="Classical">Classical</button>
+                <button data-preset="Vocal">Vocal</button>
+              </div>
+            </div>
+          </div>
+          <div class="vol-slider">
+            <span class="vol-ico"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="volume-2"></svg></span>
+            <input id="vol" class="wfill hfill" type="range" min="0" max="100" value="50" />
+            <span class="vol-ico"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="volume-3"></svg></span>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </div>
+  <div id="appModal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" id="modalBackdrop"></div>
+    <div class="modal-card" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <h3 id="modalTitle">VocaLyx</h3>
+        <button class="modal-close" id="modalClose" aria-label="Close"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="x"></svg></button>
+      </div>
+      <div class="modal-body">
+        <p id="modalMessage"></p>
+        <input id="modalInput" class="modal-input" type="text" placeholder="" style="display:none" />
+        <div id="modalFormWrap" style="display:none; flex-direction:column; gap:8px;"></div>
+      </div>
+      <div class="modal-actions">
+        <button id="modalCancel" class="btn-add-folder" style="background:transparent !important">Cancel</button>
+        <button id="modalConfirm" class="btn-add-folder">OK</button>
+      </div>
+    </div>
+  </div>
+  <div id="aboutModal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" id="aboutBackdrop"></div>
+    <div class="modal-card about-card" role="dialog" aria-modal="true" aria-labelledby="aboutHeading">
+      <div class="modal-head">
+        <h3 id="aboutHeading">About VocaLyx</h3>
+        <button class="modal-close" id="aboutClose" aria-label="Close"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="x"></svg></button>
+      </div>
+      <div class="modal-body">
+        <div class="about-brand">
+          <img src="./logo.png" class="brand-logo about-logo" alt="VocaLyx" />
+        </div>
+        <p class="about-desc">Desktop music manager untuk Windows: kelola koleksi lokal, search &amp; download multi-sumber, pisahkan vokal dengan BS-RoFormer di GPU, plus EQ 10-band dan VolumeGain. Dibangun dengan Tauri (Rust) untuk antarmuka dan Python + PyTorch untuk mesin audio.</p>
+        <div class="about-rows">
+          <div class="about-row"><span class="about-key">Versi</span><span class="about-val" id="aboutVersion">—</span></div>
+      <div class="about-row"><span class="about-key">Pembaruan</span><span class="about-val" id="aboutUpdate">—</span></div>
+          <div class="about-row"><span class="about-key">Engine</span><span class="about-val" id="aboutEngineState">—</span></div>
+          <div class="about-row"><span class="about-key">Perangkat</span><span class="about-val" id="aboutEngineDevice">—</span></div>
+          <div class="about-row"><span class="about-key">Runtime</span><span class="about-val" id="aboutEngineTorch">—</span></div>
+          <div class="about-row"><span class="about-key">Pemisah vokal</span><span class="about-val" id="aboutEngineModel">—</span></div>
+        </div>
+      </div>
+      <div class="modal-actions about-actions">
+        <span class="about-dl" id="aboutDlWrap" style="display:none">
+          <button id="aboutDlSetup" class="btn-add-folder" type="button" title="Unduh installer .exe">Unduh .exe</button>
+          <button id="aboutDlMsi" class="btn-add-folder" type="button" title="Unduh installer .msi">Unduh .msi</button>
+        </span>
+        <span class="about-spacer"></span>
+        <button id="aboutCheckUpdate" class="btn-add-folder" type="button" title="Periksa apakah ada rilis VocaLyx yang lebih baru">Cek Pembaruan</button>
+        <button id="aboutDone" class="btn-add-folder">Close</button>
+      </div>
+    </div>
+  </div>
+  <div id="lyrEditModal" class="modal lyr-edit-modal" aria-hidden="true" style="display:none">
+    <div class="modal-backdrop" id="lyrEditBackdrop"></div>
+    <div class="modal-card lyr-edit-card" role="dialog" aria-modal="true" aria-labelledby="lyrEditHeading">
+      <div class="modal-head">
+        <h3 id="lyrEditHeading">Edit Lirik <span class="lyr-edit-track" id="lyrEditTrack"></span></h3>
+        <button class="modal-close" id="lyrEditClose" aria-label="Tutup"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="x"></svg></button>
+      </div>
+      <div class="lyr-edit-bar">
+        <button class="lyr-edit-btn is-play" id="lyrEditPlay" type="button" title="Putar / jeda (Space)">&#9654;</button>
+        <span class="lyr-edit-hint"><b>klik waktu</b> = putar dari detik itu &middot; <b>klik teks</b> = ubah teks &middot; <b>now</b> = isi waktu dari posisi sekarang &middot; <b>geser ekor</b> = geser baris ini beserta semua setelahnya &middot; <b>Space</b> putar &middot; <b>&uarr;&darr;</b> pindah &middot; <b>Ctrl+S</b> simpan</span>
+        <span class="lyr-edit-spacer"></span>
+        <span class="lyr-edit-offwrap">offset <span class="lyr-edit-off" id="lyrEditOffset">0ms</span><button class="lyr-edit-btn" id="lyrEditApplyOff" type="button" title="Terapkan offset ini ke seluruh baris, lalu simpan">Terapkan ke semua</button></span>
+      </div>
+      <div class="lyr-edit-seekrow">
+        <span class="lyr-edit-time" id="lyrEditClock" title="Posisi lagu sekarang">00:00</span>
+        <input id="lyrEditSeek" class="wfill hfill" type="range" min="0" max="100" step="0.01" value="0" title="Geser posisi lagu" />
+        <span class="lyr-edit-time" id="lyrEditLeft" title="Sisa waktu">-0:00</span>
+      </div>
+      <div class="lyr-edit-list" id="lyrEditList"></div>
+      <div class="lyr-edit-foot">
+        <span class="lyr-edit-path" id="lyrEditPath"></span>
+        <span class="lyr-edit-spacer"></span>
+        <button class="btn-add-folder" id="lyrEditRevert" type="button">Batal</button>
+        <button class="btn-add-folder" id="lyrEditSave" type="button">Simpan</button>
+      </div>
+    </div>
+  </div>
+  <div id="menuPortal"></div>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>

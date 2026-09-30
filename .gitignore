@@ -1,0 +1,34 @@
+node_modules/
+dist/
+target/
+*.log
+__pycache__/
+.venv/
+src-tauri/target/
+# Portable ffmpeg binary staged locally (87MB, recreated from imageio-ffmpeg).
+ffmpeg/
+
+# Spotify session state and cached credentials.
+.spotify-premium/
+
+# Per-platform Python virtualenvs bootstrapped by scripts/.
+scripts/*-venv/
+
+# Cython build leftovers.
+*.obj
+
+# Immutables cache written next to the engine.
+import_attr.json
+
+# Gain analysis cache.
+python-engine/.gain-cache.json
+
+# Scratch folders: test imports, manual backups, rendered output.
+test_import/
+backup/
+
+# OS / editor noise.
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/
