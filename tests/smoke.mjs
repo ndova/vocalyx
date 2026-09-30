@@ -474,7 +474,8 @@ try {
   ok(up.compareSemver('', '1.0.0') === -1, 'semver: masukan kosong tidak melempar');
   ok(up.compareSemver(null, undefined) === 0, 'semver: null vs undefined = 0');
   ok(up.compareSemver('abc', 'abd') === 0, 'semver: bukan angka diperlakukan 0');
-  ok(up.manifestUrl() === '' || /^https:\/\//.test(up.manifestUrl()), `manifestUrl kosong atau https (dapat "${up.manifestUrl()}")`);
+  ok(/^https:\/\/raw\.githubusercontent\.com\//.test(up.manifestUrl()), `manifestUrl diarahkan ke raw.githubusercontent.com (dapat "${up.manifestUrl()}")`);
+  ok(!/ndova\/vocalyx(\/|$)/.test(up.manifestUrl()), 'manifestUrl tidak menunjuk ke repo kode private (butuh auth, selalu 404)');
   const mres = await up.fetchManifest();
   ok(mres.ok === false || (mres.data && typeof mres.data.version === 'string'), 'fetchManifest mengembalikan bentuk yang benar');
   const chk = await up.checkForUpdate();

@@ -1,4 +1,4 @@
-const MANIFEST_URL = '';
+const MANIFEST_URL = 'https://raw.githubusercontent.com/ndova/vocalyx-releases/main/version.json';
 const CHECK_AT_KEY = 'vocalyx_updateCheckAt_v1';
 const SEEN_KEY = 'vocalyx_updateSeenVersion_v1';
 const INTERVAL_MS = 24 * 60 * 60 * 1000;
