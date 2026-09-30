@@ -9,6 +9,13 @@ function setRow(id, value) {
   if (el) el.textContent = value;
 }
 
+function paintVersion(v) {
+  const ver = String(v == null ? '' : v).trim();
+  setRow('aboutVersion', ver ? `Versi ${ver}` : 'Versi —');
+  const badge = document.getElementById('aboutBadge');
+  if (badge) badge.hidden = !ver.includes('-');
+}
+
 async function fillEngineRows() {
   setRow('aboutEngineState', 'Engine offline');
   setRow('aboutEngineDevice', '—');
@@ -86,10 +93,10 @@ function openAbout() {
   try {
     import('@tauri-apps/api/app')
       .then((m) => m.getVersion())
-      .then((v) => { if (aboutOpen) setRow('aboutVersion', `Versi ${v}`); })
-      .catch(() => { if (aboutOpen) setRow('aboutVersion', 'Versi —'); });
+      .then((v) => { if (aboutOpen) paintVersion(v); })
+      .catch(() => { if (aboutOpen) paintVersion(''); });
   } catch {
-    setRow('aboutVersion', 'Versi —');
+    paintVersion('');
   }
   fillEngineRows();
   paintUpdate(updateState);

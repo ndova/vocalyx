@@ -1151,6 +1151,14 @@ input[type="range"].wfill.hfill::-moz-range-track { height: 6px; }
 .about-card { width: 420px; max-width: 94vw; }
 .about-brand { display: flex; align-items: center; justify-content: center; padding: 2px 0 4px; }
 .about-logo { height: 34px; width: auto; }
+.about-badge {
+  display: inline-block; margin-left: 7px; padding: 1px 7px;
+  border: 1px solid currentColor; border-radius: 999px;
+  color: var(--accent); font-size: 9px; font-weight: 700;
+  letter-spacing: .08em; text-transform: uppercase;
+  vertical-align: 2px;
+}
+.about-badge[hidden] { display: none; }
 .about-desc { margin: 0; color: var(--txt); font-size: 13px; line-height: 1.55; white-space: normal; }
 .about-rows {
   display: flex; flex-direction: column;

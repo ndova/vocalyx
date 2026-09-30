@@ -81,10 +81,17 @@ await sleep(50);
 ok($('#viewSettings')?.style.display === 'flex', 'settings view visible');
 ok($('#dlFolder'), 'download folder row visible');
 
+const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+const savedTauriInternals = window.__TAURI_INTERNALS__;
+window.__TAURI_INTERNALS__ = {
+  invoke: async (cmd) => (cmd === 'plugin:app|version' ? pkg.version : undefined),
+};
 document.getElementById('btnAbout')?.click();
 await sleep(50);
 ok($('#aboutModal')?.classList.contains('open'), 'about modal terbuka dari topbar');
-ok($('#aboutVersion')?.textContent.trim().length > 0, 'about: baris versi terisi');
+ok($('#aboutVersion')?.textContent.includes(pkg.version), 'about: baris versi terisi dari getVersion()');
+ok(pkg.version.includes('-') ? !$('#aboutBadge')?.hidden : $('#aboutBadge')?.hidden,
+  'about: badge Beta sesuai versi');
 ok($('#aboutEngineState')?.textContent.trim().length > 0, 'about: baris engine terisi');
 ok($('#aboutEngineDevice')?.textContent.trim().length > 0, 'about: baris perangkat terisi');
 ok($('#aboutEngineModel')?.textContent.trim().length > 0, 'about: baris pemisah vokal terisi');
@@ -93,6 +100,7 @@ ok(!!document.getElementById('aboutCheckUpdate'), 'about: tombol cek pembaruan a
 ok(!!document.getElementById('aboutDlWrap'), 'about: wadah tombol unduh ada');
 ok(document.getElementById('aboutDlWrap')?.style.display === 'none', 'about: tombol unduh tersembunyi sebelum ada versi baru');
 ok(!!document.getElementById('aboutDlSetup') && !!document.getElementById('aboutDlMsi'), 'about: tombol unduh .exe dan .msi ada');
+window.__TAURI_INTERNALS__ = savedTauriInternals;
 document.getElementById('aboutClose')?.click();
 await sleep(20);
 ok(!$('#aboutModal')?.classList.contains('open'), 'about modal tertutup lewat tombol X');
@@ -298,6 +306,10 @@ try {
   ok(cssEdit.includes('.lyr-edit-row') && cssEdit.includes('.lyr-edit-btn'), 'css editor ada');
   const rustSrc = fs.readFileSync(path.join(root, 'src-tauri/src/lib.rs'), 'utf8');
   ok(rustSrc.includes('fn write_lyric_to') && rustSrc.includes('write_lyric_to,'), 'perintah rust write_lyric_to terdaftar');
+  const caps = JSON.parse(fs.readFileSync(path.join(root, 'src-tauri/capabilities/default.json'), 'utf8'));
+  const capPerms = caps.permissions.map((p) => (typeof p === 'string' ? p : p.identifier));
+  ok(capPerms.includes('core:app:allow-version') || capPerms.includes('core:app:default'),
+    'acl: core:app mengizinkan perintah version (dipakai getVersion di About)');
   const iconIdx = fs.readFileSync(path.join(root, 'src/icons/tabler/index.js'), 'utf8');
   ok(!iconIdx.includes('<td') && !iconIdx.includes('class="ic"'), 'data ikon bebas pembungkus <td>/class=ic');
   const iconEntries = [...iconIdx.matchAll(/^ {2}'([^']+)': '([\s\S]*?)',?$/gm)];
