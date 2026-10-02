@@ -9,7 +9,6 @@ import { showPrompt, showConfirm } from './modal.js';
 import { setVizHidden } from './viz.js';
 import { renderDownloads } from './downloads.js';
 import { cleanupDownloadArtifacts } from './folders.js';
-import { sweepEnhance } from './enhance.js';
 import { requestMusicRescan } from './local.js';
 import { renderHelp } from './help.js';
 import { albumKeyOf, artistKeyOf, localLibraryTracks, playlistTracks, plPathIndex, renderDeviceView, renderSearchView, savePlaylists, setAlbumPlayback, setArtistPlayback, setPlaylistPlayback, trackIndexByPath } from '../app.js';
@@ -54,7 +53,7 @@ export function renderMainView(){
   else if (S.activeView.startsWith('album:')) { if(vAlbumDetail) vAlbumDetail.style.display = 'flex'; renderAlbumDetail(S.activeAlbumKey); }
   else if (S.activeView.startsWith('artist:')) { if(vArtistDetail) vArtistDetail.style.display = 'flex'; renderArtistDetail(S.activeArtistKey); }
   else if (S.activeView === 'search') { if(vSearch) vSearch.style.display = 'flex'; renderSearchView(); applySearchGridWidths(); try { setVizHidden(true, { auto: true }); } catch {} }
-  else if (S.activeView === 'downloads') { if(vDownloads) vDownloads.style.display = 'flex'; renderDownloads(); try { cleanupDownloadArtifacts({ force:true }); } catch {} try { sweepEnhance({ auto:true, silent:true }); } catch {}}
+  else if (S.activeView === 'downloads') { if(vDownloads) vDownloads.style.display = 'flex'; renderDownloads(); try { cleanupDownloadArtifacts({ force:true }); } catch {} }
   else if (S.activeView === 'device') { if(vDevice) vDevice.style.display = 'flex'; renderDeviceView(); }
   else if (S.activeView === 'settings') { if(vSettings) vSettings.style.display = 'flex'; loadSettingsUI(); }
   else if (S.activeView === 'help') { if(vHelp) vHelp.style.display = 'flex'; renderHelp(); }

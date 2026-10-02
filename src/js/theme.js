@@ -4,7 +4,7 @@ import { ico } from './icons-tabler.js';
 import { applyLang, translateTree, t } from './i18n/core.js';
 import { renderTracks, renderDownloads } from '../app.js';
 import { showModal, showAlert } from './modal.js';
-import { _rgGainCache, rgTargetDb, ensureVolumeGain, applyEnhanceState, saveDownloadOptions, setEnhPromptBlocked, sweepEnhance, renderMainView, renderSearchView, tauriWin, refreshCudaStatus } from '../app.js';
+import { _rgGainCache, rgTargetDb, ensureVolumeGain, applyEnhanceState, saveDownloadOptions, renderMainView, renderSearchView, tauriWin, refreshCudaStatus } from '../app.js';
 
 $('#btnMin').onclick = () => tauriWin((w) => w.minimize());
 async function syncMaxBtn(){
@@ -175,18 +175,14 @@ document.querySelectorAll('[data-strict-src]').forEach(el=>{
 document.getElementById('dlEnhance')?.addEventListener('change', (e)=>{
   saveDownloadOptions({ audioEnhance: e.target.checked });
   applyEnhanceState();
-  setEnhPromptBlocked(false);
-  if (e.target.checked) sweepEnhance({ auto:true });
 });
 document.getElementById('dlNormalize')?.addEventListener('change', (e)=>{
   saveDownloadOptions({ normalizeVolume: e.target.checked });
   applyEnhanceState();
-  setEnhPromptBlocked(false);
-  if (e.target.checked) sweepEnhance({ auto:true });
 });
 document.getElementById('dlTargetLufs')?.addEventListener('change', (e)=>{
   const v = parseInt(e.target.value, 10);
-  if (!isNaN(v) && v >= -30 && v <= -1) { saveDownloadOptions({ targetLufs: v }); applyEnhanceState(); setEnhPromptBlocked(false); sweepEnhance({ auto:true }); }
+  if (!isNaN(v) && v >= -30 && v <= -1) { saveDownloadOptions({ targetLufs: v }); applyEnhanceState(); }
 });
 document.getElementById('vgEnabled')?.addEventListener('change', (e)=>{
   saveDownloadOptions({ replayGainEnabled: e.target.checked });

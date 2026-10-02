@@ -39,8 +39,7 @@ export { onDownloadFolderChanged } from './js/folders.js';
 import { _inFolder, _downloadFolderNorm, normalizeSeparationFlags, isArtifactFileName, cleanupDownloadArtifacts } from './js/folders.js';
 export { isTauri, tauriWin, invokeTauri } from './js/tauri.js';
 import { isTauri, invokeTauri } from './js/tauri.js';
-export { setEnhPromptBlocked, sweepEnhance } from './js/enhance.js';
-import { isLocalPath, statLocal, markEnhanced, migrateEnhMarker, pruneEnhMarker, paintEnhanceItem, enhanceOneFile, sweepEnhance } from './js/enhance.js';
+import { isLocalPath, statLocal, markEnhanced, migrateEnhMarker, pruneEnhMarker, paintEnhanceItem, enhanceOneFile } from './js/enhance.js';
 import { showToast, showSep, karaokeStageLabel, karaokeBadgeHtml, karaokeProgressHtml, cudaDeviceLabel, refreshCudaStatus } from './js/engine.js';
 import { SRC_LABEL, showAudioNotice, engineHealth, karaokeCaps, karaokeCudaLabel, syncKaraokeBtn } from './js/engine.js';
 export { showToast, showSep, karaokeStageLabel, karaokeBadgeHtml, karaokeProgressHtml, cudaDeviceLabel, refreshCudaStatus };
@@ -108,5 +107,3 @@ setInterval(()=>{ if(S.activeView==='device') checkIPhoneConnected(); }, 3000);
   }
   showToast('Engine offline — cek log di %APPDATA%\\NetKara\\engine.log', 9000);
 })();
-
-setTimeout(()=>{ try { if (S.downloadOptions.audioEnhance || S.downloadOptions.normalizeVolume) sweepEnhance({ auto:true, noPrompt:true }); } catch {} }, 8000);
