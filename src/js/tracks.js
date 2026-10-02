@@ -302,7 +302,7 @@ document.addEventListener('click', (e)=>{
     document.querySelectorAll('.submenu.open').forEach(m=>m.classList.remove('open'));
   }
 });
-document.addEventListener('scroll', ()=>{ if (Date.now() - S.portalOpenedAt < 350) return; closePortalMenu(); }, true);
+document.addEventListener('scroll', (e)=>{ if (Date.now() - S.portalOpenedAt < 350) return; const tgt = e.target; const onList = tgt instanceof Element && tgt.closest('#trackList, #downloadList, #iphoneTrackList'); const onDoc = tgt === document || tgt === document.documentElement || tgt === document.scrollingElement; if (onList || onDoc) closePortalMenu(); }, true);
 window.addEventListener('resize', ()=>{ closePortalMenu(); });
 document.addEventListener('keydown', (e)=>{ if (e.key === 'Escape') closePortalMenu(); });
 document.addEventListener('contextmenu', (e)=>{

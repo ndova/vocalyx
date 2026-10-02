@@ -90,6 +90,8 @@ async function pollEnhance(eid, timeoutMs=420000){
 const ENH_OK_EXTS = ['mp3','m4a','flac','ogg','opus'];
 function paintEnhanceItem(btn, path, ext, ready=true) {
   if (!btn) return;
+  if (!S.downloadOptions.audioEnhance && !S.downloadOptions.normalizeVolume) { btn.style.display = 'none'; return; }
+  btn.style.display = '';
   const set = (html, dis) => { btn.innerHTML = html; btn.disabled = !!dis; };
   if (!path || !ready) { set('Belum selesai', true); return; }
   if (!ENH_OK_EXTS.includes(String(ext||'').toLowerCase())) { set('Format tak didukung', true); return; }
