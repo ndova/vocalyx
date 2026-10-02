@@ -52,12 +52,13 @@ def main():
           cache.BEST_MODEL_ROFORMER[0])
     check("KARAOKE_DSP_VERSION ada", isinstance(cache.KARAOKE_DSP_VERSION, int),
           str(cache.KARAOKE_DSP_VERSION))
-    check("KARAOKE_PRESETS punya 3 preset", set(cache.KARAOKE_PRESETS) ==
-          {"high", "roformer", "standard"}, str(list(cache.KARAOKE_PRESETS)))
+    check("KARAOKE_PRESETS punya 2 preset", set(cache.KARAOKE_PRESETS) ==
+          {"karaoke_aufr33", "cpu_inst_hq"},
+          str(list(cache.KARAOKE_PRESETS)))
     check("MIN_FREE_VRAM_GB = 0.5", sep.MIN_FREE_VRAM_GB == 0.5,
           str(sep.MIN_FREE_VRAM_GB))
-    check("quality roformer diterima",
-          "roformer" in ("high", "roformer", "standard"))
+    check("quality aufr33 diterima (default)",
+          "karaoke_aufr33" in cache.KARAOKE_PRESETS)
 
     # ================================ _model_fingerprint (3x KAROKE typo dulu)
     section("_model_fingerprint()")
@@ -91,7 +92,7 @@ def main():
               caps.get("dsp_version") == cache.KARAOKE_DSP_VERSION,
               repr(caps.get("dsp_version")))
         q = caps.get("quality") or []
-        check("quality berisi 3 preset", set(q) == {"high", "roformer", "standard"}, str(q))
+        check("quality caps berisi 2 preset", set(q) == {"karaoke_aufr33", "cpu_inst_hq"}, str(q))
         check("min_free_vram_gb = 0.5", caps.get("min_free_vram_gb") == 0.5,
               str(caps.get("min_free_vram_gb")))
         check("formats berisi flac/ogg/wav",

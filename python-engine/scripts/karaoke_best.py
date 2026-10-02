@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
 """Karaoke Best — SATU model, stem instrumental dipakai APA ADANYA.
 
-Dua preset:
-  high (default) -> Kim_Vocal_2.onnx
-      ~6 detik/menit, VRAM 0.12 GB. Ini pipeline yang menghasilkan file
-      karaoke yang bagus: stem mentah model, tanpa masking, lalu
-      loudness-match ke lagu asli. Terverifikasi korelasi 0.987 terhadap file
-      referensi milik pengguna.
-  roformer       -> bs_roformer_instrumental_resurrection_unwa.ckpt
-      ~26 detik/menit, VRAM ~1.3 GB. Lebih lambat; disediakan sebagai pilihan.
+Preset:
+  karaoke_aufr33 (default) -> mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt
+  standard                 -> bs_roformer_instrumental_resurrection_unwa.ckpt (cadangan)
 
 Riwayat penting: versi sebelumnya memakai `bs_roformer_karaoke_anvuew` dan
 menambah tiga tahap post-processing (magnitude_subtract, adaptive_center_suppress,
@@ -31,7 +26,7 @@ win_nowindow.hide_child_consoles()
 import vx_karaoke_sep as sep  # noqa: E402
 from vx_sep_cache import KARAOKE_PRESETS  # noqa: E402
 
-DEFAULT_PRESET = "high"
+DEFAULT_PRESET = "karaoke_aufr33"
 
 
 def main():

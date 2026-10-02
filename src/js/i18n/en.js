@@ -134,9 +134,8 @@ export default {
   'set.format': 'Format',
   'set.language': 'Language',
   'set.languageHint': 'Choose the interface language',
-  'set.presetKim': 'Best - Kim_Vocal_2 (6s/min)',
-  'set.presetRoformer': 'Best - RoFormer (26s/min)',
-  'set.presetStandard': 'Standard - RoFormer (fallback)',
+  'set.presetAufr33': 'Best - MelBand RoFormer Karaoke (Aufr33/Viperx)',
+  'set.presetCpu': 'UVR-MDX-NET-Inst_HQ_4',
   'set.browseFolder': 'Browse Folder',
   'set.browseHint': 'Choose the measuring folder (default: Downloads folder)',
 

@@ -46,9 +46,10 @@ ENSEMBLE_MODEL_WEIGHTS = (BEST_MODEL_ROFORMER,)
 
 # Preset karaoke yang bisa dipilih user. Key = nilai di <select id="karaokeQuality">.
 KARAOKE_PRESETS = {
-    "high": BEST_MODEL,
-    "roformer": BEST_MODEL_ROFORMER,
-    "standard": STANDARD_MODEL,
+    "karaoke_aufr33": ("mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt", 1.0),
+    # jalur CPU: MDX-Net Inst_HQ_4 adalah yang tercepat dari benchmark CPU
+    # (34 dtk untuk klip 60 dtk; Resurrection ~371 dtk).
+    "cpu_inst_hq": ("UVR-MDX-NET-Inst_HQ_4.onnx", 1.0),
 }
 
 ALL_MODELS = tuple(dict.fromkeys(
@@ -85,7 +86,10 @@ ALL_MODELS = tuple(dict.fromkeys(
 #      "suara air" (burst 12-16 kHz 0.197 -> 0.348). Rantai loudness sekarang
 #      match ke LUFS input, bukan konstan -13. Semua cache v11 wajib regarded
 #      stale karena karakter bunyinya beda total.
-KARAOKE_DSP_VERSION = 12
+# v13: Preset "high" (Kim_Vocal_2), "roformer", dan "standard" (resmi) dihapus
+#      dari KARAOKE_PRESETS; default pindah ke karaoke_aufr33. Preset
+#      karaoke_becruily dihapus karena terlalu berat (~1 jam/lagu di RTX 3050 4 GB).
+KARAOKE_DSP_VERSION = 13
 
 PERSIST_META = "karaoke_meta.json"
 
@@ -130,7 +134,7 @@ def _missing_ensemble_models() -> list[str]:
     return [name for name, _ in ENSEMBLE_MODEL_WEIGHTS if not (model_dir / name).is_file()]
 
 
-def _missing_best_models(preset: str = "high") -> list[str]:
+def _missing_best_models(preset: str = "karaoke_aufr33") -> list[str]:
     """Model yang belum ada untuk preset Best tertentu."""
     model_dir = _model_dir()
     weights = KARAOKE_PRESETS.get(preset) or BEST_MODEL

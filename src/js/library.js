@@ -71,9 +71,9 @@ export function plPathIndex(pl, path){
 }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
 if (!S.downloadOptions.karaokeDevice) S.downloadOptions.karaokeDevice = 'auto';
-if (!['high','standard'].includes(S.downloadOptions.karaokeQuality)) S.downloadOptions.karaokeQuality = 'standard';
+if (!['karaoke_aufr33','cpu_inst_hq'].includes(S.downloadOptions.karaokeQuality)) S.downloadOptions.karaokeQuality = 'karaoke_aufr33';
 if (!['flac','ogg','wav'].includes(S.downloadOptions.karaokeFormat)) S.downloadOptions.karaokeFormat = 'flac';
-if (!['high', 'roformer', 'standard'].includes(S.downloadOptions.karaokeQuality)) S.downloadOptions.karaokeQuality = 'high';
+if (!['karaoke_aufr33', 'cpu_inst_hq'].includes(S.downloadOptions.karaokeQuality)) S.downloadOptions.karaokeQuality = 'karaoke_aufr33';
 if (typeof S.downloadOptions.replayGainEnabled !== 'boolean') S.downloadOptions.replayGainEnabled = false;
 if (!Number.isFinite(S.downloadOptions.replayGainTarget)) S.downloadOptions.replayGainTarget = -14;
 S.downloadOptions.replayGainTarget = Math.max(-20, Math.min(-10, S.downloadOptions.replayGainTarget));

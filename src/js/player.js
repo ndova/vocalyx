@@ -126,7 +126,7 @@ function loadSettingsUI(){
   const kDev = document.getElementById('karaokeDevice');
   if (kDev) kDev.value = S.downloadOptions.karaokeDevice || 'auto';
   const kQ = document.getElementById('karaokeQuality');
-  if (kQ) kQ.value = S.downloadOptions.karaokeQuality || 'standard';
+  if (kQ) kQ.value = S.downloadOptions.karaokeQuality || 'karaoke_aufr33';
   const kF = document.getElementById('karaokeFormat');
   if (kF) kF.value = S.downloadOptions.karaokeFormat || 'flac';
   const yc = document.getElementById('ytCookies');

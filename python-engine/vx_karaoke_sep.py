@@ -45,6 +45,8 @@ ROFORMER_CONFIGS = {
         "config_bs_roformer_karaoke_anvuew.yaml",
     "mel_band_roformer_instrumental_fv7z_gabox.ckpt":
         "config_mel_band_roformer_instrumental_gabox.yaml",
+    "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt":
+        "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956_config.yaml",
 }
 
 MIN_MODEL_BYTES = 8 * 1024 * 1024
@@ -390,6 +392,19 @@ def build_instrumental_from_models(weights, inp: Path, out_dir: Path, device: st
     if not todo:
         raise RuntimeError("tidak ada model yang bisa dipakai")
 
+    if (device or "").lower() in ("cpu",):
+        # Separator tidak menerima parameter device; ia memilih CUDA begitu
+        # torch.cuda.is_available() -> True. Untuk memaksa CPU, nonaktifkan
+        # deteksi CUDA SEBELUM Separator dibuat.
+        try:
+            import torch
+
+            torch.cuda.is_available = lambda: False
+            torch.cuda.device_count = lambda: 0
+            eprint("[KaraokeSep] mode CPU dipaksakan (CUDA dinonaktifkan)")
+        except Exception:
+            pass
+
     missing = [n for n, _ in weights if n not in {t[0] for t in todo}]
     if missing:
         eprint(f"[KaraokeSep] model dilewati: {', '.join(missing)}")
@@ -439,7 +454,7 @@ def build_instrumental_from_models(weights, inp: Path, out_dir: Path, device: st
                 if not p.is_file():
                     continue
                 low = p.name.lower()
-                if "(instrumental)" in low or "(other)" in low or "_no_vocals" in low:
+                if "(instrumental)" in low or "(other)" in low or "_no_vocals" in low or "(karaoke)" in low:
                     inst = dsp.to_stereo(dsp.fit_length(dsp.load_audio(p), mix.shape[-1]))
                     break
             if inst is None:

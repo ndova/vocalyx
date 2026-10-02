@@ -134,9 +134,8 @@ export default {
   'set.format': 'Format',
   'set.language': 'Basa',
   'set.languageHint': 'Milih basa sing digunakake',
-  'set.presetKim': 'Paling apik - Kim_Vocal_2 (6 dtk/mnt)',
-  'set.presetRoformer': 'Paling apik - RoFormer (26 dtk/mnt)',
-  'set.presetStandard': 'Standar - RoFormer ( cadangan)',
+  'set.presetAufr33': 'Paling apik - MelBand RoFormer Karaoke (Aufr33/Viperx)',
+  'set.presetCpu': 'UVR-MDX-NET-Inst_HQ_4',
   'set.browseFolder': 'Telusuri Folder',
   'set.browseHint': 'Milih folder ukur (bawaan: folder Unduhan)',
 

@@ -20,6 +20,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from vx_core import APP_DIR, SUPPORTED, log, to_wav
 from vx_sep_cache import (
     KARAOKE_DSP_VERSION,
+    KARAOKE_PRESETS,
     _MEDIA_TYPE,
     _convert_wav_to_target,
     _drop_stale_persist,
@@ -48,8 +49,6 @@ router = APIRouter()
 SCRIPTS_DIR = Path(__file__).parent / "scripts"
 ENGINE_DIR = Path(__file__).parent
 BEST_SCRIPT = SCRIPTS_DIR / "karaoke_best.py"
-SEPARATE_SCRIPT = SCRIPTS_DIR / "karaoke_standard.py"
-MDX_FALLBACK_SCRIPT = SCRIPTS_DIR / "karaoke_mdx.py"
 DSP_SCRIPT = ENGINE_DIR / "vx_karaoke_dsp.py"
 
 DEFAULT_VOCAL_KILL = 1.0
@@ -148,6 +147,12 @@ def _worker(job_id: str, raw: bytes, suffix: str, mode: str, quality: str,
                 with _JOBS_LOCK:
                     _JOBS[job_id].update(status="failed", at=time.time(), error=msg)
                 return
+        # Di CPU, preset default (karaoke_aufr33) terlalu berat (benchmark:
+        # Resurrection ~6x realtime, aufr33 MelBand-Roformer juga berat).
+        # Alihkan ke modul CPU terbaik dari benchmark: MDX Inst_HQ_4.
+        if device == "cpu" and quality == "karaoke_aufr33":
+            quality = "cpu_inst_hq"
+            log.info("device cpu: karaoke_aufr33 dialihkan ke cpu_inst_hq (UVR-MDX-NET-Inst_HQ_4, benchmark CPU tercepat)")
         persist_base, stem = _resolve_persist(track_path)
         sig = _persist_signature(mode, quality, vocal_kill, centre_kill, match_level, {})
 
@@ -201,16 +206,18 @@ def _worker(job_id: str, raw: bytes, suffix: str, mode: str, quality: str,
             wav_voc: Path | None = None
             if mode != "vocal":
                 # Preset karaoke (lihat vx_sep_cache.KARAOKE_PRESETS):
-                #   high     -> Kim_Vocal_2.onnx   (~6 dtk/mnt, VRAM 0.12 GB)
-                #   roformer -> Resurrection RoFormer (~26 dtk/mnt, VRAM 1.3 GB)
-                #   standard -> Resurrection RoFormer (fallback bila Best gagal)
+                #   karaoke_aufr33  -> MelBand RoFormer Karaoke Aufr33/Viperx (GPU/default)
+                #   cpu_inst_hq     -> UVR-MDX-NET-Inst_HQ_4 (CPU cepat)
+                # Tidak ada fallback otomatis untuk mode karaoke (karaoke_standard,
+                # MDX, Demucs semua dihapus dari sini): bila preset terpilih
+                # (karaoke_aufr33 / cpu_inst_hq) gagal, job langsung ditandai failed.
                 #
                 # Jalur post-processing TIDAK memakai masking: stem instrumental
                 # dari model dipakai apa adanya lalu di-loudness-match. Versi
                 # sebelumnya menambah magnitude_subtract + adaptive_center_suppress
                 # + boost HF, dan itu yang menghasilkan "suara air".
                 attempts = []
-                if quality in ("high", "roformer"):
+                if quality in KARAOKE_PRESETS:
                     missing = _missing_best_models(quality)
                     if missing:
                         log.info("karaoke Best: model belum ada (diunduh saat proses): %s",
@@ -218,12 +225,6 @@ def _worker(job_id: str, raw: bytes, suffix: str, mode: str, quality: str,
                     if BEST_SCRIPT.exists():
                         attempts.append((BEST_SCRIPT, [str(src), str(out_dir), device,
                                                        quality]))
-                if SEPARATE_SCRIPT.exists():
-                    attempts.append((SEPARATE_SCRIPT, [str(src), str(out_dir), device,
-                                                      f"{vocal_kill:.3f}"]))
-                if MDX_FALLBACK_SCRIPT.exists():
-                    attempts.append((MDX_FALLBACK_SCRIPT, [str(src), str(out_dir), device,
-                                                          f"{vocal_kill:.3f}"]))
                 for script, args in attempts:
                     _set_job(job_id, pct=5.0, stage="separate")
                     candidate, info = _run_script(job_id, script, args, log_path)
@@ -238,7 +239,7 @@ def _worker(job_id: str, raw: bytes, suffix: str, mode: str, quality: str,
                         sig["models"] = info.get("model", "") or ""
                         break
                     if script is BEST_SCRIPT:
-                        log.warning("karaoke Best: model karaoke gagal, fallback ke RoFormer standard")
+                        log.warning("karaoke Best (%s) gagal", quality)
 
             if wav_inst is not None:
                 _set_job(job_id, pct=74.0, stage="dsp")
@@ -256,35 +257,33 @@ def _worker(job_id: str, raw: bytes, suffix: str, mode: str, quality: str,
                     shutil.copy(log_path, job_log)
                 except Exception:
                     pass
-                if not allow_demucs:
+                if mode == "vocal" and allow_demucs:
+                    # mode 'vocal' memang via Demucs; ini bukan fallback karaoke.
+                    log.info("karaoke gagal, DeMUCS htdemucs dipakai untuk mode vocal")
+                    _set_job(job_id, pct=88.0, stage="to-wav-demucs")
+                    wav = td_p / "in.wav"
+                    to_wav(src, wav)
+                    demucs_out = td_p / "demucs_out"
+                    demucs_out.mkdir(parents=True, exist_ok=True)
+                    wav_inst = _demucs_fallback(job_id, wav, demucs_out, mode, device)
+                    if wav_inst is None:
+                        with _JOBS_LOCK:
+                            _JOBS[job_id].update(status="failed", error="separation vokal gagal (Demucs)",
+                                                  at=time.time())
+                        return
+                    post = _run_dsp(job_id, wav_inst, None, out_dir / "post.wav", log_path,
+                                    src, centre_kill, match_level)
+                    if post is not None:
+                        wav_inst = post
+                else:
                     with _JOBS_LOCK:
                         det = (_JOBS.get(job_id, {}) or {}).get("script_error", "")
-                    msg = ("BS-RoFormer gagal memisahkan (tanpa fallback Demucs). "
-                           "Coba ulang quality=standard + device=cuda, atau cek GET /separate/log. "
-                           + (det[-800:] if det else ""))
-                    with _JOBS_LOCK:
+                        msg = ("Pemisahan karaoke gagal untuk "
+                               f"quality='{quality}' (device={device}). "
+                               "Tidak ada fallback otomatis — cek log job. "
+                               + (det[-800:] if det else ""))
                         _JOBS[job_id].update(status="failed", error=msg, at=time.time())
                     return
-                log.info("BS-RoFormer gagal, fallback Demucs htdemucs")
-                _set_job(job_id, pct=88.0, stage="to-wav-demucs")
-                wav = td_p / "in.wav"
-                to_wav(src, wav)
-                demucs_out = td_p / "demucs_out"
-                demucs_out.mkdir(parents=True, exist_ok=True)
-                wav_inst = _demucs_fallback(job_id, wav, demucs_out, mode, device)
-                with _JOBS_LOCK:
-                    if _JOBS.get(job_id, {}).get("cancel_requested"):
-                        _JOBS[job_id].update(status="cancelled", stage="cancelled")
-                        return
-                if wav_inst is None:
-                    with _JOBS_LOCK:
-                        _JOBS[job_id].update(status="failed", error="separation gagal (ONNX + Demucs)",
-                                             at=time.time())
-                    return
-                post = _run_dsp(job_id, wav_inst, None, out_dir / "post.wav", log_path,
-                                src, centre_kill, match_level)
-                if post is not None:
-                    wav_inst = post
 
             _set_job(job_id, pct=96.0, stage="trim")
             _trim_to_duration(wav_inst, orig_dur)
@@ -335,9 +334,9 @@ async def separate(
     mode = (mode or "karaoke").lower()
     if mode not in ("karaoke", "vocal"):
         mode = "karaoke"
-    quality = (quality or "standard").lower()
-    if quality not in ("high", "roformer", "standard"):
-        quality = "standard"
+    quality = (quality or "karaoke_aufr33").lower()
+    if quality not in KARAOKE_PRESETS:
+        quality = "karaoke_aufr33"
     target_format = (format or "flac").lower().lstrip(".")
     if target_format not in ("flac", "ogg", "wav"):
         target_format = "flac"
@@ -511,9 +510,8 @@ def karaoke_caps(device: str = "auto"):
     probe = (device or "auto").lower() != "cpu"
     info = _device_info(probe_cuda=probe)
     missing = _missing_best_models()
-    quality_note = ("high=Kim_Vocal_2 (~6 dtk/mnt, VRAM 0.12 GB, default); "
-                    "roformer=RoFormer Resurrection (~26 dtk/mnt, VRAM 1.3 GB); "
-                    "standard=RoFormer Resurrection (fallback). "
+    quality_note = ("karaoke_aufr33=MelBand RoFormer Karaoke Aufr33/Viperx (GPU, default); "
+                    "cpu_inst_hq=UVR-MDX-NET-Inst_HQ_4 (CPU, cepat). "
                     "Setiap preset memakai SATU model dan stem instrumentalnya "
                     f"dipakai apa adanya (dsp v{KARAOKE_DSP_VERSION}) — tanpa "
                     "masking, karena masking ganda yang dulu jadi sumber 'suara air'. "
@@ -531,8 +529,8 @@ def karaoke_caps(device: str = "auto"):
         "cpu_name": info["cpu_name"],
         "cpu_threads": info["cpu_threads"],
         "bs_available": True,
-        "models": model_names or ["Kim_Vocal_2"],
-        "quality": ["high", "roformer", "standard"],
+        "models": model_names or ["mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956", "UVR-MDX-NET-Inst_HQ_4"],
+        "quality": list(KARAOKE_PRESETS),
         "quality_note": quality_note,
         "formats": ["flac", "ogg", "wav"],
         "dsp_version": KARAOKE_DSP_VERSION,

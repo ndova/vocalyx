@@ -760,7 +760,7 @@ try {
   ok(pySepMain.includes('"min_free_vram_gb": MIN_FREE_VRAM_GB'), 'py: ambang VRAM dikirim ke UI untuk pre-flight');
   ok(src.includes('caps0.min_free_vram_gb') && src.includes("t('eng.vramLow'"), 'UI: cek VRAM sebelum mulai job, pesan jelas');
   ok(i18nCore.t('eng.vramLow', { free: '0.4', need: '0.5' }).includes('0.4') && i18nCore.t('eng.vramLow', { free: '0.4', need: '0.5' }).includes('0.5'), 'UI: pesan VRAM membawa angka VRAM');
-  ok(/KARAOKE_DSP_VERSION = 12/.test(pySepCache), 'py: versi cache naik ke 12 (revert ke stem mentah)');
+  ok(/KARAOKE_DSP_VERSION = 13/.test(pySepCache), 'py: versi cache naik ke 13 (preset aufr33 default)');
   ok(pySepMain.includes('def karaoke_caps(device: str = "auto")'), 'py: endpoint terima device');
   ok(pySepMain.includes('BEST_SCRIPT = SCRIPTS_DIR / "karaoke_best.py"') && pySepBest.includes('weights = ((model, 1.0),)'), 'py: Best = SATU model per preset (bukan ensemble)');
   ok(!pySepMain.includes('attempts.append((ENSEMBLE_SCRIPT,'), 'py: ensemble 2-model tidak lagi dipakai (2x lambat + max-spec tahan bleed)');
@@ -802,12 +802,12 @@ try {
   // --- Model: Best = Kim_Vocal_2 (replikasi file yang PENGGUNA sukai)
   ok(/BEST_MODEL = \("Kim_Vocal_2\.onnx", 1\.0\)/.test(cacheCode), 'py: BEST_MODEL = Kim_Vocal_2 (6 dtk/mnt)');
   ok(/BEST_MODEL_ROFORMER = \("bs_roformer_instrumental_resurrection_unwa\.ckpt"/.test(cacheCode), 'py: preset kedua = RoFormer Resurrection');
-  ok(/KARAOKE_PRESETS = \{/.test(cacheCode) && /"high": BEST_MODEL/.test(cacheCode) && /"roformer": BEST_MODEL_ROFORMER/.test(cacheCode), 'py: KARAOKE_PRESETS punya high + roformer');
+  ok(/KARAOKE_PRESETS = \{/.test(cacheCode) && /"karaoke_aufr33":/.test(cacheCode) && /"cpu_inst_hq":/.test(cacheCode), 'py: KARAOKE_PRESETS punya aufr33 + cpu_inst_hq');
   ok(!/bs_roformer_karaoke_anvuew/.test(cacheCode), 'py: model anvuew (sumber artifact HF) tidak lagi dipakai');
-  ok(pyBest.includes('from vx_sep_cache import KARAOKE_PRESETS') && pyBest.includes('DEFAULT_PRESET = "high"'), 'py: karaoke_best.py membaca preset KARAOKE_PRESETS');
-  ok(/KARAOKE_DSP_VERSION = 12/.test(cacheCode), 'py: versi cache naik ke 12 (revert masking)');
+  ok(pyBest.includes('from vx_sep_cache import KARAOKE_PRESETS') && pyBest.includes('DEFAULT_PRESET = "karaoke_aufr33"'), 'py: karaoke_best.py membaca preset KARAOKE_PRESETS');
+  ok(/KARAOKE_DSP_VERSION = 13/.test(cacheCode), 'py: versi cache naik ke 13 (preset aufr33 default)');
   ok(/MIN_FREE_VRAM_GB = 0\.5/.test(pySepMain), 'py: ambang VRAM 0.5 GB (Kim_Vocal_2 hanya 0.12 GB)');
-  ok(pySepMain.includes('quality not in ("high", "roformer", "standard")'), 'py: preset roformer diterima entrypoint');
+  ok(pySepMain.includes('quality not in KARAOKE_PRESETS'), 'py: preset valid divalidasi via KARAOKE_PRESETS');
   ok(/^NATIVE_FP16 = True$/m.test(pySepKaraoke), 'py: NATIVE_FP16 tetap aktif (dipakai preset RoFormer)');
 
   // --- Loudness: match ke lagu asli, bukan konstan
@@ -825,12 +825,12 @@ try {
 
   // --- UI: dropdown preset, slider Center sudah dihapus
   const html = fs.readFileSync(path.join(root, 'src/index.html'), 'utf8');
-  ok(html.includes('id="karaokeQuality"') && html.includes('value="roformer"'), 'UI: dropdown preset punya opsi roformer');
+  ok(html.includes('id="karaokeQuality"') && html.includes('value="karaoke_aufr33"') && html.includes('value="cpu_inst_hq"') && !html.includes('value="standard"'), 'UI: dropdown preset punya opsi aufr33 + cpu_inst_hq, tanpa standard');
   ok(!html.includes('id="karaokeCentreKill"') && !html.includes('id="karaokeCentreWarn"'), 'UI: slider + peringatan Center dihapus (tidak ada masking)');
   ok(!html.includes('id="karaokeVocalKill"'), 'UI: slider Vokal dihapus (tidak ada masking)');
   ok(!src.includes('karaokeCentreKill') && !src.includes('karaokeVocalKill'), 'UI: tidak ada sisa referensi slider karaoke');
   ok(!pySepMain.includes("--vocal-kill-subtractive") || true, 'py: argumen lama masih diterima (kompatibilitas CLI)');
-  ok(['en', 'id', 'jv'].every((L) => fs.readFileSync(path.join(root, `src/js/i18n/${L}.js`), 'utf8').includes('set.presetKim')), 'UI: label preset ada di semua bahasa');
+  ok(['en', 'id', 'jv'].every((L) => fs.readFileSync(path.join(root, `src/js/i18n/${L}.js`), 'utf8').includes('set.presetAufr33')), 'UI: label preset ada di semua bahasa');
   const cacheSrc = fs.readFileSync(path.join(root, 'python-engine/vx_sep_cache.py'), 'utf8');
   const convSrc = cacheSrc.slice(cacheSrc.indexOf('def _convert_wav_to_target('));
   ok(convSrc.includes('"-sample_fmt", "s16"') && convSrc.includes('pcm_s16le'), 'py: keluaran dipaksa 16-bit (flac & wav)');
@@ -839,14 +839,14 @@ try {
   ok(!pySepBest.includes('loudnorm=I=') && !pySepSingle.includes('loudnorm=I='), 'py: loudness match hanya di tahap DSP');
   ok(pySep.includes('def build_instrumental_from_models') && pySep.includes('ensure_model('), 'py: bobot ensemble dinormalisasi + model auto-unduh');
   ok(cacheSrc.includes('def _model_fingerprint') && pySepMain.includes('_model_fingerprint()'), 'py: cache key memakai sidik jari model');
-  ok(/KARAOKE_DSP_VERSION = 12/.test(pyCode(cacheSrc)) && cacheSrc.includes('def _persist_matches') && pySepMain.includes('_persist_matches('), 'py: cache lama otomatis regarded stale');
+  ok(/KARAOKE_DSP_VERSION = 13/.test(pyCode(cacheSrc)) && cacheSrc.includes('def _persist_matches') && pySepMain.includes('_persist_matches('), 'py: cache lama otomatis regarded stale');
   ok(pySepMain.includes('_drop_stale_persist(') && !pySepMain.includes('rglob("no_vocals.wav")'), 'py: cache basi dibuang, tidak ada rglob tebakan');
   ok(pySepMain.includes('out_dir = td_p / "sep"'), 'py: pisah di direktori job, bukan folder musik');
   ok(!pySepMain.includes("fd.append('vocal_kill'") && !src.includes("fd.append('centre_kill'"), 'py: UI tidak lagi mengirim parameter tuning (masking dihapus)');
   ok(!pySepMain.includes('Coba quality=standard + device=cuda'), 'py: pesan gagal tidak menyarankan Best lama');
   const htmlCuda = fs.readFileSync(path.join(root, 'src/index.html'), 'utf8');
   ok(htmlCuda.includes('id="cudaConnDot"') && htmlCuda.includes('id="karaokeCudaStatus"'), 'dot + teks CUDA ada di Settings');
-  ok(/<option value="high"/.test(htmlCuda) && /<option value="roformer"/.test(htmlCuda) && /<option value="standard"/.test(htmlCuda), 'label quality: Best + RoFormer + Standard');
+  ok(/<option value="karaoke_aufr33"/.test(htmlCuda) && /<option value="cpu_inst_hq"/.test(htmlCuda), 'label quality: Best + CPU');
   ok(!htmlCuda.includes('id="karaokeVocalKill"') && !htmlCuda.includes('id="karaokeCentreKill"'), 'slider tuning karaoke dihapus dari Settings');
   const pyDspTest = fs.readFileSync(path.join(root, 'python-engine/tests/test_karaoke_dsp.py'), 'utf8');
   ok(pyDspTest.includes('finish: match-lufs mengikuti referensi') && pyDspTest.includes('finish: true peak di bawah -1 dBTP'), 'ada self-check DSP karaoke (loudness match + true peak)');

@@ -406,7 +406,7 @@ const caps0 = await karaokeCaps().catch(() => null);
     }
     try { refreshCudaStatus().catch(() => {}); } catch {}
   try {
-    const quality = ['high','roformer','standard'].includes(S.downloadOptions.karaokeQuality) ? S.downloadOptions.karaokeQuality : 'high';
+    const quality = ['karaoke_aufr33','cpu_inst_hq'].includes(S.downloadOptions.karaokeQuality) ? S.downloadOptions.karaokeQuality : 'karaoke_aufr33';
     const kDevice = S.downloadOptions.karaokeDevice || 'auto';
     const kFormat = S.downloadOptions.karaokeFormat || 'flac';
     const t0 = Date.now();
