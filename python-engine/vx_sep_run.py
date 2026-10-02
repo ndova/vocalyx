@@ -101,58 +101,6 @@ def _run_script(job_id: str, script: Path, args: list, log_path: Path,
                 _JOBS[job_id]["proc"] = None
 
 
-def _demucs_fallback(job_id: str, wav: Path, out_dir: Path, mode: str, device: str) -> Path | None:
-    with _JOBS_LOCK:
-        if job_id in _JOBS:
-            _JOBS[job_id].update(pct=90.0, stage="demucs-fallback", status="processing")
-    cmd = [
-        sys.executable, "-m", "demucs",
-        "--two-stems=vocals", "-n", "htdemucs",
-        "--device", device, "--segment", "7",
-        "--overlap", "0.25", "--shifts", "1",
-        "--mp3", "--mp3-bitrate", "320",
-        "--out", str(out_dir), str(wav),
-    ]
-    try:
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                text=True, env=_spawn_env())
-        with _JOBS_LOCK:
-            if job_id in _JOBS:
-                _JOBS[job_id]["proc"] = proc
-        assert proc.stdout is not None
-        for _ in proc.stdout:
-            with _JOBS_LOCK:
-                if _JOBS.get(job_id, {}).get("cancel_requested"):
-                    try:
-                        proc.kill()
-                    except Exception:
-                        pass
-                    return None
-        rc = proc.wait(timeout=1800)
-        if rc != 0:
-            _, stderr = proc.communicate()
-            err = (stderr or "")[-1500:]
-            if device == "cuda" and ("out of memory" in err.lower() or "oom" in err):
-                log.info("demucs OOM, retry cpu")
-                return _demucs_fallback(job_id, wav, out_dir, mode, "cpu")
-            log.warning("demucs gagal: %s", err)
-            return None
-    except Exception as e:
-        log.warning("demucs exception: %s", e)
-        return None
-    finally:
-        with _JOBS_LOCK:
-            if job_id in _JOBS:
-                _JOBS[job_id]["proc"] = None
-    cand = list(out_dir.rglob("*.mp3"))
-    if not cand:
-        cand = list(out_dir.rglob("*.wav")) + list(out_dir.rglob("*.flac"))
-    if not cand:
-        return None
-    want = "no_vocals" if mode == "karaoke" else "vocals"
-    return next((c for c in cand if want in c.name.lower()), cand[0])
-
-
 def _cpu_info() -> dict:
     name = ""
     try:

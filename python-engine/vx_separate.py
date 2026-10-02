@@ -8,7 +8,6 @@ dipakai lagi.
 
 import hashlib
 import shutil
-import subprocess
 import tempfile
 import threading
 import time
@@ -17,7 +16,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 
-from vx_core import APP_DIR, SUPPORTED, log, to_wav
+from vx_core import APP_DIR, SUPPORTED, log
 from vx_sep_cache import (
     KARAOKE_DSP_VERSION,
     KARAOKE_PRESETS,
@@ -42,7 +41,7 @@ from vx_sep_cache import (
     _write_persist_meta,
 )
 from vx_sep_jobs import _JOBS, _JOBS_LOCK, _set_job, _tail_log
-from vx_sep_run import _demucs_fallback, _device_info, _free_engine_vram, _run_script
+from vx_sep_run import _device_info, _free_engine_vram, _run_script
 
 router = APIRouter()
 
@@ -120,7 +119,7 @@ def _run_dsp(job_id: str, inst: Path, vocal: Path | None, out: Path, log_path: P
 
 def _worker(job_id: str, raw: bytes, suffix: str, mode: str, quality: str,
             device: str, target_format: str, cache_path: Path,
-            track_path: str | None, allow_demucs: bool,
+            track_path: str | None,
             vocal_kill: float = DEFAULT_VOCAL_KILL,
             centre_kill: float = DEFAULT_CENTRE_KILL,
             match_level: bool = True):
@@ -204,42 +203,41 @@ def _worker(job_id: str, raw: bytes, suffix: str, mode: str, quality: str,
 
             wav_inst: Path | None = None
             wav_voc: Path | None = None
-            if mode != "vocal":
-                # Preset karaoke (lihat vx_sep_cache.KARAOKE_PRESETS):
-                #   karaoke_aufr33  -> MelBand RoFormer Karaoke Aufr33/Viperx (GPU/default)
-                #   cpu_inst_hq     -> UVR-MDX-NET-Inst_HQ_4 (CPU cepat)
-                # Tidak ada fallback otomatis untuk mode karaoke (karaoke_standard,
-                # MDX, Demucs semua dihapus dari sini): bila preset terpilih
-                # (karaoke_aufr33 / cpu_inst_hq) gagal, job langsung ditandai failed.
-                #
-                # Jalur post-processing TIDAK memakai masking: stem instrumental
-                # dari model dipakai apa adanya lalu di-loudness-match. Versi
-                # sebelumnya menambah magnitude_subtract + adaptive_center_suppress
-                # + boost HF, dan itu yang menghasilkan "suara air".
-                attempts = []
-                if quality in KARAOKE_PRESETS:
-                    missing = _missing_best_models(quality)
-                    if missing:
-                        log.info("karaoke Best: model belum ada (diunduh saat proses): %s",
-                                 ", ".join(missing))
-                    if BEST_SCRIPT.exists():
-                        attempts.append((BEST_SCRIPT, [str(src), str(out_dir), device,
-                                                       quality]))
-                for script, args in attempts:
-                    _set_job(job_id, pct=5.0, stage="separate")
-                    candidate, info = _run_script(job_id, script, args, log_path)
-                    with _JOBS_LOCK:
-                        if _JOBS.get(job_id, {}).get("cancel_requested"):
-                            _JOBS[job_id].update(status="cancelled", stage="cancelled")
-                            return
-                    if candidate and candidate.exists():
-                        wav_inst = candidate
-                        voc = info.get("vocals") or ""
-                        wav_voc = Path(voc) if voc and Path(voc).exists() else None
-                        sig["models"] = info.get("model", "") or ""
-                        break
-                    if script is BEST_SCRIPT:
-                        log.warning("karaoke Best (%s) gagal", quality)
+            # Preset karaoke (lihat vx_sep_cache.KARAOKE_PRESETS):
+            #   karaoke_aufr33  -> MelBand RoFormer Karaoke Aufr33/Viperx (GPU/default)
+            #   cpu_inst_hq     -> UVR-MDX-NET-Inst_HQ_4 (CPU cepat)
+            # Tidak ada fallback otomatis (mode 'vocal'/Demucs sudah dihapus):
+            # bila preset terpilih (karaoke_aufr33 / cpu_inst_hq) gagal, job
+            # langsung ditandai failed.
+            #
+            # Jalur post-processing TIDAK memakai masking: stem instrumental
+            # dari model dipakai apa adanya lalu di-loudness-match. Versi
+            # sebelumnya menambah magnitude_subtract + adaptive_center_suppress
+            # + boost HF, dan itu yang menghasilkan "suara air".
+            attempts = []
+            if quality in KARAOKE_PRESETS:
+                missing = _missing_best_models(quality)
+                if missing:
+                    log.info("karaoke Best: model belum ada (diunduh saat proses): %s",
+                             ", ".join(missing))
+                if BEST_SCRIPT.exists():
+                    attempts.append((BEST_SCRIPT, [str(src), str(out_dir), device,
+                                                   quality]))
+            for script, args in attempts:
+                _set_job(job_id, pct=5.0, stage="separate")
+                candidate, info = _run_script(job_id, script, args, log_path)
+                with _JOBS_LOCK:
+                    if _JOBS.get(job_id, {}).get("cancel_requested"):
+                        _JOBS[job_id].update(status="cancelled", stage="cancelled")
+                        return
+                if candidate and candidate.exists():
+                    wav_inst = candidate
+                    voc = info.get("vocals") or ""
+                    wav_voc = Path(voc) if voc and Path(voc).exists() else None
+                    sig["models"] = info.get("model", "") or ""
+                    break
+                if script is BEST_SCRIPT:
+                    log.warning("karaoke Best (%s) gagal", quality)
 
             if wav_inst is not None:
                 _set_job(job_id, pct=74.0, stage="dsp")
@@ -257,33 +255,14 @@ def _worker(job_id: str, raw: bytes, suffix: str, mode: str, quality: str,
                     shutil.copy(log_path, job_log)
                 except Exception:
                     pass
-                if mode == "vocal" and allow_demucs:
-                    # mode 'vocal' memang via Demucs; ini bukan fallback karaoke.
-                    log.info("karaoke gagal, DeMUCS htdemucs dipakai untuk mode vocal")
-                    _set_job(job_id, pct=88.0, stage="to-wav-demucs")
-                    wav = td_p / "in.wav"
-                    to_wav(src, wav)
-                    demucs_out = td_p / "demucs_out"
-                    demucs_out.mkdir(parents=True, exist_ok=True)
-                    wav_inst = _demucs_fallback(job_id, wav, demucs_out, mode, device)
-                    if wav_inst is None:
-                        with _JOBS_LOCK:
-                            _JOBS[job_id].update(status="failed", error="separation vokal gagal (Demucs)",
-                                                  at=time.time())
-                        return
-                    post = _run_dsp(job_id, wav_inst, None, out_dir / "post.wav", log_path,
-                                    src, centre_kill, match_level)
-                    if post is not None:
-                        wav_inst = post
-                else:
-                    with _JOBS_LOCK:
-                        det = (_JOBS.get(job_id, {}) or {}).get("script_error", "")
-                        msg = ("Pemisahan karaoke gagal untuk "
-                               f"quality='{quality}' (device={device}). "
-                               "Tidak ada fallback otomatis — cek log job. "
-                               + (det[-800:] if det else ""))
-                        _JOBS[job_id].update(status="failed", error=msg, at=time.time())
-                    return
+                with _JOBS_LOCK:
+                    det = (_JOBS.get(job_id, {}) or {}).get("script_error", "")
+                    msg = ("Pemisahan karaoke gagal untuk "
+                           f"quality='{quality}' (device={device}). "
+                           "Tidak ada fallback otomatis — cek log job. "
+                           + (det[-800:] if det else ""))
+                    _JOBS[job_id].update(status="failed", error=msg, at=time.time())
+                return
 
             _set_job(job_id, pct=96.0, stage="trim")
             _trim_to_duration(wav_inst, orig_dur)
@@ -325,14 +304,13 @@ async def separate(
     quality: str = Form("standard"),
     device: str = Form("auto"),
     format: str = Form("flac"),
-    fallback: str = Form("auto"),
     track_path: str = Form(""),
     vocal_kill: str = Form(""),
     centre_kill: str = Form(""),
     match_level: str = Form(""),
 ):
     mode = (mode or "karaoke").lower()
-    if mode not in ("karaoke", "vocal"):
+    if mode != "karaoke":
         mode = "karaoke"
     quality = (quality or "karaoke_aufr33").lower()
     if quality not in KARAOKE_PRESETS:
@@ -341,8 +319,6 @@ async def separate(
     if target_format not in ("flac", "ogg", "wav"):
         target_format = "flac"
     dev = _resolve_device(device)
-    fb = (fallback or "auto").lower()
-    allow_demucs = (fb == "on") or (fb == "auto" and mode == "vocal")
     vk = _clamp_float(vocal_kill, DEFAULT_VOCAL_KILL, 0.70, 1.30)
     ck = _clamp_float(centre_kill, DEFAULT_CENTRE_KILL, 0.0, 1.25)
     ml = _clamp_bool(match_level, True)
@@ -399,7 +375,7 @@ async def separate(
                          "mode": mode, "format": target_format, "at": time.time()}
     th = threading.Thread(target=_worker,
                           args=(job_id, raw, suffix, mode, quality, dev, target_format,
-                                out_path, tp_clean or None, allow_demucs, vk, ck, ml),
+                                out_path, tp_clean or None, vk, ck, ml),
                           daemon=True)
     th.start()
     return {"ok": True, "job_id": job_id, "cached": False}

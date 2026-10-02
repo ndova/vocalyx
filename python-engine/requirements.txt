@@ -3,7 +3,6 @@ torch>=2.1
 fastapi
 uvicorn[standard]
 python-multipart
-demucs==4.0.1
 audio-separator[gpu]==0.47.0  # BS-RoFormer + GPU untuk karaoke
 mutagen
 Pillow  # konversi cover WebP/PNG -> JPEG sebelum embed

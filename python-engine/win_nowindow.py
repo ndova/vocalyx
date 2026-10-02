@@ -8,7 +8,7 @@ berkedip sebentar di layar, lalu hilang saat child selesai.
 Shim ini menjadikan flag tersebut default untuk semua spawn di satu proses, jadi
 tidak perlu menambahkan flag di tiap call site. Itu penting karena spawn yang
 paling sering berkedip justru milik library pihak ketiga (audio_separator, pydub,
-demucs, yt-dlp) yang tidak bisa kita ubah.
+yt-dlp) yang tidak bisa kita ubah.
 """
 import os
 import subprocess

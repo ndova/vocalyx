@@ -27,6 +27,9 @@ python-engine/.gain-cache.json
 test_import/
 backup/
 
+# Scratch hasil uji pemisahan (wav, log, folder kerja job).
+tmp_*
+
 # OS / editor noise.
 Thumbs.db
 .DS_Store

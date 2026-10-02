@@ -57,7 +57,6 @@ export const S = {
   karaokeCancelled: false,
   _volFadeTimer: null,
   karaokeOn: false,
-  vocalOffOn: false,
   _vgBulkBusy: false,
   _sweepRunning: false,
   _prevIPhoneConnected: null,

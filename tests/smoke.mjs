@@ -1214,7 +1214,6 @@ try {
   st2.S.tracks = [];
   st2.S.idx = 0;
   st2.S.karaokeOn = false;
-  st2.S.vocalOffOn = false;
   st2.S.karaokeJobId = null;
   audio2.dataset.karaoke = 'false';
   audio2.dataset.mode = '';

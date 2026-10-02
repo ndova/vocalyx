@@ -1,4 +1,4 @@
-"""VocaLyx Python engine: FastAPI + BS-RoFormer (GPU) + Demucs fallback + m4a/mp3 handling."""
+"""VocaLyx Python engine: FastAPI + BS-RoFormer/RoFormer (GPU) + m4a/mp3 handling."""
 import torch
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -46,7 +46,6 @@ def health():
         "ok": True,
         "cuda": cuda,
         "device": name,
-        "demucs_model": "htdemucs",
         "bs_roformer": "Kim_Vocal_2 (+ensemble)" if bs_available else None,
         "bs_available": bs_available,
         "torch": torch.__version__,

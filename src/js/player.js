@@ -197,12 +197,12 @@ export async function load(i, autoplay = false) {
   $('#lyArtist').textContent = t.artist;
   updateNpCover(t);
   syncKaraokeBtn();
-  if ((S.karaokeOn || S.vocalOffOn) && !t.karaoke_path) {
-    S.karaokeOn = false; S.vocalOffOn = false;
+  if (S.karaokeOn && !t.karaoke_path) {
+    S.karaokeOn = false;
     syncKaraokeBtn();
   }
-  const wantKaraoke = (S.karaokeOn || S.vocalOffOn) && !!t.karaoke_path;
-  const activeMode = S.karaokeOn ? 'karaoke' : S.vocalOffOn ? 'vocal' : '';
+  const wantKaraoke = S.karaokeOn && !!t.karaoke_path;
+  const activeMode = S.karaokeOn ? 'karaoke' : '';
   if (wantKaraoke) {
     try {
       const { convertFileSrc } = await import('@tauri-apps/api/core');

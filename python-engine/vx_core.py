@@ -141,7 +141,7 @@ def ffmpeg_bin() -> str | None:
 
 
 def to_wav(src: Path, dst: Path) -> Path:
-    """Convert mp3/m4a/... -> wav 44.1k stereo untuk Demucs/librosa."""
+    """Convert mp3/m4a/... -> wav 44.1k stereo untuk pemroses audio."""
     ff = ffmpeg_bin()
     if src.suffix.lower() == ".wav" and ff is None:
         return src

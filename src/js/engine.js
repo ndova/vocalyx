@@ -157,7 +157,6 @@ const KARAOKE_STAGE_LABELS = {
   dsp: 'membersihkan sisa vokal', 'dsp:load': 'membersihkan sisa vokal',
   'dsp:cleanup': 'membersihkan sisa vokal', 'dsp:done': 'membersihkan sisa vokal',
   loudnorm: 'menyamakan volume', 'convert-target': 'menyimpan', trim: 'menyimpan',
-  'to-wav-demucs': 'fallback Demucs', 'demucs-fallback': 'fallback Demucs',
   'cache-persist': 'dari cache', cache: 'dari cache', done: 'selesai',
 };
 export function karaokeStageLabel(stage) {
@@ -294,7 +293,7 @@ async function switchKaraokeAudio(targetUrl, opts = {}) {
         audio.load();
         audio.dataset.karaoke = 'false';
         audio.dataset.mode = '';
-        S.karaokeOn = false; S.vocalOffOn = false;
+        S.karaokeOn = false;
         try { syncKaraokeBtn(); } catch {}
         applyEnhanceState();
         applyKaraokeMakeup();
@@ -356,13 +355,12 @@ async function separate(mode) {
       if (isSameModeActive) {
         audio.dataset.karaoke = 'false';
         audio.dataset.mode = '';
-        S.karaokeOn = false; S.vocalOffOn = false;
+        S.karaokeOn = false;
         await switchKaraokeAudio(convertFileSrc(tk.path), { pos, wasPlaying });
       } else {
         audio.dataset.karaoke = 'true';
         audio.dataset.mode = mode;
         S.karaokeOn = mode === 'karaoke';
-        S.vocalOffOn = mode === 'vocal';
         await switchKaraokeAudio(convertFileSrc(tk.karaoke_path), { pos, wasPlaying, fallbackUrl: convertFileSrc(tk.path) });
       }
       syncKaraokeBtn();
@@ -569,7 +567,6 @@ const caps0 = await karaokeCaps().catch(() => null);
     audio.dataset.karaoke = 'true';
     audio.dataset.mode = mode;
     S.karaokeOn = mode === 'karaoke';
-    S.vocalOffOn = mode === 'vocal';
     syncKaraokeBtn();
     await switchKaraokeAudio(outUrl, { pos: pos2, wasPlaying: wasPlaying2, fallbackUrl: fallbackOrig });
     tk.karaoke_job = false;
