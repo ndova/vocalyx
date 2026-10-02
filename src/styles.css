@@ -78,6 +78,7 @@
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 [data-theme="dark"] .switch span:not(.switch-label) { background: #3a3a40; }
+[data-theme="dark"] .switch input:checked + span { background: var(--accent); }
 [data-theme="dark"] .track img.t-cover,
 [data-theme="dark"] .track .t-cover.placeholder { background: #2a2a30; }
 [data-theme="dark"] .pl-card {
