@@ -1,3 +1,4 @@
+import { t } from './i18n/core.js';
 import { S } from './state.js';
 import { $, audio } from './dom.js';
 import { showAlert, showConfirm } from './modal.js';
@@ -9,7 +10,7 @@ import { showToast } from './engine.js';
 import { clearActiveCoverDrop, play, plPathIndex, refreshNpCoverIfCurrent, renderTracks, saveDownloadPlayback, saveDownloads, savePlaylists, wireCoverDrop } from '../app.js';
 
 export async function editDownloaded(d){
-  if (!d || !d.path) { await showAlert('Downloads', 'File belum selesai di-download.'); return; }
+  if (!d || !d.path) { await showAlert(t('topbar.downloads'), t('me.notDownloaded')); return; }
   let cur = { title: d.title || '', artist: d.artist || '', album: '' };
   let curCover = d.cover || null;
   let pendingDropCover = null;
@@ -56,18 +57,18 @@ export async function editDownloaded(d){
         </div>
         <div style="padding-top:8px; border-top:1px solid var(--line); display:flex; flex-direction:column; gap:10px;">
           <div>
-            <label style="font-size:11px; color:var(--muted); display:block; margin-bottom:4px;">Cover Saat Ini (klik / drag & drop gambar)</label>
+            <label style="font-size:11px; color:var(--muted); display:block; margin-bottom:4px;">${t('me.coverCurrent')} (${t('me.coverCurrentHint')})</label>
             <div id="coverPrevBox" class="cover-drop">${coverHtml}</div>
             <input type="file" id="coverFileInput" accept="image/jpeg,image/png,image/webp" hidden>
           </div>
           <div>
-            <label style="font-size:11px; color:var(--muted); display:block; margin-bottom:4px;">URL Cover Manual (opsional)</label>
+            <label style="font-size:11px; color:var(--muted); display:block; margin-bottom:4px;">${t('me.coverUrlManual')}</label>
             <input type="url" id="coverUrlInput" class="modal-input" placeholder="https://...jpg atau https://...png" style="width:100%;">
-            <div style="font-size:11px; color:var(--muted); margin-top:4px;">Kosongkan untuk auto-resolve via iTunes/Deezer</div>
+            <div style="font-size:11px; color:var(--muted); margin-top:4px;">${t('me.coverAutoResolve')}</div>
           </div>
           <div style="display:flex; align-items:center; gap:8px;">
             <input type="checkbox" id="autoResolveCover" checked>
-            <label for="autoResolveCover" style="font-size:12px; cursor:pointer">Auto-resolve (iTunes/Deezer) bila URL kosong</label>
+            <label for="autoResolveCover" style="font-size:12px; cursor:pointer">${t('me.coverUrlAuto')}</label>
           </div>
           <button id="btnRemoveCover" class="btn-more"${curCover ? '' : ' disabled'} style="flex:1; background:var(--card2); color:var(--muted); border:1px solid var(--line);"${curCover ? '' : ' title="Belum ada cover"'}>${ICON.trash} Hapus Cover</button>
         </div>
@@ -77,11 +78,11 @@ export async function editDownloaded(d){
     single.style.display = 'none';
   }
 
-  tEl.textContent = 'Edit Info Lagu';
+  tEl.textContent = t('me.editInfoTitle');
   mEl.style.display = 'none';
   btnCancel.style.display = 'block';
-  btnCancel.textContent = 'Batal';
-  btnConfirm.textContent = 'Simpan';
+  btnCancel.textContent = t('modal.cancel');
+  btnConfirm.textContent = t('me.save');
   modal.classList.add('open');
   modal.setAttribute('aria-hidden', 'false');
 
@@ -97,13 +98,13 @@ export async function editDownloaded(d){
     if (formWrap) formWrap.style.display = 'none';
   };
   const reopenEdit = () => {
-    tEl.textContent = 'Edit Info Lagu';
+    tEl.textContent = t('me.editInfoTitle');
     mEl.style.display = 'none';
     if (formWrap) formWrap.style.display = 'block';
     if (single) single.style.display = 'none';
     btnCancel.style.display = 'block';
-    btnCancel.textContent = 'Batal';
-    btnConfirm.textContent = 'Simpan';
+    btnCancel.textContent = t('modal.cancel');
+    btnConfirm.textContent = t('me.save');
     modal.classList.add('open');
     modal.setAttribute('aria-hidden', 'false');
   };
@@ -134,7 +135,7 @@ export async function editDownloaded(d){
     } catch (err) {
       const msg = String(err?.message || err);
       const stale = !!coverData && /tidak ditemukan|auto-resolve|not found/i.test(msg);
-      await showAlert('Edit Info Lagu', 'Cover gagal diperbarui: ' + msg + (stale ? '\nEngine Python tampaknya versi lama — restart python-engine/server.py.' : ''));
+      await showAlert(t('me.editInfoTitle'), t('me.coverFailed', { n: msg }) + (stale ? t('me.coverStale') : ''));
     }
   };
 
@@ -142,7 +143,7 @@ export async function editDownloaded(d){
     const title = formWrap?.querySelector('[data-field="title"]')?.value?.trim() || '';
     const artist = formWrap?.querySelector('[data-field="artist"]')?.value?.trim() || '';
     const album = formWrap?.querySelector('[data-field="album"]')?.value?.trim() || '';
-    if (!title) { await withNestedDialog(() => showAlert('Edit Info Lagu', 'Judul tidak boleh kosong.')); return; }
+    if (!title) { await withNestedDialog(() => showAlert(t('me.editInfoTitle'), t('me.titleEmpty'))); return; }
     const coverUrl = document.getElementById('coverUrlInput')?.value?.trim() || '';
     const autoResolve = document.getElementById('autoResolveCover')?.checked !== false;
     cleanup();
@@ -153,12 +154,12 @@ export async function editDownloaded(d){
       rawBody = await r.text();
       try { res = JSON.parse(rawBody); } catch { res = null; }
     } catch (err) {
-      await withNestedDialog(() => showAlert('Downloads', 'Gagal edit: engine tidak terjangkau (' + (err?.message || err) + '). Pastikan python-engine/server.py berjalan.'));
+          await withNestedDialog(() => showAlert(t('topbar.downloads'), t('te.editFailUnreachable', { n: err?.message || err })));
       return;
     }
     if (!res || !res.ok) {
       const detail = (res && res.error) || (res && res.detail) || rawBody.slice(0, 200) || `HTTP ${httpStatus}`;
-      await withNestedDialog(() => showAlert('Downloads', `Gagal edit (HTTP ${httpStatus}): ${detail}` + (httpStatus === 404 && rawBody.includes('Not Found') ? '\nEngine Python tampaknya versi lama — restart python-engine/server.py.' : '')));
+      await withNestedDialog(() => showAlert(t('topbar.downloads'), t('te.editFailHttp', { code: httpStatus, n: detail }) + (httpStatus === 404 && rawBody.includes('Not Found') ? t('me.coverStale') : '')));
       return;
     }
     const { oldPath, newPath } = res;
@@ -206,7 +207,7 @@ export async function editDownloaded(d){
         refreshNpCoverIfCurrent(newPath);
       } catch {}
     }
-    showToast('Info lagu disimpan', 3000);
+    showToast(t('te.infoSaved'), 3000);
   };
 
   const onCancel = () => cleanup();
@@ -230,7 +231,7 @@ export async function editDownloaded(d){
       e.preventDefault();
       e.stopPropagation();
       if (removeBtn.disabled) return;
-      const ok = await withNestedDialog(() => showConfirm('Hapus Cover', `Hapus cover dari "${cur.title} — ${cur.artist}"?`));
+      const ok = await withNestedDialog(() => showConfirm(t('me.deleteCover'), t('te.delCoverQ', { n: cur.title + ' - ' + cur.artist })));
       if (!ok) return;
       try {
         const r = await fetch('http://127.0.0.1:8001/embed/cover', {
@@ -240,7 +241,7 @@ export async function editDownloaded(d){
         });
         const j = await r.json();
         if (!j || !j.ok) {
-          await withNestedDialog(() => showAlert('Hapus Cover', `Gagal: ${(j && j.error) || 'unknown'}`));
+          await withNestedDialog(() => showAlert(t('me.deleteCover'), t('te.coverFail', { n: (j && j.error) || 'unknown' })));
           return;
         }
         d.cover = null;
@@ -251,22 +252,22 @@ export async function editDownloaded(d){
         renderTracks($('#globalSearch')?.value || '');
         refreshNpCoverIfCurrent(d.path);
         cleanup();
-        showToast('Cover dihapus', 3000);
+        showToast(t('me.coverRemoved'), 3000);
       } catch (err) {
-        await withNestedDialog(() => showAlert('Hapus Cover', 'Gagal: ' + (err?.message || err)));
+        await withNestedDialog(() => showAlert(t('me.deleteCover'), t('te.coverFail', { n: err?.message || err })));
       }
     };
   }
 }
 async function editLocalTrack(tIdx){
-  const t = S.tracks[tIdx];
-  if (!t || !t.path) { await showAlert('Local Music', 'File tidak ditemukan.'); return; }
-  const d = { path: t.path, title: t.title, artist: t.artist, cover: t.cover || null };
-  let cur = { title: t.title || '', artist: t.artist || '', album: '' };
-  let curCover = t.cover || null;
+  const tk = S.tracks[tIdx];
+  if (!tk || !tk.path) { await showAlert(t('topbar.local'), t('me.noFile')); return; }
+  const d = { path: tk.path, title: tk.title, artist: tk.artist, cover: tk.cover || null };
+  let cur = { title: tk.title || '', artist: tk.artist || '', album: '' };
+  let curCover = tk.cover || null;
   let pendingDropCoverLocal = null;
   try {
-    const r = await fetch(`http://127.0.0.1:8001/embed/tags?path=${encodeURIComponent(t.path)}`);
+    const r = await fetch(`http://127.0.0.1:8001/embed/tags?path=${encodeURIComponent(tk.path)}`);
     if (r.ok) {
       const j = await r.json();
       if (j && j.ok) cur = { title: j.title || cur.title, artist: j.artist || cur.artist, album: j.album || '' };
@@ -305,29 +306,29 @@ async function editLocalTrack(tIdx){
         </div>
         <div style="padding-top:8px; border-top:1px solid var(--line); display:flex; flex-direction:column; gap:10px;">
           <div>
-            <label style="font-size:11px; color:var(--muted); display:block; margin-bottom:4px;">Cover Saat Ini (klik / drag & drop gambar)</label>
+            <label style="font-size:11px; color:var(--muted); display:block; margin-bottom:4px;">${t('me.coverCurrent')} (${t('me.coverCurrentHint')})</label>
             <div id="coverPrevBox" class="cover-drop">${coverHtml2}</div>
             <input type="file" id="coverFileInput" accept="image/jpeg,image/png,image/webp" hidden>
           </div>
           <div>
-            <label style="font-size:11px; color:var(--muted); display:block; margin-bottom:4px;">URL Cover Manual (opsional)</label>
+            <label style="font-size:11px; color:var(--muted); display:block; margin-bottom:4px;">${t('me.coverUrlManual')}</label>
             <input type="url" id="coverUrlInputLocal" class="modal-input" placeholder="https://...jpg atau https://...png" style="width:100%;">
-            <div style="font-size:11px; color:var(--muted); margin-top:4px;">Kosongkan untuk auto-resolve via iTunes/Deezer</div>
+            <div style="font-size:11px; color:var(--muted); margin-top:4px;">${t('me.coverAutoResolve')}</div>
           </div>
           <div style="display:flex; align-items:center; gap:8px;">
             <input type="checkbox" id="autoResolveCoverLocal" checked>
-            <label for="autoResolveCoverLocal" style="font-size:12px; cursor:pointer">Auto-resolve (iTunes/Deezer) bila URL kosong</label>
+            <label for="autoResolveCoverLocal" style="font-size:12px; cursor:pointer">${t('me.coverUrlAuto')}</label>
           </div>
           <button id="btnRemoveCoverLocal" class="btn-more"${curCover ? '' : ' disabled'} style="flex:1; background:var(--card2); color:var(--muted); border:1px solid var(--line);"${curCover ? '' : ' title="Belum ada cover"'}>${ICON.trash} Hapus Cover</button>
         </div>
       </div>
     `;
   } else if (single) { single.style.display = 'none'; }
-  tEl.textContent = 'Edit Info Lagu';
+  tEl.textContent = t('me.editInfoTitle');
   mEl.style.display = 'none';
   btnCancel.style.display = 'block';
-  btnCancel.textContent = 'Batal';
-  btnConfirm.textContent = 'Simpan';
+  btnCancel.textContent = t('modal.cancel');
+  btnConfirm.textContent = t('me.save');
   modal.classList.add('open');
   modal.setAttribute('aria-hidden', 'false');
   const cleanup2 = () => {
@@ -342,13 +343,13 @@ async function editLocalTrack(tIdx){
     if (formWrap) formWrap.style.display = 'none';
   };
   const reopenEdit2 = () => {
-    tEl.textContent = 'Edit Info Lagu';
+    tEl.textContent = t('me.editInfoTitle');
     mEl.style.display = 'none';
     if (formWrap) formWrap.style.display = 'block';
     if (single) single.style.display = 'none';
     btnCancel.style.display = 'block';
-    btnCancel.textContent = 'Batal';
-    btnConfirm.textContent = 'Simpan';
+    btnCancel.textContent = t('modal.cancel');
+    btnConfirm.textContent = t('me.save');
     modal.classList.add('open');
     modal.setAttribute('aria-hidden', 'false');
   };
@@ -374,26 +375,26 @@ async function editLocalTrack(tIdx){
     } catch (err) {
       const msg = String(err?.message || err);
       const stale = !!coverData && /tidak ditemukan|auto-resolve|not found/i.test(msg);
-      await showAlert('Edit Info Lagu', 'Cover gagal diperbarui: ' + msg + (stale ? '\nEngine Python tampaknya versi lama — restart python-engine/server.py.' : ''));
+      await showAlert(t('me.editInfoTitle'), t('me.coverFailed', { n: msg }) + (stale ? t('me.coverStale') : ''));
     }
   };
   const onConfirm2 = async () => {
     const title2 = formWrap?.querySelector('[data-field="title"]')?.value?.trim() || '';
     const artist2 = formWrap?.querySelector('[data-field="artist"]')?.value?.trim() || '';
     const album2 = formWrap?.querySelector('[data-field="album"]')?.value?.trim() || '';
-    if (!title2) { await withNestedDialog2(() => showAlert('Edit Info Lagu', 'Judul tidak boleh kosong.')); return; }
+    if (!title2) { await withNestedDialog2(() => showAlert(t('me.editInfoTitle'), t('me.titleEmpty'))); return; }
     const coverUrl2 = document.getElementById('coverUrlInputLocal')?.value?.trim() || '';
     const autoResolve2 = document.getElementById('autoResolveCoverLocal')?.checked !== false;
     cleanup2();
     let res2, httpStatus2 = 0, rawBody2 = '';
     try {
-      const r = await fetch('http://127.0.0.1:8001/embed/rename', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: t.path, title: title2, artist: artist2, album: album2 }) });
+      const r = await fetch('http://127.0.0.1:8001/embed/rename', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: tk.path, title: title2, artist: artist2, album: album2 }) });
       httpStatus2 = r.status; rawBody2 = await r.text();
       try { res2 = JSON.parse(rawBody2); } catch { res2 = null; }
-    } catch (err) { await withNestedDialog2(() => showAlert('Local Music', 'Gagal edit: engine tidak terjangkau (' + (err?.message || err) + ').')); return; }
+    } catch (err) { await withNestedDialog2(() => showAlert(t('topbar.local'), t('te.editFailUnreachable', { n: err?.message || err }))); return; }
     if (!res2 || !res2.ok) {
       const detail2 = (res2 && res2.error) || (res2 && res2.detail) || rawBody2.slice(0, 200) || `HTTP ${httpStatus2}`;
-      await withNestedDialog2(() => showAlert('Local Music', `Gagal edit (HTTP ${httpStatus2}): ${detail2}`));
+      await withNestedDialog2(() => showAlert(t('topbar.local'), t('te.editFailHttp', { code: httpStatus2, n: detail2 })));
       return;
     }
     const { oldPath: oldPath2, newPath: newPath2 } = res2;
@@ -420,7 +421,7 @@ async function editLocalTrack(tIdx){
     if (wasCurrent2) {
       try { const { convertFileSrc } = await import('@tauri-apps/api/core'); audio.src = convertFileSrc(newPath2); try { audio.currentTime = pos2; } catch {} if (wasPlaying2) play(); $('#npTitle').textContent = title2; $('#npArtist').textContent = artist2; refreshNpCoverIfCurrent(newPath2); } catch {}
     }
-    showToast('Info lagu disimpan', 3000);
+    showToast(t('te.infoSaved'), 3000);
   };
   const onCancel2 = () => cleanup2();
   const onKey2 = (e) => { if (e.key === 'Escape') onCancel2(); };
@@ -440,20 +441,20 @@ async function editLocalTrack(tIdx){
     removeBtn2.onclick = async (e) => {
       e.preventDefault(); e.stopPropagation();
       if (removeBtn2.disabled) return;
-      const ok2 = await withNestedDialog2(() => showConfirm('Hapus Cover', `Hapus cover dari "${cur.title} — ${cur.artist}"?`));
+      const ok2 = await withNestedDialog2(() => showConfirm(t('me.deleteCover'), t('te.delCoverQ', { n: cur.title + ' - ' + cur.artist })));
       if (!ok2) return;
       try {
-        const r = await fetch('http://127.0.0.1:8001/embed/cover', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: t.path }) });
+        const r = await fetch('http://127.0.0.1:8001/embed/cover', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: tk.path }) });
         const j = await r.json();
-        if (!j || !j.ok) { await withNestedDialog2(() => showAlert('Hapus Cover', `Gagal: ${(j && j.error) || 'unknown'}`)); return; }
-        t.cover = null; d.cover = null;
-        for (const tr of S.tracks) { if (tr.path === t.path) tr.cover = null; }
+        if (!j || !j.ok) { await withNestedDialog2(() => showAlert(t('me.deleteCover'), t('te.coverFail', { n: (j && j.error) || 'unknown' }))); return; }
+        tk.cover = null; d.cover = null;
+        for (const tr of S.tracks) { if (tr.path === tk.path) tr.cover = null; }
         renderTracks($('#globalSearch')?.value || '');
         try { renderDownloads(); } catch {}
-        refreshNpCoverIfCurrent(t.path);
+        refreshNpCoverIfCurrent(tk.path);
         cleanup2();
-        showToast('Cover dihapus', 3000);
-      } catch (err) { await withNestedDialog2(() => showAlert('Hapus Cover', 'Gagal: ' + (err?.message || err))); }
+        showToast(t('me.coverRemoved'), 3000);
+      } catch (err) { await withNestedDialog2(() => showAlert(t('me.deleteCover'), t('te.coverFail', { n: err?.message || err }))); }
     };
   }
 }

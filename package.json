@@ -1,6 +1,13 @@
 {
   "name": "vocalyx",
   "version": "0.1.0-beta",
+  "description": "VocaLyx — Desktop Music Manager | Vocal Isolation | Karaoke & EQ",
+  "author": "Arif Mundhofir",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ndova/vocalyx"
+  },
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +17,9 @@
     "tauri": "tauri",
     "engine": "python -u python-engine/server.py",
     "dev:all": "concurrently -k \"python -u python-engine/server.py\" \"tauri dev\"",
-    "smoke": "node tests/smoke.mjs"
+    "smoke": "node tests/smoke.mjs",
+    "smoke:py": "python python-engine/tests/check_undefined_names.py && python python-engine/tests/test_api_surface.py && python python-engine/tests/test_karaoke_dsp.py",
+    "test": "npm run smoke && npm run smoke:py"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",

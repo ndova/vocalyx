@@ -1,3 +1,4 @@
+import { t } from './i18n/core.js';
 import { S } from './state.js';
 import { audio } from './dom.js';
 import { invokeTauri, isTauri, play, pause, showToast } from '../app.js';
@@ -94,9 +95,9 @@ function render() {
 
 function markDirty() {
   const b = el('lyrEditSave');
-  if (b) b.textContent = E.saving ? 'Menyimpan…' : (E.dirty ? 'Simpan *' : 'Simpan');
+  if (b) b.textContent = E.saving ? t('le.saving') : (E.dirty ? t('le.saveStar') : t('le.save'));
   const c = el('lyrEditPath');
-  if (c) c.textContent = E.path ? E.path : 'Belum ada file .lrc — akan dibuat di folder Lyrics/';
+  if (c) c.textContent = E.path ? E.path : t('le.noLrc');
   const o = el('lyrEditOffset');
   if (o) o.textContent = (S.lyricOffsetMs > 0 ? '+' : '') + S.lyricOffsetMs + 'ms';
   const ob = el('lyrEditApplyOff');
@@ -296,19 +297,19 @@ async function doSave() {
   const t = S.tracks[S.idx];
   if (!t || !isTauri() || !t.path) {
     E.saving = false;
-    showToast('Butuh aplikasi desktop untuk menyimpan .lrc', 3000);
+    showToast(t('le.desktopOnly'), 3000);
     markDirty();
     return;
   }
   const p = await writeRaw(E.raw);
   E.saving = false;
-  if (!p) { showToast('Gagal menyimpan .lrc', 3000); markDirty(); return; }
+  if (!p) { showToast(t('le.saveFail'), 3000); markDirty(); return; }
   E.path = p;
   t.lyric_path = p;
   E.dirty = false;
   E.base = E.raw;
   commitToPlayer();
-  showToast('Lirik disimpan ke ' + p.split(/[\\/]/).pop(), 2500);
+  showToast(t('le.savedTo', { n: p.split(/[\\/]/).pop() }), 2500);
   render();
 }
 
@@ -326,19 +327,19 @@ function applyOffsetAll() {
   apply(r => applyOffsetToAllLines(r, delta));
   setLyricOffset(0);
   commitToPlayer();
-  showToast('Offset ' + (delta > 0 ? '+' : '') + delta + 'ms diterapkan ke semua baris', 2500);
+  showToast(t('le.offsetApplied', { n: (delta > 0 ? '+' : '') + delta }), 2500);
 }
 
 export function openLyricEditor() {
-  const t = S.tracks[S.idx];
-  if (!t) { showToast('Pilih lagu dulu', 2000); return; }
-  if (!isSynced(S.lyricLines) && S.lyricLines.length <= 1) { showToast('Lagu ini belum punya lirik untuk diedit', 2500); return; }
+  const tk = S.tracks[S.idx];
+  if (!tk) { showToast(t('le.pickFirst'), 2000); return; }
+  if (!isSynced(S.lyricLines) && S.lyricLines.length <= 1) { showToast(t('le.noLyrics'), 2500); return; }
   E.open = true;
   E.sel = 0;
   E.active = -1;
   E.editing = -1;
-  el('lyrEditTrack').textContent = (t.artist ? t.artist + ' — ' : '') + (t.title || t.name || '');
-  el('lyrEditTrack').title = t.path || '';
+  el('lyrEditTrack').textContent = (tk.artist ? tk.artist + ' — ' : '') + (tk.title || tk.name || '');
+  el('lyrEditTrack').title = tk.path || '';
   const list = el('lyrEditList');
   if (list) list.innerHTML = '<div class="lyr-edit-empty">Memuat lirik…</div>';
   el('lyrEditModal').classList.add('is-open');
@@ -346,7 +347,7 @@ export function openLyricEditor() {
   const m = el('lyrEditModal');
   m.style.display = 'flex';
   stopLoop();
-  readRaw(t).then(r => {
+  readRaw(tk).then(r => {
     if (!E.open) return;
     E.raw = r.text;
     E.base = r.text;

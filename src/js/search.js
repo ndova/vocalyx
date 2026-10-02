@@ -1,3 +1,4 @@
+import { t } from './i18n/core.js';
 import { S } from './state.js';
 import { escAttr, fmt } from './format.js';
 import { applySearchGridWidths } from './grid.js';
@@ -10,6 +11,26 @@ import { playPreviewAudio, stopPreview, isPreviewPlaying } from '../app.js';
 
 const SEARCH_PER_PAGE = 20;
 let _activePvBtn = null;
+function emptyStateHtml(msg){
+  return `<div style="padding:24px; text-align:center; color:var(--muted)">${msg}</div>`;
+}
+export function clearSearchResults(){
+  if (S.searchOnlineTimer) clearTimeout(S.searchOnlineTimer);
+  S.searchResults = [];
+  S.searchPage = 1;
+  const listEl = document.getElementById('searchTrackList');
+  const statusEl = document.getElementById('searchStatus');
+  const q = (document.getElementById('searchViewInput')?.value || '').trim();
+  if (listEl) listEl.innerHTML = emptyStateHtml(q
+    ? `Hasil untuk "${escAttr(q)}" sudah dibersihkan<br><span style="font-size:11px">Tekan Enter untuk mencari lagi</span>`
+    : 'Ketik kata kunci, lalu tekan <b>Enter</b> untuk pencarian lagu<br><span style="font-size:11px">Hasil pencarian online akan muncul di sini</span>');
+  if (statusEl) statusEl.textContent = '';
+  const head = document.getElementById('searchTableHead');
+  if (head) head.style.display = 'none';
+  const pg = document.getElementById('searchPagination');
+if (pg) { pg.style.display = 'none'; pg.innerHTML = ''; }
+}
+
 function searchLoaderHtml(big = true, q = '') {
   const label = q ? `Mencari '${escAttr(q)}'...` : 'Mencari...';
   const icon = `<svg class="sl-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>`;
@@ -48,7 +69,7 @@ window.__iphCoverFallback = function (img) {
   } catch {}
   const d = document.createElement('div');
   d.style.cssText = 'width:120px; height:120px; border-radius:8px; border:1px dashed var(--line); display:grid; place-items:center; color:var(--muted); font-size:11px';
-  d.textContent = 'Belum ada cover';
+  d.textContent = t('se.noCover');
   try { img.replaceWith(d); } catch {}
 };
 window.__iphCoverLoaded = function (img) {
@@ -100,48 +121,25 @@ export async function renderSearchView(){
       if (!online.length) {
         if (allFailed) {
           listEl.innerHTML = `<div style="padding:24px; text-align:center; color:var(--muted)">Semua sumber pencarian gagal.<br><span style="font-size:11px">Cek Python engine / koneksi, lalu Enter ulang</span></div>`;
-          if (statusEl) statusEl.textContent = `Gagal semua sumber untuk "${q}"${dbgSummary ? ' — ' + dbgSummary : ''}`;
+          if (statusEl) statusEl.textContent = t('se.allSourcesFail', { q, n: dbgSummary ? ' — ' + dbgSummary : '' });
         } else {
-          listEl.innerHTML = `<div style="padding:24px; text-align:center; color:var(--muted)">Tidak ada hasil.<br><span style="font-size:11px">${escAttr(data.saran || 'Coba kata kunci lain')}</span></div>`;
-          if (statusEl) statusEl.textContent = `Tidak ada hasil untuk "${q}"${dbgSummary ? ' — ' + dbgSummary : ''}`;
+          listEl.innerHTML = `<div style="padding:24px; text-align:center; color:var(--muted)">${t('se.noResultsShort')}<br><span style="font-size:11px">${escAttr(data.saran || t('se.tryOtherKw'))}</span></div>`;
+          if (statusEl) statusEl.textContent = t('se.noResults', { q, n: dbgSummary ? ' — ' + dbgSummary : '' });
         }
         S.searchResults = []; S.searchPage = 1; renderSearchPagination();
         return;
       }
-      if (statusEl && dbgSummary) statusEl.textContent = `${online.length} hasil "${q}" — ${dbgSummary}${data.saran ? ' — ' + data.saran : ''}`;
+      if (statusEl && dbgSummary) statusEl.textContent = t('se.onlineCount', { n: online.length, q, info: dbgSummary }) + (data.saran ? ' — ' + data.saran : '');
       S.searchResults = online;
       S.searchPage = 1;
       if (filter === 'all') renderSearchGrouped();
       else renderSearchPage();
       return;
-        b.querySelector('[data-dl-online]').onclick = async (e)=>{
-          e.stopPropagation();
-          const dlBtn = b.querySelector('[data-dl-online]');
-          if (!dlBtn || dlBtn.disabled) return;
-          const dlIconSvg = ICON.download;
-          const setBtn = (txt)=>{
-            if (!b.isConnected || !dlBtn) return;
-            if (txt === '⬇') { dlBtn.innerHTML = dlIconSvg; dlBtn.style.fontSize = '11px'; dlBtn.style.padding = '3px 6px'; }
-            else if (txt === '✓') { dlBtn.innerHTML = ICON.check; dlBtn.style.fontSize = ''; dlBtn.style.padding = '3px 6px'; }
-            else { dlBtn.textContent = txt; dlBtn.style.fontSize = '11px'; }
-          };
-          try{
-            dlBtn.textContent = '0%';
-            dlBtn.disabled = true;
-            const res = await startTrackDownload(t, {
-              onTick: (pct)=> setBtn(pct + '%'),
-              onFailed: ()=>{ setBtn('⬇'); dlBtn.disabled = false; },
-              onDone: ()=>{ setBtn('✓'); dlBtn.disabled = false; },
-              onStale: ()=>{ if (b.isConnected && dlBtn && dlBtn.disabled) { setBtn('⬇'); dlBtn.disabled = false; } },
-            });
-            if (!res) { setBtn('⬇'); dlBtn.disabled = false; }
-          }catch(err){ showToast('Download gagal: ' + (err?.message || err), 5000); setBtn('⬇'); if (dlBtn) dlBtn.disabled = false; }
-        };
     } catch(e){
       if (myReq !== S.searchReqId) return;
       listEl.querySelector('#searchLoader')?.remove();
-      listEl.innerHTML = `<div style="padding:24px; text-align:center; color:var(--muted)">Gagal cari online.<br><span style="font-size:11px">Cek Python engine, lalu ketik ulang</span></div>`;
-      if (statusEl) statusEl.textContent = 'Gagal cari online — cek Python engine';
+      listEl.innerHTML = `<div style="padding:24px; text-align:center; color:var(--muted)">${t('se.searchFailTitle')}<br><span style="font-size:11px">${t('se.searchFailHint')}</span></div>`;
+      if (statusEl) statusEl.textContent = t('se.searchFail');
       S.searchResults = []; S.searchPage = 1; renderSearchPagination();
     }
   };
@@ -161,7 +159,7 @@ function renderSearchPage(){
   const start = (S.searchPage - 1) * SEARCH_PER_PAGE;
   const slice = S.searchResults.slice(start, start + SEARCH_PER_PAGE);
   if (total) {
-    if (statusEl) statusEl.textContent = `Menampilkan ${start + 1}-${Math.min(start + slice.length, total)} dari ${total} untuk "${q}" (20/source)`;
+    if (statusEl) statusEl.textContent = t('se.showing', { from: start + 1, to: Math.min(start + slice.length, total), total, q });
   }
   listEl.innerHTML = '';
   slice.forEach((t,i)=>{
@@ -170,49 +168,49 @@ function renderSearchPage(){
   applySearchGridWidths();
   renderSearchPagination();
 }
-function searchTrackRow(t, absIdx){
+function searchTrackRow(tk, absIdx){
     const b = document.createElement('div');
     b.className = 'track';
     b.style.cursor = 'default';
-    const src = (t.source || 'online').toLowerCase();
+    const src = (tk.source || 'online').toLowerCase();
         const dlIcon = ico('download', 14);
-        b.innerHTML = `<span style="color:#8b93a9">${absIdx+1}</span><span class="t-main">${onlineCoverHtml(t)}<span style="min-width:0"><div class="t-title"><span style="overflow:hidden;text-overflow:ellipsis">${t.title}</span><span class="src-badge src-${src}">${t.source || 'online'}</span></div><div class="t-sub">${t.artist}</div></span></span><span class="c-dur">${t.duration? fmt(t.duration) : '--:--'}</span><span class="c-more" style="display:flex; gap:4px; align-items:center"><button class="btn-add-folder" data-play-online="${absIdx}" title="Putar preview" aria-label="Putar preview" style="font-size:11px !important; padding:3px 6px !important">${ICON.play}</button><button class="btn-add-folder" data-dl-online="${absIdx}" title="Download lagu" aria-label="Download lagu" style="font-size:11px !important; padding:3px 6px !important; display:inline-grid; place-items:center">${dlIcon}</button></span>`;
+        b.innerHTML = `<span style="color:#8b93a9">${absIdx+1}</span><span class="t-main">${onlineCoverHtml(tk)}<span style="min-width:0"><div class="t-title"><span style="overflow:hidden;text-overflow:ellipsis">${tk.title}</span><span class="src-badge src-${src}">${tk.source || 'online'}</span></div><div class="t-sub">${tk.artist}</div></span></span><span class="c-dur">${tk.duration? fmt(tk.duration) : '--:--'}</span><span class="c-more" style="display:flex; gap:4px; align-items:center"><button class="btn-add-folder" data-play-online="${absIdx}" title="${t('se.playPreview')}" aria-label="${t('se.playPreview')}" style="font-size:11px !important; padding:3px 6px !important">${ICON.play}</button><button class="btn-add-folder" data-dl-online="${absIdx}" title="${t('se.downloadSong')}" aria-label="${t('se.downloadSong')}" style="font-size:11px !important; padding:3px 6px !important; display:inline-grid; place-items:center">${dlIcon}</button></span>`;
     b.querySelector('[data-play-online]').onclick = async (e)=>{
       e.stopPropagation();
       const playBtn = b.querySelector('[data-play-online]');
       if (!playBtn || playBtn.disabled) return;
       if (isPreviewPlaying() && _activePvBtn === playBtn) { stopPreview(); _activePvBtn = null; return; }
-      const src = (t.source || '').toLowerCase();
+      const src = (tk.source || '').toLowerCase();
       const startPreview = (url)=>{
         if (!url) return;
         pause();
         playPreviewAudio(url, playBtn, (src === 'soundcloud' || src === '4shared') ? 30 : 0);
         _activePvBtn = playBtn;
       };
-      if (t.previewUrl) { startPreview(t.previewUrl); return; }
-      if (t._previewUrl) { startPreview(t._previewUrl); return; }
+      if (tk.previewUrl) { startPreview(tk.previewUrl); return; }
+      if (tk._previewUrl) { startPreview(tk._previewUrl); return; }
       if (!['soundcloud', '4shared', 'spotify'].includes(src)) {
-        showToast('Preview tidak tersedia untuk sumber ini', 4000);
+        showToast(t('se.previewNA'), 4000);
         return;
       }
       playBtn.disabled = true;
       playBtn.textContent = '…';
       let started = false;
       try {
-        const r = await fetch(`http://127.0.0.1:8001/preview?source=${encodeURIComponent(src)}&trackId=${encodeURIComponent(t.trackId || '')}&title=${encodeURIComponent(t.title || '')}&artist=${encodeURIComponent(t.artist || '')}`);
+        const r = await fetch(`http://127.0.0.1:8001/preview?source=${encodeURIComponent(src)}&trackId=${encodeURIComponent(tk.trackId || '')}&title=${encodeURIComponent(tk.title || '')}&artist=${encodeURIComponent(tk.artist || '')}`);
         const j = await r.json();
         if (j && j.ok && j.url) {
           const purl = j.relay ? `http://127.0.0.1:8001/preview/stream?url=${encodeURIComponent(j.url)}` : j.url;
-          t._previewUrl = purl;
+          tk._previewUrl = purl;
           startPreview(purl);
           started = true;
         } else if (j && j.error === 'nopreview') {
-          showToast(`Preview tidak tersedia untuk "${t.title}"`, 4000);
+          showToast(t('se.previewNAFor', { n: tk.title }), 4000);
         } else {
-          showToast('Gagal ambil preview: ' + ((j && j.error) || 'unknown'), 4000);
+          showToast(t('se.previewFail', { n: (j && j.error) || 'unknown' }), 4000);
         }
       } catch (err) {
-        showToast('Gagal ambil preview (engine offline?)', 4000);
+        showToast(t('se.previewFailEngine'), 4000);
       } finally {
         if (playBtn) { playBtn.disabled = false; if (!started) playBtn.innerHTML = ICON.play; }
       }
@@ -226,14 +224,14 @@ function searchTrackRow(t, absIdx){
       try{
         dlBtn.textContent = '0%';
         dlBtn.disabled = true;
-        const res = await startTrackDownload(t, {
+        const res = await startTrackDownload(tk, {
           onTick: (pct)=> setBtn(pct + '%'),
           onFailed: ()=>{ setBtn('⬇'); dlBtn.disabled = false; },
           onDone: ()=>{ setBtn('✓'); dlBtn.disabled = false; },
           onStale: ()=>{ if (b.isConnected && dlBtn && dlBtn.disabled) { setBtn('⬇'); dlBtn.disabled = false; } },
         });
         if (!res) { setBtn('⬇'); dlBtn.disabled = false; }
-        }catch(err){ showToast('Download gagal: ' + (err?.message || err), 5000); setBtn('⬇'); if (dlBtn) dlBtn.disabled = false; }
+        }catch(err){ showToast(t('dl.failedWith', { n: err?.message || err }), 5000); setBtn('⬇'); if (dlBtn) dlBtn.disabled = false; }
       };
     return b;
 }
@@ -244,7 +242,7 @@ function renderSearchPagination(){
   const pages = Math.ceil(total / SEARCH_PER_PAGE);
   if (total <= SEARCH_PER_PAGE) { el.style.display = 'none'; el.innerHTML = ''; return; }
   el.style.display = 'flex';
-  el.innerHTML = `<button class="btn-add-folder" id="pgPrev" ${S.searchPage===1?'disabled':''}>‹ Prev</button><span style="font-size:11px; color:var(--muted)">Halaman ${S.searchPage} / ${pages} • ${total} lagu</span><button class="btn-add-folder" id="pgNext" ${S.searchPage===pages?'disabled':''}>Next ›</button>`;
+  el.innerHTML = `<button class="btn-add-folder" id="pgPrev" ${S.searchPage===1?'disabled':''}>‹ Prev</button><span style="font-size:11px; color:var(--muted)">${t('se.pageOf', { page: S.searchPage, pages, n: total })}</span><button class="btn-add-folder" id="pgNext" ${S.searchPage===pages?'disabled':''}>Next ›</button>`;
   el.querySelector('#pgPrev')?.addEventListener('click', ()=>{ if (S.searchPage>1){ S.searchPage--; renderSearchPage(); document.getElementById('searchTrackList')?.scrollTo(0,0); } });
   el.querySelector('#pgNext')?.addEventListener('click', ()=>{ if (S.searchPage<pages){ S.searchPage++; renderSearchPage(); document.getElementById('searchTrackList')?.scrollTo(0,0); } });
 }
@@ -296,7 +294,7 @@ function openSearchGroupPopup(kind, g){
   const backdrop = document.getElementById('modalBackdrop');
   if (!modal || !formWrap || !g) return;
   const artistTxt = kind === 'album' ? [...(g.artists || [])].slice(0, 3).join(', ') : '';
-  tEl.textContent = g.name || (kind === 'album' ? 'Album' : 'Artis');
+  tEl.textContent = g.name || (kind === 'album' ? t('topbar.album') : t('topbar.artist'));
   mEl.style.display = 'none';
   formWrap.style.display = 'block';
   formWrap.innerHTML = '';
@@ -309,9 +307,9 @@ function openSearchGroupPopup(kind, g){
   formWrap.appendChild(head);
   formWrap.appendChild(list);
   btnCancel.style.display = 'block';
-  btnCancel.textContent = 'Tutup';
+  btnCancel.textContent = t('modal.close');
   btnConfirm.style.display = 'block';
-  btnConfirm.textContent = 'Lihat semua hasil';
+  btnConfirm.textContent = t('se.seeAll');
   modal.classList.add('open');
   modal.classList.add('modal-wide');
   modal.setAttribute('aria-hidden', 'false');
@@ -347,7 +345,7 @@ function renderSearchGrouped(){
   if (pg) { pg.style.display = 'none'; pg.innerHTML = ''; }
   const total = S.searchResults.length;
   const { albums, artists } = groupSearchResults();
-  if (statusEl) statusEl.textContent = `${total} lagu • ${albums.length} album • ${artists.length} artis untuk "${q}"`;
+  if (statusEl) statusEl.textContent = t('se.resultCount', { total, albums: albums.length, artists: artists.length, q });
   listEl.innerHTML = '';
   const sec = (label) => {
     const h = document.createElement('div');
@@ -386,4 +384,5 @@ function renderSearchGrouped(){
   }
   applySearchGridWidths();
 }
+document.getElementById('btnRefreshSearch')?.addEventListener('click', ()=>clearSearchResults());
 export { SEARCH_PER_PAGE, searchLoaderHtml, renderSearchPage, renderSearchPagination, renderSearchGrouped };

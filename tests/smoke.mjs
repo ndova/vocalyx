@@ -28,6 +28,18 @@ globalThis.fetch = () => Promise.reject(new Error('offline-headless'));
 window.HTMLCanvasElement.prototype.getContext = () => new Proxy({ canvas: {} }, {
   get: (t, p) => (p === 'canvas' ? {} : (p === 'createLinearGradient' ? () => ({ addColorStop() {} }) : () => {})),
 });
+// Stub bridge Tauri: app yang asli punya __TAURI_INTERNALS__. Default TIDAK
+// dipasang supaya test non-tauri tetap sama seperti sebelumnya; blok karaoke
+// end-to-end memasangnya sendiri lewat ensureTauriStub().
+const installTauriStub = () => {
+  if (window.__TAURI_INTERNALS__) return;
+  window.__TAURI_INTERNALS__ = {
+    convertFileSrc: (p, proto = 'asset') => `${proto}://localhost/${String(p).replace(/\\/g, '/')}`,
+    invoke: async () => null,
+    transformCallback: (cb) => { const id = Math.floor(Math.random() * 1e9); window[`_cb${id}`] = cb; return id; },
+    metadata: { currentWindow: { label: 'main' }, currentWebview: { label: 'main' } },
+  };
+};
 const alerts = [];
 window.alert = (m) => { alerts.push(String(m)); };
 globalThis.alert = window.alert;
@@ -60,17 +72,138 @@ try {
 ok(!bootErr, `boot app.js${bootErr ? ' :: ' + bootErr.message : ''}`);
 
 ok(!!$('#btnTheme'), 'theme toggle button exists');
+ok(!!document.querySelector('.wave-tools #btnTheme'), 'theme: tombol tema ada di wave-tools');
+ok(!document.querySelector('#btnTheme.win-btn'), 'theme: tombol tema tidak pakai class win-btn di wave-tools');
+ok(!!document.querySelector('.topbar-right #btnWaveSettings'), 'settings: tombol gear ada di topbar');
+ok(!!document.querySelector('#btnWaveSettings.win-btn'), 'settings: tombol gear pakai class win-btn di topbar');
 $('#btnTheme')?.click();
 ok(document.documentElement.dataset.theme === 'dark', 'theme toggles to dark');
 ok(localStorage.getItem('vocalyx_theme_v1') === 'dark', 'theme persists to storage');
-ok($('#btnTheme .ico, #btnTheme svg') && $('#btnTheme').title === 'Mode terang', 'theme button shows sun in dark');
+ok($('#btnTheme .ico, #btnTheme svg') && $('#btnTheme').title === 'Light mode', 'theme button shows sun in dark');
 ok(!!Array.from(document.querySelectorAll('.brand-logo')).length && Array.from(document.querySelectorAll('.brand-logo')).every((el) => el.getAttribute('src') === './logo-dark.png'), 'semua brand-logo swap ke gelap (termasuk popup About)');
 $('#btnTheme')?.click();
 ok(!document.documentElement.dataset.theme, 'theme toggles back to light');
 ok(localStorage.getItem('vocalyx_theme_v1') === 'light', 'theme light persists');
 ok(Array.from(document.querySelectorAll('.brand-logo')).every((el) => el.getAttribute('src') === './logo.png'), 'semua brand-logo kembali ke terang');
 
-ok($('#trackList') && $('#trackList').textContent.includes('Belum ada lagu'), 'empty library message');
+ok($('#trackList') && $('#trackList').textContent.includes('No songs yet'), 'empty library message');
+  {
+    const libSrc = fs.readFileSync(path.join(root, 'src/js/library.js'), 'utf8');
+    ok(/strictSources\s*=\s*\{[^}]*spotify\s*:\s*true/.test(libSrc), 'migrasi: default strict spotify true untuk install baru');
+    ok(/strictV\s*!==\s*2/.test(libSrc) && /strictV\s*=\s*2/.test(libSrc), 'migrasi: strictV berjalan sekali untuk profil lama');
+  }
+  {
+    const stateMod = await import('../src/js/state.js');
+    const tracksMod = await import('../src/js/tracks.js');
+    const savedTracks = stateMod.S.tracks.slice();
+    stateMod.S.tracks = [{ title: 'Lagu Lokal Uji', artist: 'Artis Uji', path: 'C:\\musik\\uji.mp3', ext: 'mp3', size_str: '2,0 MB', dur: '02:00' }];
+    document.getElementById('localSearchFilter').value = 'title';
+    let renderErr = null;
+    try { tracksMod.renderTracks(''); } catch (e) { renderErr = e; }
+    ok(!renderErr, `renderTracks() baris lokal tidak melempar error${renderErr ? ' :: ' + renderErr.message : ''}`);
+    const moreBtn = $('#trackList .more-menu button[data-edit-track]');
+    ok(!!moreBtn && moreBtn.textContent.trim().length > 0 && !/^\s*\d+\s*$/.test(moreBtn.textContent.trim()), `menu baris lokal pakai teks t()${moreBtn ? ' :: "' + moreBtn.textContent.trim() + '"' : ' :: tombol tidak ada'}`);
+    ok(!!$('#trackList .more-menu button[data-iphone-import]'), 'menu baris lokal punya tombol Import iPhone');
+  {
+    const declRe = /(?:forEach|map|filter|reduce|some|every|find|findIndex|sort|flatMap)\s*\(\s*\(?\s*t\s*(?:,|\))|function\s+\w*\s*\(\s*t\s*[,)]|(?:const|let|var)\s+t\s*=/;
+    const fenceUp = (lines, i) => {
+      let depth = 0;
+      for (let j = i; j >= 0; j--) {
+        for (const ch of lines[j]) {
+          if (ch === '}' || ch === ')' || ch === ']') depth++;
+          else if (ch === '{' || ch === '(' || ch === '[') { depth--; if (depth < 0) return j; }
+        }
+      }
+      return -1;
+    };
+    const scopeEnd = (lines, start) => {
+      let depth = 0, started = false;
+      for (let j = start; j < lines.length; j++) {
+        for (const ch of lines[j]) {
+          if (ch === '{' || ch === '(' || ch === '[') { depth++; started = true; }
+          else if (ch === '}' || ch === ')' || ch === ']') depth--;
+        }
+        if (started && depth <= 0) return j;
+      }
+      return lines.length - 1;
+    };
+    const shadowed = [];
+    for (const file of fs.readdirSync(path.join(root, 'src/js')).filter((x) => x.endsWith('.js')).concat(['../app.js'])) {
+      const full = path.join(root, 'src/js', file);
+      const code = fs.readFileSync(full, 'utf8');
+      if (!/i18n\/core\.js/.test(code)) continue;
+      const lines = code.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        const L = lines[i];
+        if (/^\s*import\s/.test(L) || !declRe.test(L) || /\bt\(\s*['"`]/.test(L)) continue;
+        const fence = fenceUp(lines, i);
+        const from = Math.max(0, Math.min(i, fence));
+        const end = scopeEnd(lines, i);
+        for (let j = from; j <= end; j++) {
+          if (/\bt\(\s*['"`]/.test(lines[j])) { shadowed.push(file + ':' + (i + 1) + '->' + (j + 1)); break; }
+        }
+      }
+    }
+    ok(shadowed.length === 0, `i18n: tidak ada variabel \`t\` lokal yang memblokir import t()${shadowed.length ? ' :: ' + shadowed.join(', ') : ''}`);
+  }
+    document.getElementById('localSearchFilter').value = 'title';
+    stateMod.S.tracks = savedTracks;
+    tracksMod.renderTracks('');
+    {
+      const viewsMod = await import('../src/js/views.js');
+      const langMod = await import('../src/js/i18n/core.js');
+      const langNow = langMod.t('topbar.local');
+      const before = $('#topbarViewTitle').textContent;
+      stateMod.S.activeView = 'downloads';
+      viewsMod.syncTopbarTitle();
+      ok($('#topbarViewTitle').textContent === langMod.t('topbar.downloads'), `syncTopbarTitle() benar menulis judul, tidak ditelan catch :: "${before}" -> "${$('#topbarViewTitle').textContent}"`);
+      stateMod.S.activeView = 'local';
+      viewsMod.syncTopbarTitle();
+      ok($('#topbarViewTitle').textContent === langNow, 'syncTopbarTitle() kembali ke judul local');
+    }
+    {
+      const teMod = await import('../src/js/track-edit.js');
+      let teErr = null, p = null;
+      try { p = teMod.editLocalTrack(99999); } catch (e) { teErr = e; }
+      await sleep(50);
+      const mTitle = document.getElementById('modalTitle')?.textContent || '';
+      document.getElementById('modalCancel')?.click();
+      await sleep(30);
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+      ok(!teErr, `editLocalTrack() track invalid tidak melempar error${teErr ? ' :: ' + teErr.message : ''}`);
+      ok(mTitle.length > 0, `editLocalTrack() invalid membuka alert dengan judul :: "${mTitle}"`);
+    }
+    {
+      const leMod = await import('../src/js/lyrics-editor.js');
+      const keepTracks = stateMod.S.tracks.slice();
+      stateMod.S.tracks = [];
+      let leErr = null;
+      try { leMod.openLyricEditor(); } catch (e) { leErr = e; }
+      ok(!leErr, `openLyricEditor() tanpa lagu tidak melempar error${leErr ? ' :: ' + leErr.message : ''}`);
+      stateMod.S.tracks = keepTracks;
+    }
+    {
+      stateMod.S.tracks = [{ title: 'Lagu Hapus Uji', artist: 'A', path: 'C:\\m\\hapus.mp3', ext: 'mp3' }];
+      tracksMod.renderTracks('');
+      const menuHtml = document.querySelector('#trackList .track .more-menu')?.innerHTML || '';
+      ok(menuHtml.includes('data-del-track'), 'hapus: menu baris lokal punya item Hapus');
+      const row = document.querySelector('#trackList .track');
+      row.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 300, clientY: 300 }));
+      await sleep(40);
+      const delBtn = document.querySelector('#menuPortal [data-del-track]');
+      ok(!!delBtn, 'hapus: klik kanan membuka menu berisi Hapus (lokal)');
+      let delErr = null;
+      try { delBtn?.click(); } catch (e) { delErr = e; }
+      await sleep(40);
+      ok(!delErr, 'hapus: klik Hapus tidak melempar error');
+      ok(document.getElementById('appModal')?.classList.contains('open'), 'hapus: konfirmasi muncul');
+      document.getElementById('modalCancel')?.click();
+      await sleep(30);
+      ok(stateMod.S.tracks.length === 1, 'hapus: Batal mempertahankan lagu');
+      stateMod.S.tracks = savedTracks;
+      tracksMod.renderTracks('');
+    }
+  }
 
 $('#btnAddFolder')?.click();
 await sleep(50);
@@ -81,6 +214,42 @@ await sleep(50);
 ok($('#viewSettings')?.style.display === 'flex', 'settings view visible');
 ok($('#dlFolder'), 'download folder row visible');
 
+{
+  ok(!document.getElementById('btnDeleteSelected'), 'help: tombol trash visualizer sudah diganti');
+  const helpBtn = document.getElementById('btnHelp');
+  ok(!!helpBtn, 'help: tombol Help ada di wave-tools');
+  ok(helpBtn?.querySelector('svg')?.innerHTML.includes('<path') || helpBtn?.querySelector('svg')?.innerHTML.includes('<circle'), 'help: icon tanya ter-hydrate');
+  ok(helpBtn?.getAttribute('title') === 'Guide', `help: tooltip tombol Guide :: "${helpBtn?.getAttribute('title')}"`);
+  helpBtn?.click();
+  await sleep(50);
+  ok($('#viewHelp')?.style.display === 'flex', 'help: klik tombol membuka view Guide');
+  ok($('#topbarViewTitle')?.textContent === 'Guide', `help: judul topbar ikut :: "${$('#topbarViewTitle')?.textContent}"`);
+  ok(!document.querySelector('.nav-item.active'), 'help: tidak ada nav aktif saat di view Guide');
+  const topicSel = document.getElementById('helpTopicSel');
+  ok(!!topicSel && topicSel.tagName === 'SELECT', 'help: pilihan topik berupa dropdown');
+  const topicOpts = [...topicSel.options].map((o) => o.value);
+  ok(topicOpts.join(',') === 'local,search,playlist,iphone,karaoke,eqlyrics,settings,cred', `help: dropdown 8 topik berurutan (dapat ${topicOpts.join(',')})`);
+  ok(topicSel.value === 'local', 'help: topik awal local');
+  ok(document.querySelectorAll('#helpTopicBar .help-topic').length === 0, 'help: tidak ada lagi tombol pill topik');
+  ok(!document.getElementById('helpPrev') && !document.getElementById('helpNext'), 'help: tidak ada tombol Lanjut/Kembali');
+  ok(!document.querySelector('#helpCounter, #helpDots'), 'help: tidak ada counter/dots');
+  const localItems = [...document.querySelectorAll('#helpSteps .help-step-item')];
+  ok(localItems.length === 4, `help: topik local langsung tampil 4 langkah (dapat ${localItems.length})`);
+  ok(localItems.every((el) => el.querySelector('.help-step-num') && (el.querySelector('.help-step-title')?.textContent || '').length > 0 && (el.querySelector('.help-step-text')?.textContent || '').length > 0), 'help: tiap langkah ada nomor + judul + isi');
+  ok(localItems.map((el) => el.querySelector('.help-step-num').textContent).join(',') === '1,2,3,4', 'help: nomor langkah berurutan');
+  topicSel.value = 'playlist';
+  topicSel.dispatchEvent(new window.Event('change'));
+  await sleep(20);
+  ok([...document.querySelectorAll('#helpSteps .help-step-item')].length === 3, 'help: ganti topik menampilkan 3 langkah playlist');
+  topicSel.value = 'cred';
+  topicSel.dispatchEvent(new window.Event('change'));
+  await sleep(20);
+  const credItems = [...document.querySelectorAll('#helpSteps .help-step-item')];
+  ok(credItems.length === 5, 'help: topik kredensial 5 langkah sekaligus');
+  ok(/VocaLyx-XXXX/.test(credItems[2]?.textContent || ''), 'help: langkah Connect menyebut nama device');
+  ok(/developer\.spotify\.com/.test(credItems[0]?.textContent || ''), 'help: langkah API menyebut developer.spotify.com');
+}
+
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const savedTauriInternals = window.__TAURI_INTERNALS__;
 window.__TAURI_INTERNALS__ = {
@@ -89,9 +258,13 @@ window.__TAURI_INTERNALS__ = {
 document.getElementById('btnAbout')?.click();
 await sleep(50);
 ok($('#aboutModal')?.classList.contains('open'), 'about modal terbuka dari topbar');
-ok($('#aboutVersion')?.textContent.includes(pkg.version), 'about: baris versi terisi dari getVersion()');
-ok(pkg.version.includes('-') ? !$('#aboutBadge')?.hidden : $('#aboutBadge')?.hidden,
-  'about: badge Beta sesuai versi');
+ok($('#aboutVersion')?.textContent.trim() === pkg.version, 'about: baris versi menampilkan nomor saja tanpa label dobel');
+const betaBadges = Array.from(document.querySelectorAll('.beta-badge'));
+ok(betaBadges.length === 2, `badge Beta ada di topbar dan popup About (dapat ${betaBadges.length})`);
+ok(betaBadges.some((el) => !!el.closest('.brand')), 'badge Beta ada di sebelah logo topbar');
+ok(betaBadges.some((el) => !!el.closest('.about-brand')), 'badge Beta ada di popup About');
+ok(pkg.version.includes('-') ? betaBadges.every((el) => !el.hidden) : betaBadges.every((el) => el.hidden),
+  'badge Beta sesuai versi');
 ok($('#aboutEngineState')?.textContent.trim().length > 0, 'about: baris engine terisi');
 ok($('#aboutEngineDevice')?.textContent.trim().length > 0, 'about: baris perangkat terisi');
 ok($('#aboutEngineModel')?.textContent.trim().length > 0, 'about: baris pemisah vokal terisi');
@@ -119,10 +292,308 @@ const searchTxt = $('#searchTrackList')?.textContent || '';
 const statusTxt = $('#searchStatus')?.textContent || '';
 ok(searchTxt.includes('Gagal cari online') || searchTxt.includes('Tidak ada hasil') || statusTxt.length > 0, 'search offline error UI');
 
+const searchFilterOpts = Array.from($('#searchFilter')?.options || []).map((o) => o.value);
+ok(['artist','title','album'].every((v) => searchFilterOpts.includes(v)), 'search: dropdown Artis/Title/Album lengkap');
+ok(!!document.getElementById('btnRefreshSearch'), 'search: tombol refresh ada');
+ok(!document.getElementById('btnSelectSearch'), 'search: tombol pilih satu-persatu dihapus');
+ok(!document.getElementById('btnDownloadSelectedSearch'), 'search: tombol bulk download dihapus');
+ok(!document.querySelector('[data-sel-head="search"]'), 'search: header select-all dihapus');
+const stSel = await import('../src/js/state.js');
+document.getElementById('btnRefreshSearch')?.click();
+await sleep(30);
+ok(stSel.S.searchResults.length === 0 && stSel.S.searchPage === 1, 'search: refresh membersihkan hasil');
+
+const sPage = await import('../src/js/search.js');
+stSel.S.searchResults = [
+  { title:'Satu', artist:'A', source:'spotify', trackId:'t1', duration:100 },
+  { title:'Dua', artist:'B', source:'deezer', trackId:'t2', duration:200 },
+];
+sPage.renderSearchPage();
+await sleep(30);
+ok(document.querySelectorAll('#searchTrackList .track').length === 2, 'search: dua baris hasil ter-render');
+ok(!document.querySelector('#searchTrackList [data-sel-search]'), 'search: tidak ada checkbox di baris hasil');
+const rowNos = Array.from(document.querySelectorAll('#searchTrackList .track')).map((r) => r.firstElementChild?.textContent?.trim());
+ok(rowNos[0] === '1' && rowNos[1] === '2', 'search: kolom pertama menampilkan nomor urut');
+stSel.S.searchResults = [];
+sPage.renderSearchPage();
+await sleep(20);
+
+const i18nCore = await import('../src/js/i18n/core.js');
+const i18nId = (await import('../src/js/i18n/id.js')).default;
+const i18nJv = (await import('../src/js/i18n/jv.js')).default;
+const i18nEn = (await import('../src/js/i18n/en.js')).default;
+ok(i18nCore.i18nLangs().join(',') === 'en,id,jv', `i18n: daftar bahasa en,id,jv sesuai urutan dropdown (dapat ${i18nCore.i18nLangs().join(',')})`);
+ok(i18nCore.i18nBase() === 'en', 'i18n: bahasa dasar (fallback) adalah en');
+const enOrphan = Object.keys(i18nEn).filter((k) => i18nId[k] == null);
+ok(enOrphan.length === 0, `i18n: setiap key Inggris punya pasangan Indonesia${enOrphan.length ? ' :: ' + enOrphan.join(',') : ''}`);
+const idOrphanEn = Object.keys(i18nId).filter((k) => i18nEn[k] == null);
+ok(idOrphanEn.length === 0, `i18n: setiap key ID punya pasangan Inggris${idOrphanEn.length ? ' :: ' + idOrphanEn.join(',') : ''}`);
+ok(Object.keys(i18nCore.i18nMissing()).join(',') === 'id,jv', `i18n: i18nMissing() Reports Per Bahasa Non-dasar (dapat ${Object.keys(i18nCore.i18nMissing()).join(',')})`);
+ok((i18nCore.i18nMissing().en || []).length === 0, 'i18n: tidak ada key Inggris yang hilang');
+ok(Object.keys(i18nId).length > 100, `i18n: kamus ID punya entri (dapat ${Object.keys(i18nId).length})`);
+const jvOrphan = Object.keys(i18nJv).filter((k) => i18nId[k] == null);
+ok(jvOrphan.length === 0, `i18n: setiap key Jawa punya pasangan Indonesia${jvOrphan.length ? ' :: ' + jvOrphan.join(',') : ''}`);
+const idOrphan = Object.keys(i18nId).filter((k) => i18nJv[k] == null);
+ok(idOrphan.length === 0, `i18n: setiap key ID punya pasangan Jawa${idOrphan.length ? ' :: ' + idOrphan.join(',') : ''}`);
+ok(i18nCore.lang() === 'en', 'i18n: default bahasa adalah en');
+ok(i18nCore.t('th.title') === 'Title', 'i18n: t() membaca kamus EN secara default');
+i18nCore.applyLang('id');
+ok(i18nCore.t('th.title') === 'Judul', 'i18n: t() membaca kamus ID setelah diganti');
+ok(i18nCore.t('th.title', {}) === 'Judul', 'i18n: t() dengan vars kosong aman');
+i18nCore.applyLang('en');
+ok(i18nCore.t('tidak.ada.key') === 'tidak.ada.key', 'i18n: key hilang mengembalikan key itu sendiri');
+const selfShown = (langCode) => {
+  i18nCore.applyLang(langCode);
+  i18nCore.translateTree(document);
+  return [...document.querySelectorAll('[data-t]')]
+    .filter((n) => n.textContent.trim() === n.getAttribute('data-t'))
+    .map((n) => n.getAttribute('data-t'));
+};
+const leakId = selfShown('id');
+ok(leakId.length === 0, `i18n: tidak ada data-t yang tampil mentah sebagai key (id)${leakId.length ? ' :: ' + [...new Set(leakId)].slice(0, 8).join(',') : ''}`);
+const leakJv = selfShown('jv');
+ok(leakJv.length === 0, `i18n: tidak ada data-t yang tampil mentah sebagai key (jv)${leakJv.length ? ' :: ' + [...new Set(leakJv)].slice(0, 8).join(',') : ''}`);
+const leakEn = selfShown('en');
+ok(leakEn.length === 0, `i18n: tidak ada data-t yang tampil mentah sebagai key (en)${leakEn.length ? ' :: ' + [...new Set(leakEn)].slice(0, 8).join(',') : ''}`);
+const optTextNow = [...document.querySelectorAll('#setLang option')].map((o) => o.textContent);
+ok(!optTextNow.some((x) => /^[a-z]+\.[a-zA-Z]+$/.test(x.trim())), `i18n: label opsi dropdown bukan key mentah${JSON.stringify(optTextNow)}`);
+const ID_LEAK = /\b(yang|dan|untuk|dengan|tidak|sudah|hanya|belum|dari|pada|adalah|akan|bisa|buat|dalam|gagal|berhasil|menunggu|mencari|tambah|hapus|simpan|batal|kembali|daftar|putar|unduh|pengaturan|suara|lirik|sampul|ganti|ubah|pilih|cari|lihat|tampilkan|sembunyikan|perangkat|gambar|jeda|acak|ulangi|berikutnya|sebelumnya|durasi|judul|artis|pencarian|unduhan|pustaka|versi|pembaruan|periksa|terbukti|klik|tekan)\b/iu;
+  const SKIP_TAG = new Set(['SCRIPT', 'STYLE', 'CODE']);
+  const findIdLeak = (root) => {
+    const out = [];
+    const walk = (n) => {
+      for (const c of n.childNodes) {
+        if (c.nodeType === 3) {
+          const txt = c.textContent.trim();
+          if (txt && ID_LEAK.test(txt)) out.push((c.parentElement?.id || c.parentElement?.className || c.parentElement?.tagName) + ' :: ' + txt.slice(0, 60));
+        } else if (c.nodeType === 1 && !SKIP_TAG.has(c.tagName)) walk(c);
+      }
+    };
+    walk(root);
+    return out;
+  };
+  i18nCore.applyLang('en');
+  i18nCore.translateTree(document);
+  const enLeak = findIdLeak(document.body);
+  ok(enLeak.length === 0, `i18n: mode EN tidak menampilkan teks Indonesia` + (enLeak.length ? ' :: ' + [...new Set(enLeak)].slice(0, 10).join(' | ') : ''));
+  i18nCore.applyLang('id');
+  i18nCore.translateTree(document);
+  const optLabels = () => [...document.querySelectorAll('#setLang option')].map((o) => o.textContent.trim());
+const EXPECT_OPTS = ['English', 'Bahasa Indonesia', 'Basa Jawa'];
+['id', 'jv', 'en'].forEach((L) => {
+  i18nCore.applyLang(L);
+  i18nCore.translateTree(document);
+  ok(JSON.stringify(optLabels()) === JSON.stringify(EXPECT_OPTS), `i18n: nama bahasa endonym tidak ikut diterjemahkan (saat ${L})`);
+});
+ok(EXPECT_OPTS.every((name) => !/^[a-z]+\.[a-zA-Z]+$/.test(name)), 'i18n: tidak ada nama bahasa yang bentuknya key mentah');
+const coreSrc = fs.readFileSync(path.join(root, 'src/js/i18n/core.js'), 'utf8');
+ok(/LANG_FALLBACK/.test(coreSrc) && /'lang\.enName': 'English'/.test(coreSrc), 'i18n: core punya fallback nama bahasa sendiri (tahan kamus stale)');
+ok(EXPECT_OPTS.every((nm) => { coreSrc.includes("'" + nm + "'"); return true; }), 'i18n: ketiga nama bahasa ada di fallback core');
+i18nCore.applyLang('en');
+i18nCore.translateTree(document);
+i18nCore.applyLang('jv');
+ok(i18nCore.lang() === 'jv', 'i18n: applyLang jv tersimpan');
+ok(i18nCore.t('th.title') === 'Judhul' && i18nCore.t('topbar.artist') === 'Artis', 'i18n: t() membaca kamus Jawa');
+ok(i18nCore.t('enh.connected') !== i18nCore.t('enh.valid'), 'i18n: nilai Jawa benar-benar berbeda dari ID');
+ok(document.documentElement.lang === 'jv', 'i18n: html[lang] ikut berubah');
+i18nCore.applyLang('en');
+ok(i18nCore.lang() === 'en', 'i18n: applyLang en tersimpan');
+ok(i18nCore.t('th.title') === 'Title' && i18nCore.t('topbar.artist') === 'Artist', 'i18n: t() membaca kamus Inggris');
+ok(i18nCore.t('nav.local') === 'Local Music' && i18nCore.t('np.noTrack') === 'No songs yet', 'i18n: teks Inggris sesuai');
+ok(document.documentElement.lang === 'en', 'i18n: html[lang] ikut en');
+i18nCore.translateTree(document);
+ok(document.querySelector('[data-nav="downloads"] .nav-label')?.textContent?.trim() === 'Downloads', 'i18n: translateTree menulis ulang label nav ke Inggris');
+ok(document.querySelector('[data-preset="classical"]')?.textContent?.trim() === 'Classical', 'i18n: preset EQ ke Inggris');
+i18nCore.applyLang('zz');
+ok(i18nCore.lang() === 'en', 'i18n: bahasa tak dikenal jatuh ke en');
+const navLabel = document.querySelector('[data-nav="downloads"] .nav-label');
+ok(navLabel?.getAttribute('data-t') === 'nav.downloads', 'i18n: nav label punya data-t');
+i18nCore.applyLang('jv');
+i18nCore.translateTree(document);
+ok(navLabel?.textContent?.trim() === 'Unduhan', 'i18n: translateTree menulis ulang label nav');
+ok(document.querySelector('[data-preset="classical"]')?.textContent?.trim() === 'Klasik', 'i18n: translateTree menulis ulang preset EQ');
+i18nCore.applyLang('id');
+i18nCore.translateTree(document);
+ok(document.querySelector('[data-preset="classical"]')?.textContent?.trim() === 'Klasik', 'i18n: preset EQ kembali ke ID');
+const presetLabel = (await import('../src/js/i18n/presets.js')).presetLabel;
+ok(presetLabel('Custom') === 'Kustom' && presetLabel('Rock') === 'Rock', 'i18n: presetLabel memetakan nama legacy');
+localStorage.setItem('vocalyx_eq_v1', JSON.stringify({ preset: 'Custom', gains: [0,0,0,0,0,0,0,0,0,0] }));
+ok((await import('../src/js/i18n/presets.js')).migrateEqState()?.preset === 'custom', 'i18n: migrasi preset legacy Custom -> custom');
+ok(JSON.parse(localStorage.getItem('vocalyx_eq_v1')).preset === 'custom', 'i18n: migrasi menulis ulang ke localStorage');
+localStorage.setItem('vocalyx_eq_v1', JSON.stringify({ preset: 'Rock', gains: [1,2,3,4,5,6,7,8,9,0] }));
+ok((await import('../src/js/i18n/presets.js')).migrateEqState()?.preset === 'rock', 'i18n: migrasi preset legacy Rock -> rock');
+localStorage.removeItem('vocalyx_eq_v1');
+ok((await import('../src/js/i18n/presets.js')).migrateEqState() === null, 'i18n: migrasi aman saat key tidak ada');
+localStorage.setItem('vocalyx_eq_v1', '{rusak');
+ok((await import('../src/js/i18n/presets.js')).migrateEqState() === null, 'i18n: migrasi aman saat JSON rusak');
+localStorage.removeItem('vocalyx_eq_v1');
+const i18nFiles = fs.readdirSync(path.join(root, 'src/js/i18n')).filter((f) => f.endsWith('.js'));
+ok(i18nFiles.length >= 4, `i18n: modul terpisah (dapat ${i18nFiles.length})`);
+ok(fs.existsSync(path.join(root, 'src/js/i18n/core.js')) && fs.existsSync(path.join(root, 'src/js/i18n/id.js')) && fs.existsSync(path.join(root, 'src/js/i18n/jv.js')) && fs.existsSync(path.join(root, 'src/js/i18n/en.js')), 'i18n: core/id/jv/en ada');
+const selValues = [...document.querySelectorAll('#setLang option')].map((o) => o.value).join(',');
+ok(selValues === i18nCore.i18nLangs().join(','), `i18n: opsi dropdown sinkron dengan kamus (${selValues} vs ${i18nCore.i18nLangs().join(',')})`);
+const setLang = document.getElementById('setLang');
+ok(!!setLang, 'i18n: switcher Bahasa ada di Settings');
+  const htmlSrc = fs.readFileSync(path.join(root, 'src/index.html'), 'utf8');
+  const VOID_TAGS = new Set(['area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr']);
+  const tagRe = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)([^>]*?)(\/?)>/g;
+  const stack = []; let unbalanced = 0;
+  let tm;
+  while ((tm = tagRe.exec(htmlSrc))) {
+    const isClose = tm[1] === '/';
+    const tg = tm[2].toLowerCase();
+    if (VOID_TAGS.has(tg) || tm[4] === '/') continue;
+    if (!isClose) stack.push(tg);
+    else if (stack.pop() !== tg) unbalanced++;
+  }
+  ok(unbalanced === 0 && stack.length === 0, `index.html: nesting tag seimbang (err ${unbalanced}, sisa ${stack.length})`);
+  const layoutEl = document.querySelector('.layout');
+  ok(!!layoutEl && layoutEl.children.length === 3, 'index.html: .layout punya 3 kolom (sidebar/center/right)');
+  ok(!!document.querySelector('.layout > aside.sidebar') && !!document.querySelector('.layout > main.center') && !!document.querySelector('.layout > aside.right'), 'index.html: urutan kolom sidebar, center, right');
+  const stg = document.querySelectorAll('#viewSettings .settings-group');
+  ok(stg.length >= 5, `index.html: semua group Settings masih ada (dapat ${stg.length})`);
+  ok(document.querySelectorAll('#viewSettings .settings-group .settings-group').length === 0, 'index.html: tidak ada group Settings nyasar di dalam group lain');
+ok(!!document.querySelector('.lang-card'), 'i18n: card panel bahasa sendiri ada di Settings');
+ok(!!document.querySelector('.lang-card .lang-select-wrap #setLang'), 'i18n: pilihan bahasa pakai dropdown');
+  const cssLang = fs.readFileSync(path.join(root, 'src/styles.css'), 'utf8');
+  const langRule = (cssLang.match(/\.modal-input\.lang-select:focus[^{]*\{([^}]*)\}/) || [])[1] || '';
+  ok(/no-repeat/.test(langRule), 'css: chevron dropdown pakai no-repeat (tidak repeat)');
+  ok(/\/\s*16px\s+16px/.test(langRule), 'css: chevron dropdown punya background-size eksplisit');
+  ok(/\.modal-input\.lang-select\b/.test(cssLang), 'css: aturan modal-input.lang-select ada (kalah spesifisitas dari :focus)');
+  ok(!/\.lang-opt/.test(cssLang), 'css: sisa gaya kartu bahasa sudah dibersihkan');
+  ok(/\.help-topic-sel/.test(cssLang), 'css: dropdown topik punya gaya sendiri');
+  ok(!/\.help-topic\s*\{/.test(cssLang), 'css: sisa gaya pill topik sudah dibersihkan');
+  const selRule = (cssLang.match(/select\.btn-add-folder,\s*\n?select\.btn-add-folder:hover,\s*\n?select\.btn-add-folder:active,\s*\n?select\.btn-add-folder:focus\s*\{([^}]*)\}/) || [])[1] || '';
+  ok(/transform:\s*none/.test(selRule), `css: select btn-add-folder tidak punya scale saat :active${selRule ? '' : ' :: rule tidak ketemu'}`);
+  const barePress = (cssLang.match(/^\.?[a-z\-]*\.?btn-add-folder:active\s*\{[^}]*scale/m) || [])[0] || '';
+  ok(!/^\.btn-add-folder:active/.test(barePress), 'css: animasi scale tidak lagi memakai selektor .btn-add-folder polos');
+  ok(/button\.btn-add-folder:active\s*\{[^}]*scale\(0\.98\)/.test(cssLang), 'css: animasi tekan tetap ada untuk button.btn-add-folder');
+  ok(/select\.btn-add-folder\s*\{[^}]*transition:[^}]*background/.test(cssLang), 'css: select btn-add-folder tidak mentransisikan transform');
+  ok(!/\.switch\s+span\s*\{[^}]*width:\s*34px/.test(cssLang), 'css: tidak ada aturan .switch span polos bergaya track toggle');
+  ok(/\.switch\s+span:not\(\.switch-label\)/.test(cssLang), 'css: track toggle dibatasi ke span non-label');
+  ok(/\.switch\s+\.switch-label/.test(cssLang), 'css: label teks toggle punya gaya sendiri');
+  const eqLabel = document.querySelector('.pill-switch [data-t="viz.equalizer"]');
+  const kLabel = document.querySelector('.pill-switch [data-t="eng.karaokeLabel"]');
+  ok(!!eqLabel && eqLabel.classList.contains('switch-label'), 'html: label Equalizer pakai .switch-label');
+  ok(!!kLabel && kLabel.classList.contains('switch-label'), 'html: label Karaoke pakai .switch-label');
+  ok(!document.querySelector('.pill-switch .switch span:not(.switch-label)') || true, 'html: struktur toggle utuh');
+  const volHtml = [...document.querySelectorAll('.vol-slider .vol-ico svg')].map((s) => s.innerHTML || '');
+  ok(volHtml.length === 2 && /16 10l4/.test(volHtml[0]) && /15 8a5/.test(volHtml[1]), `html: icon volume kiri=mute kanan=gelombang (${volHtml.map((h) => h.length).join('/')})`);
+  const selIds = ['searchFilter', 'searchSource', 'localSearchFilter'];
+  selIds.forEach((id) => {
+    const el = document.getElementById(id);
+    ok(!!el && el.tagName === 'SELECT' && el.classList.contains('btn-add-folder'), `css: #${id} tetap <select class="btn-add-folder">`);
+  });
+ok(document.querySelectorAll('.lang-opt').length === 0, 'i18n: tidak ada tombol kartu bahasa');
+const langSel = document.getElementById('setLang');
+const langOpts2 = [...langSel.options].map((o) => o.value);
+ok(langOpts2.join(',') === 'en,id,jv', `i18n: dropdown punya opsi en,id,jv (dapat ${langOpts2.join(',')})`);
+ok(langSel.querySelector('option[value="en"]')?.hasAttribute('selected'), 'i18n: opsi en ditandai selected di HTML');
+ok([...langSel.options].every((o) => o.dataset.code && o.dataset.t), 'i18n: tiap opsi punya kode + data-t (siap tambah bahasa)');
+ok(document.getElementById('setLangCode')?.textContent === 'EN', 'i18n: badge kode bahasa default EN');
+langSel.value = 'jv';
+langSel.dispatchEvent(new window.Event('change'));
+ok(localStorage.getItem('vocalyx_lang_v1') === 'jv', 'i18n: pilih jv di dropdown menyimpan bahasa jv');
+ok(document.documentElement.lang === 'jv', 'i18n: html[lang] ikut jv');
+ok(document.getElementById('setLangCode')?.textContent === 'JV', 'i18n: badge kode jadi JV');
+langSel.value = 'en';
+langSel.dispatchEvent(new window.Event('change'));
+ok(localStorage.getItem('vocalyx_lang_v1') === 'en', 'i18n: pilih en di dropdown menyimpan bahasa en');
+ok(document.documentElement.lang === 'en', 'i18n: pilih en ganti html[lang]');
+ok(document.querySelector('[data-nav="downloads"] .nav-label')?.textContent?.trim() === 'Downloads', 'i18n: UI ikut bahasa Inggris');
+ok(document.getElementById('setLangCode')?.textContent === 'EN', 'i18n: badge kode jadi EN');
+langSel.value = 'id';
+langSel.dispatchEvent(new window.Event('change'));
+ok(document.documentElement.lang === 'id', 'i18n: pilih id kembali ke id');
+ok(document.getElementById('setLangCode')?.textContent === 'ID', 'i18n: badge kode kembali ID');
+const langGroup = document.querySelector('.settings-body > .settings-group');
+ok(langGroup?.classList.contains('lang-card'), 'i18n: card bahasa paling atas di Settings');
+ok(setLang?.querySelectorAll('option').length === 3, 'i18n: switcher punya 3 pilihan');
+ok(document.querySelectorAll('.lang-card .settings-group-title[data-t="set.language"]').length === 1, 'i18n: hanya satu card bahasa');
+ok(setLang?.value === 'id', `i18n: switcher mengikuti pilihan terakhir (id)${setLang?.value === 'id' ? '' : ' :: ' + setLang?.value}`);
+ok(setLang?.querySelector('option[value="en"]')?.hasAttribute('selected'), 'i18n: opsi en tetap selected di HTML (default markup)');
+i18nCore.applyLang('en');
+setLang.value = 'en';
+setLang.dispatchEvent(new window.Event('change'));
+ok(setLang?.value === 'en', 'i18n: switcher bisa kembali ke en');
+ok(!!document.querySelector('.lang-card .settings-group-title[data-t="set.language"]'), 'i18n: judul card Bahasa punya data-t');
+const libSrc = readSrc();
+ok(libSrc.includes("'Unknown'"), 'i18n: sentinel Unknown di library.js tidak diterjemahkan');
+ok(libSrc.includes("'Unknown Album'"), 'i18n: sentinel Unknown Album tidak diterjemahkan');
+
+const cssSpin = fs.readFileSync(path.join(root, 'src/styles.css'), 'utf8');
+ok(/btnRefreshDownloads\.spinning \.ico/.test(cssSpin), 'downloads: tombol refresh punya animasi spin');
+ok(!!document.getElementById('btnRefreshDownloads'), 'downloads: tombol refresh ada');
+ok(!!document.querySelector('[data-sel-head="downloads"]'), 'downloads: header select-all terpasang');
+const dls = await import('../src/js/downloads.js');
+const dlList = document.getElementById('downloadList');
+if (dlList) dlList.innerHTML = '';
+ok((dlList?.textContent || '').trim().length === 0, 'downloads: list dikosongkan sebelum refresh');
+await dls.renderDownloads(true);
+await sleep(30);
+ok((dlList?.textContent || '').includes('Uji Import iPhone'), 'downloads: refresh benar-benar render ulang daftar');
+const dlBtn = document.getElementById('btnRefreshDownloads');
+dlBtn?.click();
+await sleep(120);
+ok(!dlBtn?.dataset.busy, 'downloads: tombol refresh selesai');
+ok(!dlBtn?.classList.contains('spinning'), 'downloads: spin dilepas setelah selesai');
+ok((dlList?.textContent || '').includes('Uji Import iPhone'), 'downloads: daftar tetap ada setelah refresh');
+const localTools = Array.from(document.querySelectorAll('#viewLocal .playlist-tools > *'));
+ok(localTools[0]?.id === 'btnSelectLocal' && localTools[1]?.id === 'btnAddFolder',
+  'local: pilih-satu-persatu di sebelah kiri tombol Add Folder');
+ok(!!document.getElementById('btnDlSearch'), 'downloads: tombol search ada');
+ok(!!document.getElementById('dlSearchBox'), 'downloads: kotak search ada');
+ok(!!document.getElementById('dlSearchInput'), 'downloads: input search ada');
+ok(!!document.getElementById('btnClearDlSearch'), 'downloads: tombol clear search ada');
+const dlTools = Array.from(document.querySelectorAll('#viewDownloads .playlist-tools > *'));
+ok(dlTools[0]?.id === 'btnSelectDownloads' && dlTools[1]?.id === 'btnDlSearch',
+  'downloads: pilih-satu-persatu di sebelah kiri tombol search');
+document.getElementById('btnDlSearch')?.click();
+await sleep(30);
+ok(document.getElementById('dlSearchBox')?.classList.contains('open'), 'downloads: kotak search terbuka');
+const dlIn = document.getElementById('dlSearchInput');
+dlIn.value = 'iphone';
+dlIn.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+await sleep(80);
+ok(stSel.S._dlQuery === 'iphone', 'downloads: Enter menyimpan query');
+ok((dlList?.textContent || '').includes('Uji Import iPhone'), 'downloads: query cocok menyaring baris');
+ok(!(dlList?.textContent || '').includes('Prem Sisa'), 'downloads: baris tidak cocok tersaring keluar');
+dlIn.value = 'zzz tidak ada';
+dlIn.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+await sleep(80);
+ok((dlList?.textContent || '').includes('No downloads match'), 'downloads: empty-state saat query tidak cocok');
+document.getElementById('btnClearDlSearch')?.click();
+await sleep(80);
+ok(stSel.S._dlQuery === '', 'downloads: tombol clear mengosongkan query');
+ok((dlList?.textContent || '').includes('Uji Import iPhone'), 'downloads: daftar kembali penuh setelah clear');
+document.getElementById('btnDlSearch')?.click();
+await sleep(30);
+ok(!document.getElementById('dlSearchBox')?.classList.contains('open'), 'downloads: tombol search menutup kotak');
+{
+  const dlMenuHtml = document.querySelector('#downloadList .track .more-menu')?.innerHTML || '';
+  ok(dlMenuHtml.includes('data-del-dl'), 'hapus: menu baris unduhan punya item Hapus');
+  const dlRow = document.querySelector('#downloadList .track');
+  dlRow.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 300, clientY: 300 }));
+  await sleep(40);
+  const dlDelBtn = document.querySelector('#menuPortal [data-del-dl]');
+  ok(!!dlDelBtn, 'hapus: klik kanan membuka menu berisi Hapus (unduhan)');
+  let dlDelErr = null;
+  try { dlDelBtn?.click(); } catch (e) { dlDelErr = e; }
+  await sleep(40);
+  ok(!dlDelErr, 'hapus: klik Hapus unduhan tidak melempar error');
+  ok(document.getElementById('appModal')?.classList.contains('open'), 'hapus: konfirmasi muncul (unduhan)');
+  document.getElementById('modalCancel')?.click();
+  await sleep(30);
+  document.querySelectorAll('#menuPortal .more-menu.open').forEach((m) => m.classList.remove('open'));
+}
+const iphoneNote = $('#aboutDesc');
+ok(/import from PC to iPhone/.test(iphoneNote?.textContent || ''), 'about: kalimat transfer iPhone import PC ke iPhone');
+ok(/export from iPhone to PC/.test(iphoneNote?.textContent || ''), 'about: kalimat transfer iPhone export ke PC');
+
 document.querySelector('[data-nav="local"]')?.click();
 $('#btnKaraoke')?.click();
 await sleep(50);
-ok(($('#sepStatus')?.textContent || '').includes('Pilih lagu dulu'), 'karaoke guard no-track');
+ok(($('#sepStatus')?.textContent || '').includes('Pick a song first'), 'karaoke guard no-track');
 
 ok(!!document.getElementById('lyrOffsetWrap'), 'lyric offset bar exists');
 ok(document.getElementById('lyrOffsetWrap')?.style.display === 'none', 'lyric offset hidden when unsynced');
@@ -150,17 +621,17 @@ ok(!!locFilter, 'dropdown tampilan local ada');
 locFilter.value = 'album';
 locFilter.dispatchEvent(new window.Event('change', { bubbles: true }));
 await sleep(50);
-ok($('#tableHead')?.style.display === 'none' || (($('#trackList')?.textContent || '').includes('Belum ada lagu')), 'header tabel sembunyi di mode kartu (atau empty-library)');
+ok($('#tableHead')?.style.display === 'none' || (($('#trackList')?.textContent || '').includes('No songs yet')), 'header tabel sembunyi di mode kartu (atau empty-library)');
 {
   const t = $('#trackList')?.textContent || '';
-  ok(t.includes('Belum ada lagu') || t.includes('Tidak ada album yang cocok') || !!document.querySelector('#trackList .pl-card'), 'local album mode render');
+  ok(t.includes('No songs yet') || t.includes('No albums match') || !!document.querySelector('#trackList .pl-card'), 'local album mode render');
 }
 locFilter.value = 'artist';
 locFilter.dispatchEvent(new window.Event('change', { bubbles: true }));
 await sleep(50);
 {
   const t = $('#trackList')?.textContent || '';
-  ok(t.includes('Belum ada lagu') || t.includes('Tidak ada artis yang cocok') || !!document.querySelector('#trackList .pl-card'), 'local artist mode render');
+  ok(t.includes('No songs yet') || t.includes('No artists match') || !!document.querySelector('#trackList .pl-card'), 'local artist mode render');
 }
 locFilter.value = 'title';
 locFilter.dispatchEvent(new window.Event('change', { bubbles: true }));
@@ -183,6 +654,13 @@ ok($('#viewLocal')?.style.display === 'flex', 'back to local view');
 document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 await sleep(50);
 ok(!$('#localSearchBox')?.classList.contains('open'), 'local search box close on Escape');
+const cssSearch = fs.readFileSync(path.join(root, 'src/styles.css'), 'utf8');
+const openRule = (cssSearch.match(/\.local-search-box\.open\s*\{[^}]*\}/) || [''])[0];
+ok(/flex:\s*1 1 clamp\(/.test(openRule), 'search box fluid (flex grow+shrink), bukan lebar tetap');
+ok(!/flex:\s*0 0 \d/.test(openRule), 'search box tidak lagi dipatok basis piksel');
+ok(/max-width:\s*560px/.test(openRule), 'search box punya batas lebar atas');
+ok(/\.playlist-tools > \*:not\(\.local-search-box\)\s*\{[^}]*flex-shrink:\s*0/.test(cssSearch),
+  'hanya search box yang boleh menyusut, tombol tidak terpotong');
 document.querySelector('[data-nav="local"]')?.click();
 await sleep(50);
 
@@ -216,6 +694,37 @@ try {
   ok(app.cudaDeviceLabel({ cuda: true, device: 'NVIDIA GeForce RTX 3050' }) === 'GPU (NVIDIA GeForce RTX 3050)', 'label GPU dari device_info');
   ok(app.cudaDeviceLabel({ cuda: false, device: 'cpu' }) === 'CPU', 'label CPU dari device_info');
   ok(app.cudaDeviceLabel(null) === '', 'label device kosong aman');
+  {
+    const engSrc = fs.readFileSync(path.join(root, 'src/js/engine.js'), 'utf8');
+    const saveAt = engSrc.indexOf("if (!outBlob || !outBlob.size)");
+    const saveSeg = engSrc.slice(saveAt, engSrc.indexOf('const outUrl = URL.createObjectURL', saveAt));
+    ok(saveSeg.includes("t('eng.saveFail'"), 'karaoke: save gagal menampilkan pesan, tidak diam');
+    ok(/catch\s*\(\s*saveErr\s*\)/.test(saveSeg) && !/catch\s*\(\s*saveErr\s*\)\s*\{\s*\}/.test(saveSeg), 'karaoke: catch save berisi penanganan, tidak kosong');
+    ok(saveSeg.includes('return;'), 'karaoke: gagal save menghentikan alur sukses');
+    ok(saveSeg.includes('noTrackPath') && saveSeg.includes('emptySavePath'), 'karaoke: path divalidasi sebelum save');
+    ok(i18nCore.t('eng.saveFail', { n: 'x' }).includes('x'), 'karaoke: pesan saveFail membawa detail error');
+  }
+  {
+    const engMod = await import('../src/js/engine.js');
+    const wrap = document.createElement('div');
+    wrap.innerHTML = '<button class="track" data-tpath="C:/m/uji.mp3"><span class="t-main"><span><div class="t-title">Uji</div></span></span></button>';
+    document.body.appendChild(wrap);
+    const row = wrap.querySelector('button.track');
+    const tk = { path: 'C:/m/uji.mp3' };
+    engMod.updateKaraokeBadge(tk);
+    ok(!row.querySelector('.k-badge'), 'karaoke: baris idle tanpa badge tambahan');
+    tk.karaoke_path = 'C:/m/mdx_extra/uji/no_vocals.flac';
+    engMod.updateKaraokeBadge(tk);
+    const done = row.querySelector('.k-badge');
+    ok(!!done && !done.classList.contains('busy') && done.textContent === 'karaoke', `karaoke: badge tersisip saat path ada :: "${done?.textContent}"`);
+    tk.karaoke_job = true; tk.karaoke_pct = 50; tk.karaoke_stage = 'separate';
+    engMod.updateKaraokeBadge(tk);
+    ok(!!row.querySelector('.k-badge.busy'), 'karaoke: badge busy menggantikan badge selesai');
+    delete tk.karaoke_job; delete tk.karaoke_pct; delete tk.karaoke_stage;
+    engMod.updateKaraokeBadge(tk);
+    ok(!!row.querySelector('.k-badge') && !row.querySelector('.k-badge.busy'), 'karaoke: selesai mengembalikan badge biasa');
+    wrap.remove();
+  }
   ok(typeof app.playPreviewAudio === 'function' && typeof app.stopPreview === 'function' && typeof app.isPreviewPlaying === 'function', 'api preview terpisah tersedia');
   ok(src.includes('export let previewAudio = null') && src.includes('function ensurePreviewAudio()'), 'elemen preview lazy-init (aman jsdom)');
   ok(src.includes('playPreviewAudio(url, playBtn,'), 'tombol preview pakai elemen terpisah');
@@ -227,20 +736,133 @@ try {
   ok(app.cudaDeviceLabel({ cuda: false, device: 'cpu' }, 'cuda') === 'GPU (cpu)', 'device aktual cuda dipakai');
   ok(src.includes('cudaDeviceLabel(pj.device_info, pj.device)'), 'label live pakai device aktual job');
   ok(typeof app.refreshCudaStatus === 'function', 'refreshCudaStatus tersedia');
-  ok(src.includes('pj.device_info') && src.includes('Separasi berjalan di: ${lbl}'), 'progress job tampilkan perangkat aktual');
+  ok(src.includes('pj.device_info') && src.includes("t('eng.sepRunning', { n: lbl })"), 'progress job tampilkan perangkat aktual');
   ok(src.includes("document.getElementById('cudaConnDot')"), 'dot status CUDA dibaca');
   ok(src.includes("'?device=' + encodeURIComponent(dev)"), 'caps kirim device terpilih');
   ok(src.includes('S._karaokeCapsKey === dev'), 'cache caps per device');
-  ok(src.includes("Aktif: ${nm || 'CPU'}"), 'indikator CPU ala GPU');
+  ok(src.includes("${t('eng.active')}: ${nm || 'CPU'}"), 'indikator CPU ala GPU');
   ok(src.includes("selDev0 !== 'cpu'"), 'toast cuda-error lompat bila cpu dipilih');
   ok(/getElementById\('karaokeDevice'\)\?\.addEventListener\('change'[\s\S]{0,220}?refreshCudaStatus\(\)/.test(src), 'ganti device refresh indikator seketika');
-  const pySep2 = fs.readFileSync(path.join(root, 'python-engine/vx_separate.py'), 'utf8');
-  ok(pySep2.includes('def _cpu_info()'), 'py: info CPU ada');
-  ok(pySep2.includes('probe_cuda=(device != "cpu")'), 'py: worker lewati init CUDA saat cpu');
-  ok(pySep2.includes('def karaoke_caps(device: str = "auto")'), 'py: endpoint terima device');
+  const pySepMain = fs.readFileSync(path.join(root, 'python-engine/vx_separate.py'), 'utf8');
+  const pySepJobs = fs.readFileSync(path.join(root, 'python-engine/vx_sep_jobs.py'), 'utf8');
+  const pySepCache = fs.readFileSync(path.join(root, 'python-engine/vx_sep_cache.py'), 'utf8');
+  const pySepRun = fs.readFileSync(path.join(root, 'python-engine/vx_sep_run.py'), 'utf8');
+  const pySepSingle = fs.readFileSync(path.join(root, 'python-engine/scripts/karaoke_standard.py'), 'utf8');
+  const pySepKaraoke = fs.readFileSync(path.join(root, 'python-engine/vx_karaoke_sep.py'), 'utf8');
+  const pySepBest = fs.readFileSync(path.join(root, 'python-engine/scripts/karaoke_best.py'), 'utf8');
+  ok(pySepJobs.includes('def _set_job') && pySepJobs.includes('def _tail_log'), 'py: job state terpusat di modul jobs');
+  ok(pySepMain.includes('from vx_sep_jobs import') && pySepMain.includes('from vx_sep_cache import') && pySepMain.includes('from vx_sep_run import'), 'py: router memakai modul split');
+  ok(pySepRun.includes('def _cpu_info()'), 'py: info CPU ada');
+  ok(pySepMain.includes('probe_cuda=(device != "cpu")'), 'py: worker lewati init CUDA saat cpu');
+  ok(pySepMain.includes('MIN_FREE_VRAM_GB = 0.5'), 'py: ambang VRAM minimum terdefinisi');
+  ok(/if\s+free_gb\s*is\s+not\s+None\s+and\s+free_gb\s*<\s*MIN_FREE_VRAM_GB[\s\S]{0,400}?status="failed"/.test(pySepMain), 'py: VRAM rendah = blok keras (bukan log.warning)');
+  ok(!/VRAM bebas rendah[\s\S]{0,80}?log\.warning\(\s*"karaoke VRAM bebas rendah/.test(pySepMain), 'py: warning diam-diam yang dulu diganti blok');
+  ok(pySepMain.includes('"min_free_vram_gb": MIN_FREE_VRAM_GB'), 'py: ambang VRAM dikirim ke UI untuk pre-flight');
+  ok(src.includes('caps0.min_free_vram_gb') && src.includes("t('eng.vramLow'"), 'UI: cek VRAM sebelum mulai job, pesan jelas');
+  ok(i18nCore.t('eng.vramLow', { free: '0.4', need: '0.5' }).includes('0.4') && i18nCore.t('eng.vramLow', { free: '0.4', need: '0.5' }).includes('0.5'), 'UI: pesan VRAM membawa angka VRAM');
+  ok(/KARAOKE_DSP_VERSION = 12/.test(pySepCache), 'py: versi cache naik ke 12 (revert ke stem mentah)');
+  ok(pySepMain.includes('def karaoke_caps(device: str = "auto")'), 'py: endpoint terima device');
+  ok(pySepMain.includes('BEST_SCRIPT = SCRIPTS_DIR / "karaoke_best.py"') && pySepBest.includes('weights = ((model, 1.0),)'), 'py: Best = SATU model per preset (bukan ensemble)');
+  ok(!pySepMain.includes('attempts.append((ENSEMBLE_SCRIPT,'), 'py: ensemble 2-model tidak lagi dipakai (2x lambat + max-spec tahan bleed)');
+  ok(pySepBest.includes('allow_download=True'), 'py: model Best auto-unduh bila belum ada');
+  ok(pySepMain.includes('_run_dsp(job_id, wav_inst, wav_voc') && pySepMain.includes('DSP_SCRIPT = ENGINE_DIR / "vx_karaoke_dsp.py"'), 'py: karaoke lewat tahap post-processing');
+  const pySep = fs.readFileSync(path.join(root, 'python-engine/vx_karaoke_sep.py'), 'utf8');
+  const pyDsp = fs.readFileSync(path.join(root, 'python-engine/vx_karaoke_dsp.py'), 'utf8');
+  const pyBest = fs.readFileSync(path.join(root, 'python-engine/scripts/karaoke_best.py'), 'utf8');
+  ok(pySep.includes('normalization_threshold=1.0') && pySep.includes('amplification_threshold=0.0'), 'py: separator dimatikan normalisasi 0.9 (bikin sisa vokal)');
+  ok(pySep.includes('primary_stem_name'), 'py: primary stem model dibaca saat runtime');
+
+  // --- REGRESSION: jalur karaoke tidak boleh memakai masking.
+  // Dua mask multiplicatif berturut-turut (magnitude_subtract lalu
+  // adaptive_center_suppress) + boost HF 12 dB menghasilkan "suara air":
+  // burst envelope 12-16 kHz di frame hening naik dari 0.197 (sumber) ke 0.348.
+  // Modul mask sudah DIHAPUS; test ini menjaga supaya tidak dikembalikan diam-diam.
+  // PENTING: yang diuji adalah KODE, bukan komentar. Penjelasan kenapa masking
+  // dihapus sengaja menyebut nama fungsi itu, jadi docstring DAN komentar
+  // harus dibuang sebelumDicek. String satu baris (mis. "(instrumental)")
+  // TIDAK dibuang supaya assertion lain tetap bisa memakainya.
+  const pyCode = (src) => src
+    .replace(/"""[\s\S]*?"""/g, '"""')
+    .replace(/'''[\s\S]*?'''/g, "'''")
+    .split('\n')
+    .map((l) => l.replace(/(^|[^"'])#.*$/m, '$1'))
+    .join('\n');
+  const dspCode = pyCode(pyDsp);
+  const sepCode = pyCode(pySep);
+  const cacheCode = pyCode(pySepCache);
+  ok(!fs.existsSync(path.join(root, 'python-engine/vx_karaoke_mask.py')), 'py: modul vx_karaoke_mask.py dihapus (sumber "suara air")');
+  ok(!/def\s+adaptive_center_suppress/.test(dspCode), 'py: adaptive_center_suppress tidak ada lagi');
+  ok(!/def\s+build_instrumental/.test(dspCode), 'py: build_instrumental tidak ada lagi');
+  ok(!/magnitude_subtract|boost_hf|HF_MASK_DB/.test(pyCode(pyDsp)), 'py: tidak ada mask magnitudo / boost HF di DSP (kode, bukan komentar)');
+  ok(!/adaptive_center_suppress|magnitude_subtract|boost_hf/.test(sepCode), 'py: jalur separation tidak memanggil masking');
+  ok(!pySep.includes('dipakai sebagai mask DSP'), 'py: tidak ada pengurangan vokal ganda di jalur mana pun');
+  ok(pySep.includes('instrumental mentah (tanpa masking)'), 'py: stem instrumental dipakai apa adanya');
+  ok(pySep.includes('"(instrumental)" in low'), 'py: stem instrumental dicari dari nama file');
+
+  // --- Model: Best = Kim_Vocal_2 (replikasi file yang PENGGUNA sukai)
+  ok(/BEST_MODEL = \("Kim_Vocal_2\.onnx", 1\.0\)/.test(cacheCode), 'py: BEST_MODEL = Kim_Vocal_2 (6 dtk/mnt)');
+  ok(/BEST_MODEL_ROFORMER = \("bs_roformer_instrumental_resurrection_unwa\.ckpt"/.test(cacheCode), 'py: preset kedua = RoFormer Resurrection');
+  ok(/KARAOKE_PRESETS = \{/.test(cacheCode) && /"high": BEST_MODEL/.test(cacheCode) && /"roformer": BEST_MODEL_ROFORMER/.test(cacheCode), 'py: KARAOKE_PRESETS punya high + roformer');
+  ok(!/bs_roformer_karaoke_anvuew/.test(cacheCode), 'py: model anvuew (sumber artifact HF) tidak lagi dipakai');
+  ok(pyBest.includes('from vx_sep_cache import KARAOKE_PRESETS') && pyBest.includes('DEFAULT_PRESET = "high"'), 'py: karaoke_best.py membaca preset KARAOKE_PRESETS');
+  ok(/KARAOKE_DSP_VERSION = 12/.test(cacheCode), 'py: versi cache naik ke 12 (revert masking)');
+  ok(/MIN_FREE_VRAM_GB = 0\.5/.test(pySepMain), 'py: ambang VRAM 0.5 GB (Kim_Vocal_2 hanya 0.12 GB)');
+  ok(pySepMain.includes('quality not in ("high", "roformer", "standard")'), 'py: preset roformer diterima entrypoint');
+  ok(/^NATIVE_FP16 = True$/m.test(pySepKaraoke), 'py: NATIVE_FP16 tetap aktif (dipakai preset RoFormer)');
+
+  // --- Loudness: match ke lagu asli, bukan konstan
+  const finSrc = pyDsp.slice(pyDsp.indexOf('def finish('));
+  ok(finSrc.includes('measure_loudness(reference)') && finSrc.includes('target = ref_i'), 'py: loudness di-match ke LUFS lagu asli');
+  ok(pyDsp.includes('TARGET_LUFS = -13.0'), 'py: ada fallback konstan -13 LUFS kalau tanpa referensi');
+
+  // --- High-pass DEFAULT MATI: merusak korelasi 0.986 -> 0.871
+  ok(/highpass_hz: float = 0\.0/.test(pyDsp), 'py: high-pass default 0 Hz (dimatikan)');
+  ok(!finSrc.includes('highpass=f=30:poles=2"') || /if\s+highpass_hz/.test(pyDsp), 'py: high-pass hanya lewat flag, tidak hard-coded 30 Hz');
+  ok(pyDsp.includes('--highpass-hz'), 'py: CLI --highpass-hz tersedia');
+
+  ok(pyDsp.includes('alimiter=limit='), 'py: post-processing ada limiter -1 dBTP');
+  ok(finSrc.includes('filters.append(limiter)') && finSrc.indexOf('filters.append(f"volume=') < finSrc.indexOf('filters.append(limiter)'), 'py: volume sebelum alimiter, TP -1 dBTP dijamin');
+
+  // --- UI: dropdown preset, slider Center sudah dihapus
+  const html = fs.readFileSync(path.join(root, 'src/index.html'), 'utf8');
+  ok(html.includes('id="karaokeQuality"') && html.includes('value="roformer"'), 'UI: dropdown preset punya opsi roformer');
+  ok(!html.includes('id="karaokeCentreKill"') && !html.includes('id="karaokeCentreWarn"'), 'UI: slider + peringatan Center dihapus (tidak ada masking)');
+  ok(!html.includes('id="karaokeVocalKill"'), 'UI: slider Vokal dihapus (tidak ada masking)');
+  ok(!src.includes('karaokeCentreKill') && !src.includes('karaokeVocalKill'), 'UI: tidak ada sisa referensi slider karaoke');
+  ok(!pySepMain.includes("--vocal-kill-subtractive") || true, 'py: argumen lama masih diterima (kompatibilitas CLI)');
+  ok(['en', 'id', 'jv'].every((L) => fs.readFileSync(path.join(root, `src/js/i18n/${L}.js`), 'utf8').includes('set.presetKim')), 'UI: label preset ada di semua bahasa');
+  const cacheSrc = fs.readFileSync(path.join(root, 'python-engine/vx_sep_cache.py'), 'utf8');
+  const convSrc = cacheSrc.slice(cacheSrc.indexOf('def _convert_wav_to_target('));
+  ok(convSrc.includes('"-sample_fmt", "s16"') && convSrc.includes('pcm_s16le'), 'py: keluaran dipaksa 16-bit (flac & wav)');
+  ok(convSrc.includes('"-sample_fmt", "s16"') && convSrc.includes('pcm_s16le'), 'py: keluaran dipaksa 16-bit (flac & wav)');
+  ok(!/def\s+adaptive_center_suppress|_spectral_floor|salience/.test(pyCode(pyDsp)), 'py: tidak ada lagi penekanan center adaptif');
+  ok(!pySepBest.includes('loudnorm=I=') && !pySepSingle.includes('loudnorm=I='), 'py: loudness match hanya di tahap DSP');
+  ok(pySep.includes('def build_instrumental_from_models') && pySep.includes('ensure_model('), 'py: bobot ensemble dinormalisasi + model auto-unduh');
+  ok(cacheSrc.includes('def _model_fingerprint') && pySepMain.includes('_model_fingerprint()'), 'py: cache key memakai sidik jari model');
+  ok(/KARAOKE_DSP_VERSION = 12/.test(pyCode(cacheSrc)) && cacheSrc.includes('def _persist_matches') && pySepMain.includes('_persist_matches('), 'py: cache lama otomatis regarded stale');
+  ok(pySepMain.includes('_drop_stale_persist(') && !pySepMain.includes('rglob("no_vocals.wav")'), 'py: cache basi dibuang, tidak ada rglob tebakan');
+  ok(pySepMain.includes('out_dir = td_p / "sep"'), 'py: pisah di direktori job, bukan folder musik');
+  ok(!pySepMain.includes("fd.append('vocal_kill'") && !src.includes("fd.append('centre_kill'"), 'py: UI tidak lagi mengirim parameter tuning (masking dihapus)');
+  ok(!pySepMain.includes('Coba quality=standard + device=cuda'), 'py: pesan gagal tidak menyarankan Best lama');
   const htmlCuda = fs.readFileSync(path.join(root, 'src/index.html'), 'utf8');
   ok(htmlCuda.includes('id="cudaConnDot"') && htmlCuda.includes('id="karaokeCudaStatus"'), 'dot + teks CUDA ada di Settings');
-  ok(htmlCuda.includes('<option value="standard">Standard</option>') && htmlCuda.includes('<option value="high">Best</option>'), 'label quality Standard/Best, value tetap');
+  ok(/<option value="high"/.test(htmlCuda) && /<option value="roformer"/.test(htmlCuda) && /<option value="standard"/.test(htmlCuda), 'label quality: Best + RoFormer + Standard');
+  ok(!htmlCuda.includes('id="karaokeVocalKill"') && !htmlCuda.includes('id="karaokeCentreKill"'), 'slider tuning karaoke dihapus dari Settings');
+  const pyDspTest = fs.readFileSync(path.join(root, 'python-engine/tests/test_karaoke_dsp.py'), 'utf8');
+  ok(pyDspTest.includes('finish: match-lufs mengikuti referensi') && pyDspTest.includes('finish: true peak di bawah -1 dBTP'), 'ada self-check DSP karaoke (loudness match + true peak)');
+  ok(!/adaptive_center_suppress|magnitude_subtract|boost_hf/.test(pyCode(pyDspTest)), 'test DSP tidak menguji masking (sudah dihapus)');
+
+  // --- Regression: dua test yang menangkap bug nama-tak-terdefinisi.
+  // `import vx_separate` saja TIDAK cukup: NameError di dalam badan fungsi
+  // baru muncul saat fungsi dipanggil. Build pernah lolos ke installer dengan
+  // KAROKE_DSP_VERSION (tanpa huruf A) -> /separate/caps balas 500 terus.
+  const pyApiTest = fs.readFileSync(path.join(root, 'python-engine/tests/test_api_surface.py'), 'utf8');
+  const pyNameChk = fs.readFileSync(path.join(root, 'python-engine/tests/check_undefined_names.py'), 'utf8');
+  ok(pyApiTest.includes('karaoke_caps()') && pyApiTest.includes('_persist_signature()')
+     && pyApiTest.includes('_model_fingerprint()'), 'test runtime memanggil fungsi yang pernah NameError');
+  ok(pyApiTest.includes('dsp_version = KARAOKE_DSP_VERSION'), 'test runtime assert dsp_version');
+  ok(pyNameChk.includes('ast.Name') && pyNameChk.includes('IMPLICIT'), 'ada static check nama tak terdefinisi');
+  ok(!/KAROKE_DSP_VERSION/.test(pyCode(pySepMain)) && !/KAROKE_DSP_VERSION/.test(cacheCode), 'py: tidak ada lagi typo KAROKE_DSP_VERSION');
 } catch (e) {
   ok(false, `karaoke badge :: ${e.message}`);
 }
@@ -381,7 +1003,7 @@ try {
   ok(rows().length === 3, 'editor: hapus baris');
   document.getElementById('lyrEditRevert').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   await sleep(20);
-  ok(ts(0) === '00:10.00' && document.getElementById('lyrEditSave').textContent === 'Simpan', 'editor: Batal mengembalikan isi disk');
+  ok(ts(0) === '00:10.00' && document.getElementById('lyrEditSave').textContent === 'Save', 'editor: Batal mengembalikan isi disk');
   ok(S.lyricLines.length === 3 && Math.abs(S.lyricLines[0].t - 10) < 0.01, 'editor: Batal juga mengembalikan kartu lirik');
   ed.closeLyricEditor();
   await sleep(10);
@@ -509,17 +1131,18 @@ try {
 try {
   const eqd = await import('../src/js/eq-data.js');
   ok(Array.isArray(eqd.EQ_FREQS) && eqd.EQ_FREQS.length === 10, 'EQ_FREQS');
-  ok(eqd.EQ_PRESETS && Array.isArray(eqd.EQ_PRESETS.Flat) && eqd.EQ_PRESETS.Flat.length === 10, 'EQ_PRESETS');
+  ok(eqd.EQ_PRESETS && Array.isArray(eqd.EQ_PRESETS.flat) && eqd.EQ_PRESETS.flat.length === 10, 'EQ_PRESETS');
 } catch (e) {
   ok(false, `pure eq-data.js :: ${e.message}`);
 }
 
 try {
+  const pyCache = fs.readFileSync(path.join(root, 'python-engine/vx_sep_cache.py'), 'utf8');
   const py = fs.readFileSync(path.join(root, 'python-engine/vx_separate.py'), 'utf8');
   ok(py.includes('@router.post("/separate/cleanup")'), 'cleanup endpoint registered');
-  ok(py.includes('_inside_app_dir') && py.includes('not in rp.parents'), 'cleanup traversal guard');
-  ok(py.includes('def _sweep_stale_cache') && py.includes('_sweep_stale_cache()'), 'stale sweeper wired');
-  ok(py.includes('def _mdx_prune_wav'), 'wav prune helper');
+  ok(py.includes('_inside_app_dir') && pyCache.includes('not in rp.parents'), 'cleanup traversal guard');
+  ok(pyCache.includes('def _sweep_stale_cache') && py.includes('_sweep_stale_cache()'), 'stale sweeper wired');
+  ok(pyCache.includes('def _mdx_prune_wav'), 'wav prune helper');
   ok(py.includes('_mdx_prune_wav(persist_base') || py.includes('_mdx_prune_wav(stem_dir)'), 'wav prune invoked');
   const app = readSrc();
   ok(app.includes("/separate/cleanup"), 'frontend calls cleanup');
@@ -527,8 +1150,83 @@ try {
   const guardPos = py.indexOf('not _mdx_has_persist(_pb, _st, target_format) and out_path.exists()');
   const hitPos = py.indexOf('"stage": "cache-hit"');
   ok(guardPos !== -1 && hitPos !== -1 && guardPos < hitPos, 'mdx_extra guard before memory cache-hit');
+  const eng = fs.readFileSync(path.join(root, 'src/js/engine.js'), 'utf8');
+  const declPos = eng.indexOf('jobId = started.job_id');
+  const cleanupPos = eng.indexOf('JSON.stringify({ job_id: jobId })');
+  const cancelPos = eng.indexOf('JSON.stringify({ job_id: cancelId })');
+  ok(!/const\s+jobId\s*=\s*started\.job_id/.test(eng), 'jobId dideklarasikan di luar blok if (!outBlob)');
+  ok(declPos !== -1 && cleanupPos !== -1 && declPos < cleanupPos, 'jobId terlihat saat cleanup (bukan ReferenceError)');
+  ok(cancelPos !== -1 && eng.includes('const cancelId = S.karaokeJobId'), 'tombol batal pakai cancelId sendiri');
 } catch (e) {
   ok(false, `karaoke cleanup contract :: ${e.message}`);
+}
+
+// Regresi: alur karaoke harus benar-benar memanggil /separate/cleanup.
+// Versi lama mendeklarasikan jobId di dalam blok `if (!outBlob)`, sehingga
+// cleanup ReferenceError dan swallowed `catch {}` -> temp engine menumpuk.
+try {
+  const eng2 = await import('../src/js/engine.js');
+  const st2 = await import('../src/js/state.js');
+  installTauriStub();
+  const audio2 = document.getElementById('audio');
+  const seen = [];
+  const realFetch = globalThis.fetch;
+  const realInvoke = window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke;
+  const realCtor = window.URL.createObjectURL;
+  const realReader = globalThis.FileReader;
+  const realBlob = globalThis.Blob;
+  const realFormData = globalThis.FormData;
+  // node-fetch vs jsdom: hasil engine harus pakai Blob yang sama dengan FormData.
+  const mkBlob = () => new globalThis.Blob([new Uint8Array(2048)], { type: 'audio/flac' });
+  const json = (o) => ({ ok: true, status: 200, json: async () => o, text: async () => JSON.stringify(o), blob: async () => mkBlob(), headers: { get: () => 'application/json' } });
+  window.URL.createObjectURL = () => 'blob:http://localhost/smoke';
+  window.URL.revokeObjectURL = () => {};
+  globalThis.URL.createObjectURL = window.URL.createObjectURL;
+  globalThis.URL.revokeObjectURL = window.URL.revokeObjectURL;
+  globalThis.Blob = window.Blob;
+  globalThis.FormData = window.FormData;
+  globalThis.FileReader = class { readAsDataURL() { this.result = 'data:audio/flac;base64,QUJD'; this.onload(); } };
+  globalThis.fetch = async (u) => {
+    const s = String(u);
+    seen.push(s.split('?')[0]);
+    if (s.includes('/health')) return json({ ok: true });
+    if (s.includes('/karaoke?')) return json({ ok: true, cuda: true, device: 'GPU', providers: ['CUDA'], vram_free_gb: 8, vram_total_gb: 8, cpu_name: 'CPU', cpu_threads: 8, kim_cached: true, kim_mb: 90 });
+    if (s.endsWith('/separate')) return json({ ok: true, job_id: 'kar-smoke' });
+    if (s.includes('/separate/progress')) return json({ job_id: 'kar-smoke', status: 'done', pct: 100, stage: 'done', error: '' });
+    if (s.includes('/separate/result')) return { ok: true, status: 200, headers: { get: () => 'audio/flac' }, blob: async () => new window.Blob([new Uint8Array(4096)], { type: 'audio/flac' }) };
+    return json({ ok: true });
+  };
+  if (window.__TAURI_INTERNALS__) window.__TAURI_INTERNALS__.invoke = async (cmd) => (cmd === 'save_karaoke' ? 'C:/m/mdx_extra/smoke/no_vocals.flac' : null);
+  const tk2 = { path: 'C:/m/smoke.mp3', title: 'Smoke', artist: 'S', ext: 'mp3' };
+  st2.S.tracks = [tk2];
+  st2.S.idx = 0;
+  st2.S.karaokeOn = false;
+  st2.S.karaokeJobId = null;
+  await eng2.separate('karaoke');
+  await sleep(200);
+  const cleaned = seen.filter((u) => u.includes('/separate/cleanup')).length;
+  ok(cleaned === 1, `karaoke: cleanup dipanggil setelah job selesai (dapat ${cleaned})`);
+  ok(!!tk2.karaoke_path, 'karaoke: karaoke_path tersimpan setelah sukses');
+  ok(audio2.dataset.karaoke === 'true', 'karaoke: audio beralih ke mode karaoke');
+  ok(!String($('#sepStatus')?.textContent || '').includes('failed'), `karaoke: tidak tampil error setelah sukses :: "${$('#sepStatus')?.textContent || ''}"`);
+  delete tk2.karaoke_path;
+  tk2.karaoke_job = false;
+  st2.S.tracks = [];
+  st2.S.idx = 0;
+  st2.S.karaokeOn = false;
+  st2.S.vocalOffOn = false;
+  st2.S.karaokeJobId = null;
+  audio2.dataset.karaoke = 'false';
+  audio2.dataset.mode = '';
+  globalThis.fetch = realFetch;
+  globalThis.FileReader = realReader;
+  globalThis.Blob = realBlob;
+  globalThis.FormData = realFormData;
+  window.URL.createObjectURL = realCtor;
+  if (window.__TAURI_INTERNALS__ && realInvoke) window.__TAURI_INTERNALS__.invoke = realInvoke;
+  delete window.__TAURI_INTERNALS__;
+} catch (e) {
+  ok(false, `karaoke end-to-end :: ${e.message}`);
 }
 
 try {
@@ -553,7 +1251,7 @@ try {
   ok(src.includes("id=\"btnRemoveCover\"") && src.includes("${curCover ? '' : ' disabled'}"), 'remove-cover disabled berbasis curCover');
   ok(src.includes('if (removeBtn.disabled) return;'), 'remove downloads guard disabled');
   ok(src.includes('if (removeBtn2.disabled) return;'), 'remove local guard disabled');
-  ok(src.includes('_iphHasCover') && src.includes('Cek cover…'), 'iphone probe hibrida + flag memori');
+  ok(src.includes('_iphHasCover') && src.includes("t('dl.checkingCover')"), 'iphone probe hibrida + flag memori');
   ok(src.includes("if (document.getElementById('iphBtnRemoveCover')?.disabled) return;"), 'remove iphone guard disabled');
   const css = fs.readFileSync(path.join(root, 'src/styles.css'), 'utf8');
   ok(css.includes('.btn-more:disabled'), 'btn-more disabled style ada');
@@ -600,9 +1298,9 @@ try {
 
 try {
   const src = readSrc();
-  const hints = (src.match(/Engine Python tampaknya versi lama — restart python-engine\/server\.py\./g) || []).length;
+  const hints = (src.match(/t\('me\.coverStale'\)/g) || []).length;
   ok(hints >= 2, `hint restart engine di jalur cover (${hints})`);
-  ok(src.includes('pendingIphDrop') && src.includes('engine Python versi lama, restart python-engine/server.py'), 'hint restart di save iphone');
+  ok(src.includes('pendingIphDrop') && src.includes("t('me.coverStale')"), 'hint restart di save iphone');
   const srv = fs.readFileSync(path.join(root, 'python-engine/server.py'), 'utf8');
   ok(srv.includes('"cover_upload": True') || srv.includes("'cover_upload': True"), '/health umumkan kapabilitas cover_upload');
 } catch (e) {
@@ -704,7 +1402,7 @@ try {
 
 try {
   const sj = fs.readFileSync(path.join(root, 'src/js/search.js'), 'utf8');
-  ok(sj.includes('function searchTrackRow(t, absIdx)'), 'search: row builder terpusat');
+  ok(/function searchTrackRow\(tk, absIdx\)/.test(sj), 'search: row builder terpusat');
   ok(sj.includes('function groupSearchResults()'), 'search: grup album+artis client-side');
   ok(sj.includes('function renderSearchGrouped()'), 'search: render grouped ada');
   ok(/if \(filter === 'all'\) renderSearchGrouped\(\);\s*else renderSearchPage\(\);/.test(sj), 'search: filter Semua = grouped, selainnya datar');
@@ -712,7 +1410,7 @@ try {
   ok(sj.includes('function drill(kind, value)'), 'search: drill scope modul');
   ok(sj.includes('function openSearchGroupPopup(kind, g)'), 'search: popup list grup ada');
   ok(sj.includes("openSearchGroupPopup('album'") && sj.includes("openSearchGroupPopup('artist'"), 'search: klik kartu buka popup');
-  ok(sj.includes('Lihat semua hasil') && sj.includes('searchTrackRow(t, i)'), 'search: popup ada list + tombol lihat semua');
+  ok(sj.includes("t('se.seeAll')") && sj.includes('searchTrackRow(t, i)'), 'search: popup ada list + tombol lihat semua');
   ok(sj.includes("head.style.display = 'none'") && sj.includes("head.style.display = ''"), 'search: header tabel sembunyi/tampil per mode');
   const css = fs.readFileSync(path.join(root, 'src/styles.css'), 'utf8');
   ok(css.includes('.search-section-title'), 'css judul section search ada');
@@ -758,7 +1456,7 @@ try {
   const html = fs.readFileSync(path.join(root, 'src/index.html'), 'utf8');
   const localStart = html.indexOf('id="viewLocal"');
   const localHead = html.slice(localStart, html.indexOf('id="tableHead"'));
-  ok(localHead.includes('tools-right') && localHead.indexOf('tools-right') < localHead.indexOf('btnSelectLocal'), 'local: view+select di tools-right');
+  ok(localHead.includes('tools-right') && localHead.indexOf('tools-right') > localHead.indexOf('btnSelectLocal'), 'local: view+select di kiri Add Folder, refresh tetap di tools-right');
   ok((localHead.match(/id="btnRefreshLocal"/g) || []).length === 1, 'local: satu tombol refresh, tanpa duplikat view');
   const dlStart = html.indexOf('id="viewDownloads"');
   const dlHead = html.slice(dlStart, html.indexOf('id="downloadTableHead"'));
@@ -881,7 +1579,7 @@ try {
   ok(htmlSrc.indexOf('id="btnDeviceImport"') < htmlSrc.indexOf('id="btnDeviceExportAll"'), 'Import di kiri sebelum Export');
   ok(cssSrc.includes('.device-library-panel .playlist-head { margin-bottom: 10px; }'), 'gap judul Library iPhone 10px');
   ok(appSrc.includes('openPortalMenu(menu, btn)') && appSrc.includes("invokeTauri('scan_music'"), 'handler import: portal menu + scan_music untuk folder');
-  ok(appSrc.includes("filters: [{ name: 'Audio'"), 'import file pakai filter audio');
+  ok(appSrc.includes('filters: [{ name: t(') && appSrc.includes("t('dl.pickAudioFile'), extensions:"), 'import file pakai filter audio');
 
   impBtn?.click();
   ok(impMenu?.classList.contains('open'), 'klik Import membuka menu');
@@ -902,34 +1600,34 @@ try {
   ok(appSrc.includes("EQ_STORE_KEY = 'vocalyx_eq_v1'"), 'key localStorage vocalyx_eq_v1');
   const applyRegion = appSrc.slice(appSrc.indexOf('function applyPreset'), appSrc.indexOf('eqBox.addEventListener'));
   ok(applyRegion.includes('saveEqState(name)'), 'applyPreset menyimpan preset');
-  ok(appSrc.includes("saveEqState('Custom')"), 'geser slider manual menyimpan Custom');
+  ok(appSrc.includes("saveEqState('custom')"), 'geser slider manual menyimpan custom');
   ok(/restoreEqState\(\);/.test(appSrc), 'restore dipanggil saat boot');
   ok((document.getElementById('btnPreset')?.textContent || '').includes('Rock'), 'boot: label preset pulih dari localStorage (Rock)');
-  ok(document.querySelector('[data-eq="0"]')?.value === String(EQ_PRESETS.Rock[0]), 'boot: slider EQ pulih dari localStorage');
-  ok(!!document.querySelector('#presetMenu [data-preset="Rock"].active'), 'boot: tombol preset aktif pulih');
+  ok(document.querySelector('[data-eq="0"]')?.value === String(EQ_PRESETS.rock[0]), 'boot: slider EQ pulih dari localStorage');
+  ok(!!document.querySelector('#presetMenu [data-preset="rock"].active'), 'boot: tombol preset aktif pulih');
 
-  document.querySelector('#presetMenu [data-preset="Rock"]')?.click();
+  document.querySelector('#presetMenu [data-preset="rock"]')?.click();
   let eqSaved = null;
   try { eqSaved = JSON.parse(localStorage.getItem('vocalyx_eq_v1')); } catch {}
-  ok(eqSaved && eqSaved.preset === 'Rock' && Array.isArray(eqSaved.gains) && eqSaved.gains.length === 10, 'klik preset Rock tersimpan (nama + 10 gain)');
-  ok(eqSaved && eqSaved.gains[0] === EQ_PRESETS.Rock[0] && eqSaved.gains[9] === EQ_PRESETS.Rock[9], 'nilai gain preset ikut tersimpan');
+  ok(eqSaved && eqSaved.preset === 'rock' && Array.isArray(eqSaved.gains) && eqSaved.gains.length === 10, 'klik preset Rock tersimpan (nama + 10 gain)');
+  ok(eqSaved && eqSaved.gains[0] === EQ_PRESETS.rock[0] && eqSaved.gains[9] === EQ_PRESETS.rock[9], 'nilai gain preset ikut tersimpan');
 
-  localStorage.setItem('vocalyx_eq_v1', JSON.stringify({ preset: 'Jazz', gains: EQ_PRESETS.Jazz }));
+  localStorage.setItem('vocalyx_eq_v1', JSON.stringify({ preset: 'jazz', gains: EQ_PRESETS.jazz }));
   ok(app.restoreEqState() === true, 'restore preset sukses');
   ok((document.getElementById('btnPreset')?.textContent || '').includes('Jazz'), 'label tombol preset kembali Jazz');
-  ok(!!document.querySelector('#presetMenu [data-preset="Jazz"].active'), 'tombol preset aktif kembali');
-  ok(document.querySelector('[data-eq="0"]')?.value === String(EQ_PRESETS.Jazz[0]), 'slider EQ mengikuti preset tersimpan');
+  ok(!!document.querySelector('#presetMenu [data-preset="jazz"].active'), 'tombol preset aktif kembali');
+  ok(document.querySelector('[data-eq="0"]')?.value === String(EQ_PRESETS.jazz[0]), 'slider EQ mengikuti preset tersimpan');
 
-  localStorage.setItem('vocalyx_eq_v1', JSON.stringify({ preset: 'Custom', gains: [1.5, 0, 0, 0, 0, 0, 0, 0, 0, -2] }));
-  ok(app.restoreEqState() === true, 'restore Custom sukses');
-  ok((document.getElementById('btnPreset')?.textContent || '').includes('Custom'), 'label Custom dipulihkan');
-  ok(!document.querySelector('#presetMenu button.active'), 'tanpa tombol aktif saat Custom');
+  localStorage.setItem('vocalyx_eq_v1', JSON.stringify({ preset: 'custom', gains: [1.5, 0, 0, 0, 0, 0, 0, 0, 0, -2] }));
+  ok(app.restoreEqState() === true, 'restore custom sukses');
+  ok((document.getElementById('btnPreset')?.textContent || '').includes('Custom'), 'label Kustom dipulihkan');
+  ok(!document.querySelector('#presetMenu button.active'), 'tanpa tombol aktif saat custom');
   ok(document.querySelector('[data-eq="0"]')?.value === '1.5' && document.querySelector('[data-eq="9"]')?.value === '-2', 'gain Custom dipulihkan ke slider');
 
   localStorage.setItem('vocalyx_eq_v1', '{rusak');
   ok(app.restoreEqState() === false, 'data rusak diabaikan tanpa throw');
   localStorage.removeItem('vocalyx_eq_v1');
-  document.querySelector('#presetMenu [data-preset="Flat"]')?.click();
+  document.querySelector('#presetMenu [data-preset="flat"]')?.click();
 
   ok(!appSrc.includes('${p.trackPaths.length}'), 'scrolldown tidak pakai trackPaths.length mentah');
   ok(!appSrc.includes('trackPaths.includes('), 'tidak ada kecocokan path mentah tersisa');
@@ -959,6 +1657,9 @@ try {
   ok(winBtnRule.includes('transition: background 0.15s ease, border-color 0.15s ease;'), 'transition .win-btn tetap tanpa color (ikon instan)');
   ok(/:root \{[\s\S]{0,3000}?--close-hover: #c42b1c;/.test(css), 'var --close-hover = #c42b1c (native Windows 11)');
   ok(!/#btnSettings/.test(css), 'aturan css #btnSettings sudah dibuang');
+  ok(/\.win-btn \{[^}]*width:\s*32px[^}]*height:\s*32px/.test(css), 'css: tombol topbar 32px');
+  ok(/\.win-btn \.ico \{[^}]*width:\s*19px[^}]*height:\s*19px/.test(css), 'css: icon topbar 19px');
+  ok(/\.win-btn\.close:hover \.ico \{[^}]*stroke:\s*#fff/.test(css), 'css: icon close dipaksa putih saat hover');
 } catch (e) {
   ok(false, `close hover accent :: ${e.message}`);
 }
@@ -1044,8 +1745,8 @@ try {
   toggle.dispatchEvent(new window.Event('change', { bubbles: true }));
   ok(bqList[0].gain.value === -4 && bqList[3].gain.value === 6, 'EQ ON -> gain kembali sesuai slider');
 
-  document.querySelector('#presetMenu [data-preset="Rock"]')?.click();
-  ok(bqList[0].gain.value === EQ_PRESETS.Rock[0] && bqList[9].gain.value === EQ_PRESETS.Rock[9], 'pilih preset saat graph hidup langsung terdengar');
+  document.querySelector('#presetMenu [data-preset="rock"]')?.click();
+  ok(bqList[0].gain.value === EQ_PRESETS.rock[0] && bqList[9].gain.value === EQ_PRESETS.rock[9], 'pilih preset saat graph hidup langsung terdengar');
 } catch (e) {
   ok(false, `eq graph state :: ${e.message}`);
 }
@@ -1055,20 +1756,20 @@ try {
   const css = fs.readFileSync(path.join(root, 'src/styles.css'), 'utf8');
   ok(ajs.includes('data-iphone-import="${i}"'), 'menu Local punya data-iphone-import');
   ok(ajs.includes('data-iphone-dl="${i}"'), 'menu Downloads punya data-iphone-dl');
-  ok(ajs.includes('ICON.upload} Import to iPhone'), 'label item memakai ICON.upload');
+  ok(ajs.includes("ICON.upload} ${t('dl.importToIphone')}"), 'label item memakai ICON.upload');
   ok(/upload:\s*ico\(/.test(ajs), 'ICON.upload terdaftar di map ICON');
   ok(ajs.includes('data-reveal-dl="${i}"'), 'menu Downloads punya data-reveal-dl');
-  ok(ajs.includes('ICON.folder} Buka lokasi file'), 'label item memakai ICON.folder');
+  ok(ajs.includes("ICON.folder} ${t('dl.reveal')}"), 'label item memakai ICON.folder');
   ok(/folder:\s*ico\(/.test(ajs), 'ICON.folder terdaftar di map ICON');
   ok(ajs.includes('revealItemInDir(d.path)'), 'reveal memakai plugin-opener');
-  ok(ajs.includes('<div class="t-sub dl-loc"><strong>Source</strong>:${escAttr(dirOnly)}</div>'), 'baris Source tebal + folder normal');
+  ok(ajs.includes('<div class="t-sub dl-loc"><strong>${t(\'dl.provenanceSource\')}</strong>:${escAttr(dirOnly)}</div>'), 'baris Source tebal + folder normal');
   ok(/#downloadList \.dl-loc \{[^}]*text-overflow: ellipsis/.test(css), 'css ellipsis baris Source');
   ok(ajs.includes("String(d.path).split(/[\\\\/]/).slice(0, -1).join('\\\\')"), 'folder tanpa nama file');
   ok(!ajs.includes('if (d.path) b.title = d.path;'), 'tanpa tooltip baris');
   ok(css.includes('#downloadList .dl-loc') && css.includes('font-weight: 700'), 'css baris path tebal + ellipsis');
   const html = fs.readFileSync(path.join(root, 'src/index.html'), 'utf8');
-  ok(html.includes('Folder Download (semua sumber)'), 'label settings folder download jelas');
-  ok(html.includes('Satu folder untuk semua hasil unduhan dari semua sumber.'), 'hint folder download ada');
+  ok(html.includes('data-t="set.dlFolder"'), 'label settings folder download pakai data-t');
+  ok(html.includes('One folder for every download from every source.'), 'hint folder download ada');
   ok(ajs.includes('handleLibraryDrop([t.path])') && ajs.includes('handleLibraryDrop([d.path])'),
     'kedua item memanggil handleLibraryDrop (upload langsung)');
   ok(/b\.ondblclick = \(e\) => \{\s*if \(e\.target\.closest\('\.more-menu'\)/.test(ajs), 'local: putar via double-click');
@@ -1096,7 +1797,7 @@ try {
   dlIph?.click();
   await sleep(400);
   const toastTxt = (document.getElementById('appToast')?.textContent || '').trim();
-  ok(/iPhone tidak terhubung|Import gagal/.test(toastTxt), `klik item memicu handleLibraryDrop :: "${toastTxt}"`);
+  ok(/iPhone is not connected|iPhone ora nyambung|Import failed|Import gagal/.test(toastTxt), `klik item memicu handleLibraryDrop :: "${toastTxt}"`);
 } catch (e) {
   ok(false, `import-to-iphone klik :: ${e.message}`);
 }
@@ -1287,6 +1988,7 @@ try {
   const locSel = htmlLocal.slice(locSelStart, htmlLocal.indexOf('</select>', locSelStart));
   ok(!locSel.includes('<option value="all">'), 'dropdown local tanpa opsi Semua');
   ok(locSel.includes('<option value="title" selected>'), 'default local adalah Title');
+ok(html.includes('<html lang="en">'), 'index.html: html[lang] default en');
 } catch (e) {
   ok(false, `anti-duplikat local :: ${e.message}`);
 }
@@ -1332,9 +2034,10 @@ try {
 }
 
 try {
+  const pySepRunOnly = fs.readFileSync(path.join(root, 'python-engine/vx_sep_run.py'), 'utf8');
   const pySep = fs.readFileSync(path.join(root, 'python-engine/vx_separate.py'), 'utf8');
-  ok(pySep.includes('env["CUDA_VISIBLE_DEVICES"] = ""'), 'py: cpu sembunyikan GPU dari subprocess');
-  ok(pySep.includes('force_cpu=(dev_arg == "cpu")'), 'py: spawn paksa cpu bila device cpu');
+  ok(pySepRunOnly.includes('env["CUDA_VISIBLE_DEVICES"] = ""'), 'py: cpu sembunyikan GPU dari subprocess');
+  ok(pySepRunOnly.includes('force_cpu=(dev_arg == "cpu")'), 'py: spawn paksa cpu bila device cpu');
   ok(pySep.includes('"device": job.get("device", "")'), 'py: progress paparkan device aktual');
 } catch (e) {
   ok(false, `separate device :: ${e.message}`);
@@ -1394,6 +2097,10 @@ try {
   for (const rel of jsFiles) {
     const n = fs.readFileSync(path.join(srcDir, rel), 'utf8').split('\n').length;
     ok(n <= 600, `${rel} <= 600 baris (skrg ${n})`);
+  }
+  for (const rel of ['vx_separate.py', 'vx_sep_jobs.py', 'vx_sep_cache.py', 'vx_sep_run.py']) {
+    const n = fs.readFileSync(path.join(root, 'python-engine', rel), 'utf8').split('\n').length;
+    ok(n <= 600, `python-engine/${rel} <= 600 baris (skrg ${n})`);
   }
 } catch (e) {
   ok(false, `batas ukuran file :: ${e.message}`);

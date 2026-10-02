@@ -1,3 +1,4 @@
+import { t } from './i18n/core.js';
 import { S } from './state.js';
 import { $, audio, seek, tCur, tLeft } from './dom.js';
 import { _downloadFolderNorm, _inFolder, isArtifactFileName, normalizeSeparationFlags } from './folders.js';
@@ -164,21 +165,21 @@ window.addEventListener('focus', ()=>{ if (_viewNeedsTracks()) requestMusicResca
 document.addEventListener('visibilitychange', ()=>{ if (!document.hidden && _viewNeedsTracks()) requestMusicRescan(3000); });
 async function addFolder() {
   if (!isTauri()) {
-    alert('Add Folder hanya tersedia di aplikasi Tauri. Jalankan via npx tauri dev / exe build.');
+    alert(t('local.tauriOnly'));
     return;
   }
   try {
     const { open } = await import('@tauri-apps/plugin-dialog');
-    const folder = await open({ directory: true, multiple: false, title: 'Pilih folder musik (mp3/m4a)' });
+    const folder = await open({ directory: true, multiple: false, title: t('btn.addFolderTitle') });
     if (!folder) return;
     const dl = await _downloadFolderNorm();
     const result = await invokeTauri('scan_music', { dir: folder });
     if (!result || result.length === 0) {
-      alert('Tidak ada file mp3/m4a/wav/flac/ogg di folder tersebut.');
+      alert(t('local.noAudio'));
       return;
     }
     saveMusicFolder(folder);
-    if (dl && _inFolder(folder, dl)) showToast('Folder download ditambahkan — isinya tampil di Local Music.', 3500);
+    if (dl && _inFolder(folder, dl)) showToast(t('local.folderAdded', { n: t('topbar.local') }), 3500);
     S.tracks = [];
     S.idx = 0;
     const { added } = await applyScanResult(result);
@@ -194,7 +195,7 @@ async function addFolder() {
       renderTracks('');
     }
   } catch (e) {
-    alert('Gagal add folder: ' + e);
+    alert(t('loc.addFail', { n: e }));
   }
 }
 if (btnAddFolder) btnAddFolder.onclick = addFolder;
@@ -307,7 +308,7 @@ audio.ontimeupdate = () => {
       pause();
       if (!audio.dataset.previewNotified) {
         audio.dataset.previewNotified = '1';
-        showToast('Preview 30 detik selesai — download untuk versi full', 4000);
+        showToast(t('ac.previewDone'), 4000);
       }
     }
   }

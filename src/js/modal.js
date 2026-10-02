@@ -1,4 +1,6 @@
-export function showModal({ title='VocaLyx', message='', placeholder='', defaultValue='', showInput=false, confirmText='OK', cancelText='Cancel', showCancel=true }){
+import { t } from './i18n/core.js';
+
+export function showModal({ title='VocaLyx', message='', placeholder='', defaultValue='', showInput=false, confirmText='', cancelText='', showCancel=true }){
   return new Promise((resolve)=>{
     const modal = document.getElementById('appModal');
     const tEl = document.getElementById('modalTitle');
@@ -17,8 +19,8 @@ export function showModal({ title='VocaLyx', message='', placeholder='', default
     if (showInput) { input.style.display = 'block'; input.placeholder = placeholder; input.value = defaultValue; setTimeout(()=>input.focus(), 50); }
     else { input.style.display = 'none'; input.value=''; }
     btnCancel.style.display = showCancel ? 'block' : 'none';
-    btnCancel.textContent = cancelText;
-    btnConfirm.textContent = confirmText;
+    btnCancel.textContent = cancelText || t('modal.cancel');
+    btnConfirm.textContent = confirmText || t('modal.ok');
     modal.classList.add('open');
     modal.setAttribute('aria-hidden','false');
     const cleanup = (val)=>{
@@ -53,13 +55,13 @@ export function showModal({ title='VocaLyx', message='', placeholder='', default
 }
 
 export function showPrompt(title, message, defaultValue=''){
-  return showModal({ title, message, defaultValue, placeholder: 'Nama...', showInput:true, confirmText:'Create', cancelText:'Cancel' });
+  return showModal({ title, message, defaultValue, placeholder: t('ph.playlistName'), showInput:true, confirmText:t('modal.create'), cancelText:t('modal.cancel') });
 }
 
-export function showConfirm(title, message){
-  return showModal({ title, message, showInput:false, confirmText:'Delete', cancelText:'Cancel' });
+export function showConfirm(title, message, confirmText){
+  return showModal({ title, message, showInput:false, confirmText: confirmText || t('modal.delete'), cancelText:t('modal.cancel') });
 }
 
 export function showAlert(title, message){
-  return showModal({ title, message, showInput:false, confirmText:'OK', showCancel:false });
+  return showModal({ title, message, showInput:false, confirmText:t('modal.ok'), showCancel:false });
 }

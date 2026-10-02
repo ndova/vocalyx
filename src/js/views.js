@@ -1,5 +1,6 @@
 import { S } from './state.js';
 import { applySearchGridWidths, applyGridWidths } from './grid.js';
+import { t } from './i18n/core.js';
 import { ICON } from './icons.js';
 import { hashStr, coverHtml, escAttr } from './format.js';
 import { karaokeBadgeHtml, karaokeProgressHtml, syncKaraokeBtn } from './engine.js';
@@ -10,23 +11,25 @@ import { renderDownloads } from './downloads.js';
 import { cleanupDownloadArtifacts } from './folders.js';
 import { sweepEnhance } from './enhance.js';
 import { requestMusicRescan } from './local.js';
+import { renderHelp } from './help.js';
 import { albumKeyOf, artistKeyOf, localLibraryTracks, playlistTracks, plPathIndex, renderDeviceView, renderSearchView, savePlaylists, setAlbumPlayback, setArtistPlayback, setPlaylistPlayback, trackIndexByPath } from '../app.js';
 
 function syncTopbarTitle(){
   const el = document.getElementById('topbarViewTitle');
   const countEl = document.getElementById('downloadCount');
   const dot = document.getElementById('deviceConnDot');
-  let t = '';
-  if (S.activeView === 'local') t = 'Local Music';
-  else if (S.activeView === 'search') t = 'Pencarian Lagu';
-  else if (S.activeView === 'playlists') t = 'Playlists';
-  else if (S.activeView.startsWith('playlist:')) { const pl = S.playlists.find(p=>p.id===S.activePlaylistId); t = (pl && pl.name) || 'Playlist'; }
-  else if (S.activeView.startsWith('album:')) t = S.activeAlbumKey || 'Album';
-  else if (S.activeView.startsWith('artist:')) t = S.activeArtistKey || 'Artist';
-  else if (S.activeView === 'downloads') t = 'Downloads';
-  else if (S.activeView === 'device') t = 'Device';
-  else if (S.activeView === 'settings') t = 'Settings';
-  if (el) el.textContent = t;
+  let ttl = '';
+  if (S.activeView === 'local') ttl = t('topbar.local');
+  else if (S.activeView === 'search') ttl = t('nav.search');
+  else if (S.activeView === 'playlists') ttl = t('topbar.playlists');
+  else if (S.activeView.startsWith('playlist:')) { const pl = S.playlists.find(p=>p.id===S.activePlaylistId); ttl = (pl && pl.name) || t('topbar.playlist'); }
+  else if (S.activeView.startsWith('album:')) ttl = S.activeAlbumKey || t('topbar.album');
+  else if (S.activeView.startsWith('artist:')) ttl = S.activeArtistKey || t('topbar.artist');
+  else if (S.activeView === 'downloads') ttl = t('topbar.downloads');
+  else if (S.activeView === 'device') ttl = t('topbar.device');
+  else if (S.activeView === 'settings') ttl = t('topbar.settings');
+  else if (S.activeView === 'help') ttl = t('topbar.help');
+  if (el) el.textContent = ttl;
   if (countEl && S.activeView !== 'downloads') countEl.textContent = '';
   if (dot) dot.style.display = S.activeView === 'device' ? '' : 'none';
 }
@@ -40,7 +43,8 @@ export function renderMainView(){
   const vSettings = document.getElementById('viewSettings');
   const vAlbumDetail = document.getElementById('viewAlbumDetail');
   const vArtistDetail = document.getElementById('viewArtistDetail');
-  [vLocal, vLists, vDetail, vSearch, vDownloads, vDevice, vSettings, vAlbumDetail, vArtistDetail].forEach(v=>{ if(v) v.style.display='none'; });
+  const vHelp = document.getElementById('viewHelp');
+  [vLocal, vLists, vDetail, vSearch, vDownloads, vDevice, vSettings, vAlbumDetail, vArtistDetail, vHelp].forEach(v=>{ if(v) v.style.display='none'; });
   if (S.activeView === 'local') {
     if(vLocal) vLocal.style.display = 'flex';
     requestMusicRescan(500);
@@ -53,6 +57,7 @@ export function renderMainView(){
   else if (S.activeView === 'downloads') { if(vDownloads) vDownloads.style.display = 'flex'; renderDownloads(); try { cleanupDownloadArtifacts({ force:true }); } catch {} try { sweepEnhance({ auto:true, silent:true }); } catch {}}
   else if (S.activeView === 'device') { if(vDevice) vDevice.style.display = 'flex'; renderDeviceView(); }
   else if (S.activeView === 'settings') { if(vSettings) vSettings.style.display = 'flex'; loadSettingsUI(); }
+  else if (S.activeView === 'help') { if(vHelp) vHelp.style.display = 'flex'; renderHelp(); }
   else { if(vLocal) vLocal.style.display = 'flex'; }
   try { if (S.activeView !== 'search' && typeof S.vizAutoHidden !== 'undefined' && S.vizAutoHidden) setVizHidden(false); } catch {}
   try { syncKaraokeBtn(); } catch {}
@@ -108,7 +113,7 @@ export function renderPlaylistsOverview(){
     b.onclick=(e)=>{ e.stopPropagation(); const pl=S.playlists.find(p=>p.id===b.dataset.rename); (async()=>{ const nn=await showPrompt('Rename Playlist', 'Nama baru:', pl.name); if(nn&&nn.trim()){ pl.name=nn.trim(); savePlaylists(); renderPlaylistsOverview(); } })(); };
   });
   grid.querySelectorAll('[data-del]').forEach(b=>{
-    b.onclick=(e)=>{ e.stopPropagation(); (async()=>{ const ok=await showConfirm('Hapus Playlist', `Hapus "${S.playlists.find(p=>p.id===b.dataset.del)?.name}"?`); if(!ok) return; const delId=b.dataset.del; S.playlists=S.playlists.filter(p=>p.id!==delId); if(S.playlistPlayback?.id===delId) S.playlistPlayback=null; savePlaylists(); renderPlaylistsOverview(); })(); };
+    b.onclick=(e)=>{ e.stopPropagation(); (async()=>{ const ok=await showConfirm(t('pl.delTitle'), t('pl.delConfirm', { n: S.playlists.find((p) => p.id === b.dataset.del)?.name })); if(!ok) return; const delId=b.dataset.del; S.playlists=S.playlists.filter(p=>p.id!==delId); if(S.playlistPlayback?.id===delId) S.playlistPlayback=null; savePlaylists(); renderPlaylistsOverview(); })(); };
   });
   grid.querySelectorAll('.pl-card').forEach(c=>{
     c.onclick=(e)=>{ if(e.target.closest('button')) return; S.activeView='playlist:'+c.dataset.id; S.activePlaylistId=c.dataset.id; document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('active')); document.querySelector('[data-nav="playlists"]').classList.add('active'); renderMainView(); };

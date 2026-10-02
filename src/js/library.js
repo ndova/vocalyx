@@ -73,6 +73,7 @@ function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(
 if (!S.downloadOptions.karaokeDevice) S.downloadOptions.karaokeDevice = 'auto';
 if (!['high','standard'].includes(S.downloadOptions.karaokeQuality)) S.downloadOptions.karaokeQuality = 'standard';
 if (!['flac','ogg','wav'].includes(S.downloadOptions.karaokeFormat)) S.downloadOptions.karaokeFormat = 'flac';
+if (!['high', 'roformer', 'standard'].includes(S.downloadOptions.karaokeQuality)) S.downloadOptions.karaokeQuality = 'high';
 if (typeof S.downloadOptions.replayGainEnabled !== 'boolean') S.downloadOptions.replayGainEnabled = false;
 if (!Number.isFinite(S.downloadOptions.replayGainTarget)) S.downloadOptions.replayGainTarget = -14;
 S.downloadOptions.replayGainTarget = Math.max(-20, Math.min(-10, S.downloadOptions.replayGainTarget));
@@ -80,8 +81,13 @@ if (!Number.isFinite(S.downloadOptions.replayGainPreAmp)) S.downloadOptions.repl
 S.downloadOptions.replayGainPreAmp = Math.max(-6, Math.min(6, S.downloadOptions.replayGainPreAmp));
 if (typeof S.downloadOptions.replayGainClipPrevention !== 'boolean') S.downloadOptions.replayGainClipPrevention = true;
 if (!S.downloadOptions.strictSources || typeof S.downloadOptions.strictSources !== 'object') {
-  S.downloadOptions.strictSources = { spotify:false, soundcloud:!!S.downloadOptions.scStrict, archive:false, deezer:false, '4shared':false };
+  S.downloadOptions.strictSources = { spotify:true, soundcloud:!!S.downloadOptions.scStrict, archive:false, deezer:false, '4shared':false };
   delete S.downloadOptions.scStrict;
+  try { localStorage.setItem('vocalyx_downloadOptions', JSON.stringify(S.downloadOptions)); } catch {}
+}
+if (S.downloadOptions.strictV !== 2) {
+  S.downloadOptions.strictSources = { ...(S.downloadOptions.strictSources || {}), spotify:true };
+  S.downloadOptions.strictV = 2;
   try { localStorage.setItem('vocalyx_downloadOptions', JSON.stringify(S.downloadOptions)); } catch {}
 }
 if (!['off','auto','chrome','edge','firefox','brave','opera'].includes(S.downloadOptions.ytCookies)) S.downloadOptions.ytCookies = 'off';

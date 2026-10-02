@@ -2,7 +2,8 @@
 name = "vocalyx"
 version = "0.1.0-beta"
 description = "VocaLyx Desktop Music Manager"
-authors = ["TuneBox"]
+authors = ["Arif Mundhofir"]
+license = "MIT"
 edition = "2021"
 
 [build-dependencies]

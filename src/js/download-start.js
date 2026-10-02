@@ -1,3 +1,4 @@
+import { t } from './i18n/core.js';
 import { S } from './state.js';
 import { showToast, showAudioNotice } from './engine.js';
 import { escAttr } from './format.js';
@@ -9,12 +10,12 @@ const COVER_DROP_MAX = 8 * 1024 * 1024;
 function readCoverDropFile(file) {
   return new Promise((resolve) => {
     if (!file) return resolve(null);
-    if (!/^image\/(jpeg|png|webp)$/i.test(file.type || '')) { showToast('File bukan gambar (jpg/png/webp)', 3000); return resolve(null); }
-    if ((file.size || 0) > COVER_DROP_MAX) { showToast('Gambar terlalu besar (maks 8MB)', 3000); return resolve(null); }
+    if (!/^image\/(jpeg|png|webp)$/i.test(file.type || '')) { showToast(t('ds.notImage'), 3000); return resolve(null); }
+    if ((file.size || 0) > COVER_DROP_MAX) { showToast(t('ds.imgTooBig'), 3000); return resolve(null); }
     try {
       const rd = new FileReader();
       rd.onload = () => resolve(String(rd.result || '') || null);
-      rd.onerror = () => { showToast('Gagal baca gambar', 3000); resolve(null); };
+      rd.onerror = () => { showToast(t('ds.imgReadFail'), 3000); resolve(null); };
       rd.readAsDataURL(file);
     } catch { resolve(null); }
   });
@@ -25,21 +26,21 @@ async function readCoverPathDrop(path) {
     const mime = lower.endsWith('.png') ? 'image/png'
       : lower.endsWith('.webp') ? 'image/webp'
       : (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) ? 'image/jpeg' : null;
-    if (!mime) { showToast('File bukan gambar (jpg/png/webp)', 3000); return null; }
+    if (!mime) { showToast(t('ds.notImage'), 3000); return null; }
     const { readFile } = await import('@tauri-apps/plugin-fs');
     const bytes = await readFile(path);
-    if (!bytes || !bytes.length) { showToast('Gagal baca gambar', 3000); return null; }
-    if (bytes.length > COVER_DROP_MAX) { showToast('Gambar terlalu besar (maks 8MB)', 3000); return null; }
+    if (!bytes || !bytes.length) { showToast(t('ds.imgReadFail'), 3000); return null; }
+    if (bytes.length > COVER_DROP_MAX) { showToast(t('ds.imgTooBig'), 3000); return null; }
     let bin = '';
     const CH = 8192;
     for (let i = 0; i < bytes.length; i += CH) bin += String.fromCharCode(...bytes.subarray(i, i + CH));
     return `data:${mime};base64,${btoa(bin)}`;
-  } catch { showToast('Gagal baca gambar', 3000); return null; }
+  } catch { showToast(t('ds.imgReadFail'), 3000); return null; }
 }
 export function wireCoverDrop(zone, fileInput, onPick) {
   if (!zone) return;
   zone.classList.add('cover-drop');
-  zone.title = 'Klik untuk pilih gambar, atau drag & drop file gambar ke sini';
+  zone.title = t('ds.dropHint');
   zone.addEventListener('click', () => { try { fileInput?.click(); } catch {} });
   zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('over'); });
   zone.addEventListener('dragleave', () => zone.classList.remove('over'));
@@ -76,23 +77,23 @@ function _trackSnapshot(t){
   return s;
 }
 export const _redlBusy = new WeakSet();
-export async function startTrackDownload(t, { reuseEntry = null, onTick = null, onFailed = null, onDone = null, onStale = null } = {}) {
-  if (!t) return null;
-  const payload = { track: t, options: { ...S.downloadOptions, downloadFolder: S.downloadFolder, deezerArl: localStorage.getItem('deezer_arl') || '', spotifyPremiumUser: localStorage.getItem('spotify_premium_user') || '', spotifyPremiumPass: localStorage.getItem('spotify_premium_pass') || '', spotifyClientId: localStorage.getItem('spotify_client_id') || '', spotifyClientSecret: localStorage.getItem('spotify_client_secret') || '' } };
+export async function startTrackDownload(tk, { reuseEntry = null, onTick = null, onFailed = null, onDone = null, onStale = null } = {}) {
+  if (!tk) return null;
+  const payload = { track: tk, options: { ...S.downloadOptions, downloadFolder: S.downloadFolder, deezerArl: localStorage.getItem('deezer_arl') || '', spotifyPremiumUser: localStorage.getItem('spotify_premium_user') || '', spotifyPremiumPass: localStorage.getItem('spotify_premium_pass') || '', spotifyClientId: localStorage.getItem('spotify_client_id') || '', spotifyClientSecret: localStorage.getItem('spotify_client_secret') || '' } };
   const rr = await fetch('http://127.0.0.1:8001/download', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
   const jj = await rr.json();
   if (!jj.downloadId) return null;
   let entry = reuseEntry || null;
   if (entry) {
     entry.id = jj.downloadId;
-    entry.title = t.title; entry.artist = t.artist;
+    entry.title = tk.title; entry.artist = tk.artist;
     entry.format = S.downloadOptions.format; entry.bitrate = '';
     entry.status = 'downloading'; entry.progress = 0; entry.path = '';
-    entry.source = t.source || entry.source || '';
+    entry.source = tk.source || entry.source || '';
     entry.downloadedFrom = ''; entry.audioNotice = null; entry.error = '';
-    entry.track = _trackSnapshot(t) || entry.track;
+    entry.track = _trackSnapshot(tk) || entry.track;
   } else {
-    entry = { id: jj.downloadId, title: t.title, artist: t.artist, format: S.downloadOptions.format, bitrate: '', status:'downloading', progress:0, path:'', source: t.source || '', downloadedFrom: '', audioNotice: null, track: _trackSnapshot(t) };
+    entry = { id: jj.downloadId, title: tk.title, artist: tk.artist, format: S.downloadOptions.format, bitrate: '', status:'downloading', progress:0, path:'', source: tk.source || '', downloadedFrom: '', audioNotice: null, track: _trackSnapshot(tk) };
     S.downloads.push(entry);
   }
   activeDownloadIds.add(jj.downloadId);
@@ -111,13 +112,13 @@ export async function startTrackDownload(t, { reuseEntry = null, onTick = null, 
         saveDownloads(); renderDownloads();
         if (cur.status === 'failed') {
           clearInterval(poll); activeDownloadIds.delete(jj.downloadId);
-          ent.error = cur.error || 'Download gagal';
+          ent.error = cur.error || t('ds.dlFailed');
           saveDownloads(); renderDownloads();
-          showToast(cur.error || 'Download gagal', 6000);
+          showToast(cur.error || t('std.failed'), 6000);
           if (onFailed) onFailed(ent);
         } else if (cur.status === 'done' || pct >= 100) {
           clearInterval(poll); activeDownloadIds.delete(jj.downloadId);
-          if (cur.audioNotice) showAudioNotice(t, cur.audioNotice, ent.downloadedFrom);
+          if (cur.audioNotice) showAudioNotice(tk, cur.audioNotice, ent.downloadedFrom);
           if (cur.audioNotice && cur.audioNotice.enhanced && cur.path) { try { await markEnhanced(cur.path); } catch {}}
           if (onDone) onDone(ent);
         } else {

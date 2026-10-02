@@ -1,0 +1,19 @@
+VocaLyx — Desktop Music Manager
+Copyright (c) 2026 Arif Mundhofir
+
+This product bundles the following third-party fonts. Their licenses require
+that the copyright notices and license terms below be reproduced and
+distributed with the font files in src/public/fonts/.
+
+Inter
+  Copyright (c) 2016 The Inter Project Authors (https://github.com/rsms/inter)
+  Licensed under the SIL Open Font License, Version 1.1
+  https://openfontlicense.org
+
+Space Grotesk
+  Copyright (c) 2020 Florian Karsten (https://github.com/floriankarsten/space-grotesk)
+  Licensed under the SIL Open Font License, Version 1.0
+  https://openfontlicense.org
+
+The SIL Open Font License permits bundling and redistribution of these fonts
+in this software provided the notices and license terms above are included.

@@ -1,3 +1,4 @@
+import { t } from './i18n/core.js';
 import { engineInfo, showToast } from './engine.js';
 import { checkForUpdate, manifestUrl, openDownload } from './updater.js';
 
@@ -9,11 +10,21 @@ function setRow(id, value) {
   if (el) el.textContent = value;
 }
 
-function paintVersion(v) {
-  const ver = String(v == null ? '' : v).trim();
-  setRow('aboutVersion', ver ? `Versi ${ver}` : 'Versi —');
-  const badge = document.getElementById('aboutBadge');
-  if (badge) badge.hidden = !ver.includes('-');
+let appVersion = '';
+
+function paintVersion() {
+  setRow('aboutVersion', appVersion || '—');
+  const prerelease = appVersion.includes('-');
+  document.querySelectorAll('.beta-badge').forEach((el) => { el.hidden = !prerelease; });
+}
+
+async function loadVersion() {
+  try {
+    const m = await import('@tauri-apps/api/app');
+    const v = await m.getVersion();
+    appVersion = typeof v === 'string' ? v.trim() : '';
+  } catch { appVersion = ''; }
+  paintVersion();
 }
 
 async function fillEngineRows() {
@@ -29,8 +40,8 @@ async function fillEngineRows() {
     setRow('aboutEngineDevice', info.cuda ? (info.device || 'CUDA') : 'CPU (tanpa CUDA)');
     setRow('aboutEngineTorch', info.torch ? `PyTorch ${info.torch}` : '—');
     setRow('aboutEngineModel', info.bs_available
-      ? `BS-RoFormer — ${info.bs_roformer || 'siap'}`
-      : 'BS-RoFormer tidak tersedia');
+      ? `RoFormer — ${info.bs_roformer || 'siap'}`
+      : 'RoFormer tidak tersedia');
   } catch {}
 }
 
@@ -43,7 +54,7 @@ function paintUpdate(r) {
   const el = document.getElementById('aboutUpdate');
   if (!el) return;
   setRowClass('aboutUpdate', '');
-  if (!r || r.state === 'unconfigured') { setRow('aboutUpdate', manifestUrl() ? 'Belum diperiksa' : 'Belum dikonfigurasi'); return; }
+  if (!r || r.state === 'unconfigured') { setRow('aboutUpdate', manifestUrl() ? t('ab.notChecked') : t('ab.notConfigured')); return; }
   if (r.state === 'checking') { setRow('aboutUpdate', 'Memeriksa…'); return; }
   if (r.state === 'error') { setRowClass('aboutUpdate', 'is-error'); setRow('aboutUpdate', 'Gagal memeriksa'); return; }
   if (r.state === 'available') {
@@ -75,10 +86,10 @@ async function runUpdateCheck(silent) {
   paintUpdate(r);
   showDownloads(r);
   if (!silent) {
-    if (r.state === 'available') showToast(`VocaLyx ${r.latest} tersedia`, 5000);
-    else if (r.state === 'current') showToast('VocaLyx sudah versi terbaru', 3000);
-    else if (r.state === 'unconfigured') showToast('Alamat manifest belum diisi', 4000);
-    else showToast('Gagal memeriksa pembaruan', 4000);
+    if (r.state === 'available') showToast(t('ab.newVer', { v: r.latest }), 5000);
+    else if (r.state === 'current') showToast(t('ab.upToDate'), 3000);
+    else if (r.state === 'unconfigured') showToast(t('ab.manifestEmpty'), 4000);
+    else showToast(t('ab.checkFail'), 4000);
   }
   return r;
 }
@@ -89,15 +100,8 @@ function openAbout() {
   aboutOpen = true;
   modal.classList.add('open');
   modal.setAttribute('aria-hidden', 'false');
-  setRow('aboutVersion', '…');
-  try {
-    import('@tauri-apps/api/app')
-      .then((m) => m.getVersion())
-      .then((v) => { if (aboutOpen) paintVersion(v); })
-      .catch(() => { if (aboutOpen) paintVersion(''); });
-  } catch {
-    paintVersion('');
-  }
+  paintVersion();
+  loadVersion();
   fillEngineRows();
   paintUpdate(updateState);
   showDownloads(updateState);
@@ -119,11 +123,12 @@ export function initAbout() {
   document.getElementById('aboutCheckUpdate')?.addEventListener('click', () => runUpdateCheck(false));
   document.getElementById('aboutDlSetup')?.addEventListener('click', async () => {
     const ok = await openDownload(updateState && updateState.url);
-    if (!ok) showToast('Tautan unduhan tidak tersedia', 3000);
+    if (!ok) showToast(t('ab.dlLinkMissing'), 3000);
   });
   document.getElementById('aboutDlMsi')?.addEventListener('click', async () => {
     const ok = await openDownload(updateState && updateState.msi);
-    if (!ok) showToast('Tautan unduhan tidak tersedia', 3000);
+    if (!ok) showToast(t('ab.dlLinkMissing'), 3000);
   });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAbout(); });
+  loadVersion();
 }

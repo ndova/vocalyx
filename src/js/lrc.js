@@ -1,3 +1,4 @@
+import { t } from './i18n/core.js';
 const TIME_SRC = '\\[(\\d{1,3}):(\\d{2})(?:[.:](\\d{1,3}))?\\]';
 const TIME_RE = new RegExp(TIME_SRC, 'g');
 const WORD_SRC = '<(\\d{1,3}):(\\d{2})(?:[.:](\\d{1,3}))?>';
@@ -5,7 +6,7 @@ const WORD_RE = new RegExp(WORD_SRC, 'g');
 const HEAD_RE = /^\[(ar|ti|al|by|length|offset|re|ve):/i;
 const HEAD_ONLY_RE = /^\[[^\]]+\]\s*$/;
 const PLAIN_T = 99999;
-const NO_SYNC = 'No synced lyrics — lirik akan di-download dari LRCLIB atau simpan .lrc di Lyrics/';
+const NO_SYNC = t('lyr.noSynced');
 
 export function escHtml(s) {
   return String(s == null ? '' : s)

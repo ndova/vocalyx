@@ -1,6 +1,7 @@
 import { S } from './state.js';
 import { canvas, ctx, audio } from './dom.js';
 import { paintEqKnobs } from './eq.js';
+import { t } from './i18n/core.js';
 
 function syncWaveHeight(){
   try {
@@ -97,7 +98,7 @@ function setVizHidden(hidden, opts = {}) {
   if (opts.auto) {
     if (hidden && !already) {
       viz.classList.add('viz-hidden');
-      btn.title = 'Show Visualizer';
+      btn.title = t('btn.showVisualizer');
       S.vizAutoHidden = true;
       setTimeout(() => syncWaveHeight(), 480);
     }
@@ -106,12 +107,12 @@ function setVizHidden(hidden, opts = {}) {
   if (hidden === already) return;
   if (hidden) {
     viz.classList.add('viz-hidden');
-    btn.title = 'Show Visualizer';
+    btn.title = t('btn.showVisualizer');
     S.vizAutoHidden = false;
     setTimeout(() => syncWaveHeight(), 480);
   } else {
     viz.classList.remove('viz-hidden');
-    btn.title = 'Hide Visualizer';
+    btn.title = t('btn.hideVisualizer');
     S.vizAutoHidden = false;
     setTimeout(() => { fitCanvas(); syncWaveHeight(); }, 480);
   }
@@ -127,7 +128,7 @@ document.getElementById('btnHideEq')?.addEventListener('click', () => {
   const ac = document.querySelector('.audio-card');
   if (!btn || !ac) return;
   const hidden = ac.classList.toggle('eq-hidden');
-  btn.title = hidden ? 'Show Equalizer' : 'Hide Equalizer';
+  btn.title = hidden ? t('btn.showEqualizer') : t('btn.hideEqualizer');
   S.eqAnimating = true;
   setTimeout(() => {
     S.eqAnimating = false;

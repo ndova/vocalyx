@@ -1,3 +1,4 @@
+import { t } from './i18n/core.js';
 import { S } from './state.js';
 import { $, audio } from './dom.js';
 import { showAlert } from './modal.js';
@@ -15,14 +16,14 @@ import { applyEnhanceState, applyKaraokeMakeup, clearCollectionPlayback, clearPl
 
 async function ensureDownloadTrack(d){
   if (!d || d.status !== 'done' || !d.path) {
-    await showAlert('Downloads', 'File belum selesai di-download, tunggu hingga 100%.');
+    await showAlert(t('topbar.downloads'), t('player.notDoneFull'));
     return -1;
   }
   if (isTauri()) {
     try {
       const { exists } = await import('@tauri-apps/plugin-fs');
       if (!(await exists(d.path))) {
-        await showAlert('Downloads', `File tidak ditemukan:\n${d.path}\nMungkin dipindah atau dihapus.`);
+        await showAlert(t('topbar.downloads'), t('player.notFoundFile', { n: d.path }));
         return -1;
       }
     } catch {}

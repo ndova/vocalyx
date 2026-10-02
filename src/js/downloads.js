@@ -1,4 +1,5 @@
 import { S } from './state.js';
+import { t } from './i18n/core.js';
 import { $, audio } from './dom.js';
 import { escAttr } from './format.js';
 import { isTauri, invokeTauri } from './tauri.js';
@@ -98,11 +99,16 @@ async function _renderDownloads(force=false){
   if (isTauri()) {
     try { ({ exists: existsFn } = await import('@tauri-apps/plugin-fs')); } catch { existsFn = null; }
   }
+  const q = String(S._dlQuery || '').trim().toLowerCase();
   for (const d of S.downloads) {
     if (d.path && seenPaths.has(d.path)) continue;
     if (d.path && seenDlPaths.has(d.path)) continue;
     if (d.path) seenDlPaths.add(d.path);
     if (isArtifactFileName(d.path)) { d._gone = true; pruned = true; continue; }
+    if (q) {
+      const hay = `${d.title || ''} ${d.artist || ''}`.toLowerCase();
+      if (!hay.includes(q)) continue;
+    }
     const pct = d.progress || 0;
     const status = d.status || 'done';
     if (status === 'failed') {
@@ -140,7 +146,8 @@ async function _renderDownloads(force=false){
   syncSelHeader('downloads');
   const _sigHist = S.downloads.map(d=>`${d.id}:${d.progress||0}:${d.status||''}:${d.path||''}`).join(';')
     + '|sel:' + [...S.selectedPaths.downloads].sort().join(',')
-    + '|sm:' + (S.selectMode.downloads?1:0);
+    + '|sm:' + (S.selectMode.downloads?1:0)
+    + '|q:' + q;
   let _needRender = force || (_sigHist !== S._dlHistSig);
   let _sigFile = S._dlFileSig || '';
   if (!_needRender) {
@@ -154,7 +161,7 @@ async function _renderDownloads(force=false){
   }
   if (!_needRender) return;
   S._dlHistSig = _sigHist; S._dlFileSig = _sigFile;
-  if (countEl) countEl.textContent = rows.length ? `${rows.length} file` : '';
+  if (countEl) countEl.textContent = rows.length ? t('dl.rowsCount', { n: rows.length }) : '';
   S.lastDownloadPaths = rows.map(r=> r.d.path);
   if (S.downloadPlayback) {
     const pruned = S.downloadPlayback.paths.filter(p=> S.lastDownloadPaths.includes(p));
@@ -165,6 +172,10 @@ async function _renderDownloads(force=false){
   }
   sortDownloadRows(rows);
   if (!rows.length) {
+    if (q) {
+      listEl.innerHTML = `<div style="padding:24px; text-align:center; color:var(--muted)">${t('dl.noMatch', { q: escAttr(q) })}<br><span style="font-size:11px">${t('dl.noMatchHint')}</span></div>`;
+      return;
+    }
     const diag = [
       isTauri() ? `folder yang di-scan: ${folder || '(default)'}` : 'mode browser: scan folder nonaktif',
       `file ter-scan: ${scanCount}`,
@@ -186,13 +197,13 @@ async function _renderDownloads(force=false){
     const sub = d.bitrate ? `${d.artist} • ${d.format?.toUpperCase()||''} ${d.bitrate}kbps • ${status}${errTag}`
       : (d.size_str ? `${d.artist} • ${d.size_str}${kbpsTag}` : `${d.artist} • ${d.format?.toUpperCase()||''}${kbpsTag} • ${status}${errTag}`);
     const dirOnly = d.path ? String(d.path).split(/[\\/]/).slice(0, -1).join('\\') : '';
-    const subLoc = dirOnly ? `<div class="t-sub dl-loc"><strong>Source</strong>:${escAttr(dirOnly)}</div>` : '';
+    const subLoc = dirOnly ? `<div class="t-sub dl-loc"><strong>${t('dl.provenanceSource')}</strong>:${escAttr(dirOnly)}</div>` : '';
     const durTxt = (d.dur && d.dur !== '--:--') ? d.dur : status;
     const checkCell = S.selectMode.downloads
       ? `<input type="checkbox" data-sel-dl="${i}" ${S.selectedPaths.downloads.has(selKeyDL(d))?'checked':''} title="Pilih">`
       : `<span style="color:#8b93a9">${i+1}</span>`;
     const failStyle = status === 'failed' ? ';color:#ff6b6b' : '';
-    b.innerHTML = `${checkCell}<span class="t-main">${cover}<span><div class="t-title"${failStyle}>${d.title}${downloadProvenanceHtml(d)}</div><div class="t-sub">${sub}</div>${subLoc}</span></span><span class="c-type">${(d.format||'').toUpperCase()}</span><span class="c-size">${pct}%</span><span class="c-dur"${failStyle}>${durTxt}</span><span class="c-more"><div class="more-menu" data-dlmenu="${i}"><button data-edit-dl="${i}" title="Edit info lagu">${ICON.pencil} Edit info lagu</button><button data-enhance-dl="${i}">${ICON.sparkles} Enhance file</button>${d.path ? `<button data-iphone-dl="${i}" title="Import ke iPhone">${ICON.upload} Import to iPhone</button>` : ''}${d.path ? `<button data-reveal-dl="${i}" title="Buka lokasi file di Explorer">${ICON.folder} Buka lokasi file</button>` : ''}${(status === 'failed' && d.track) ? `<button data-redl="${i}" title="Download ulang dari sumber">${ICON.download} Download ulang</button>` : ''}</div></span>`;
+    b.innerHTML = `${checkCell}<span class="t-main">${cover}<span><div class="t-title"${failStyle}>${d.title}${downloadProvenanceHtml(d)}</div><div class="t-sub">${sub}</div>${subLoc}</span></span><span class="c-type">${(d.format||'').toUpperCase()}</span><span class="c-size">${pct}%</span><span class="c-dur"${failStyle}>${durTxt}</span><span class="c-more"><div class="more-menu" data-dlmenu="${i}"><button data-edit-dl="${i}" title="${t('dl.editDlInfo')}">${ICON.pencil} ${t('dl.editDlInfo')}</button><button data-enhance-dl="${i}">${ICON.sparkles} ${t('dl.enhanceDl')}</button>${d.path ? `<button data-iphone-dl="${i}" title="${t('dl.importToIphone')}">${ICON.upload} ${t('dl.importToIphone')}</button>` : ''}${d.path ? `<button data-reveal-dl="${i}" title="${t('dl.revealTitle')}">${ICON.folder} ${t('dl.reveal')}</button>` : ''}${(status === 'failed' && d.track) ? `<button data-redl="${i}" title="${t('dl.redownloadFromSource')}">${ICON.download} ${t('dl.redownload')}</button>` : ''}<button data-del-dl="${i}" title="${t('modal.delete')}">${ICON.trash} ${t('modal.delete')}</button></div></span>`;
     b.ondblclick = (e)=>{
       if (e.target.closest('[data-sel-dl]') || e.target.closest('.more-menu')) return;
       if (S.selectMode.downloads) { toggleSelDL(d); return; }
@@ -217,24 +228,32 @@ async function _renderDownloads(force=false){
         const { revealItemInDir } = await import('@tauri-apps/plugin-opener');
         await revealItemInDir(d.path);
       } catch(err) {
-        showToast('Gagal buka lokasi: ' + (err?.message || err), 4000);
+        showToast(t('dl.revealFail', { n: err?.message || err }), 4000);
       }
     };
     const redlBtn = b.querySelector('[data-redl]');
     if (redlBtn) redlBtn.onclick = async (e)=>{
       e.stopPropagation();
       closePortalMenu();
-      if (!d.track) { showToast('Data track tidak tersimpan — cari ulang lagu lalu download', 4000); return; }
+      if (!d.track) { showToast(t('dl.noTrackData'), 4000); return; }
       if (d.status !== 'failed' || activeDownloadIds.has(d.id) || _redlBusy.has(d)) return;
       _redlBusy.add(d);
       try {
-        const t = { ...d.track, title: d.track.title || d.title, artist: d.track.artist || d.artist };
-        await startTrackDownload(t, { reuseEntry: d });
+        const tk = { ...d.track, title: d.track.title || d.title, artist: d.track.artist || d.artist };
+        await startTrackDownload(tk, { reuseEntry: d });
       } catch(err) {
-        showToast('Download gagal: ' + (err?.message || err), 5000);
+        showToast(t('dl.failedWith', { n: err?.message || err }), 5000);
       } finally {
         _redlBusy.delete(d);
       }
+    };
+    const delDlBtn = b.querySelector('[data-del-dl]');
+    if (delDlBtn) delDlBtn.onclick = async (e)=>{
+      e.stopPropagation();
+      closePortalMenu();
+      const ok = await showConfirm(t('confirm.deleteFile'), t('confirm.deleteSelected', { n: 1 }));
+      if (!ok) return;
+      await deleteSelectedPaths('downloads', [selKeyDL(d)]);
     };
     listEl.appendChild(b);
   });
@@ -280,7 +299,7 @@ function downloadProvenance(d){
     cls = 'src-' + base;
     label = base.charAt(0).toUpperCase() + base.slice(1);
   }
-  const title = via === 'cache-hit' ? `File sudah ada (${label})` : `Sumber unduhan: ${label}${via && via !== label.toLowerCase() ? ' · ' + via : ''}`;
+  const title = via === 'cache-hit' ? t('dl.alreadyThere', { n: label }) : t('dl.srcOf', { n: label }) + (via && via !== label.toLowerCase() ? ' · ' + via : '');
   return { label, cls, title };
 }
 function downloadProvenanceHtml(d){
@@ -347,17 +366,8 @@ async function deleteSelectedPaths(scope, keys){
   syncPlayerState();
   renderDownloads();
   renderTracks($('#globalSearch')?.value || '');
-  showToast(`Hapus: ${done} berhasil${failed ? `, ${failed} gagal` : ''}`, 4000);
+  showToast(t('dl.deleted', { done, failed: failed ? `, ${failed} ` + t('std.failed').toLowerCase() : '' }), 4000);
 }
-document.getElementById('btnDeleteSelected')?.addEventListener('click', async ()=>{
-  const scope = S.activeView === 'downloads' ? 'downloads' : (S.activeView === 'local' ? 'local' : null);
-  if (!scope) { showToast('Buka Local Music atau Downloads untuk menghapus seleksi', 2500); return; }
-  const keys = [...S.selectedPaths[scope]];
-  if (!keys.length) { showToast('Belum ada yang dipilih — aktifkan ☑ Select lalu centang lagu', 3000); return; }
-  const ok = await showConfirm('Hapus File', `Hapus ${keys.length} file terpilih?\nFile fisik dipindahkan ke Recycle Bin.`);
-  if (!ok) return;
-  await deleteSelectedPaths(scope, keys);
-});
 document.getElementById('btnSelectLocal')?.addEventListener('click', ()=>{
   setSelectMode('local', !S.selectMode.local);
   renderTracks($('#globalSearch')?.value || '');
@@ -365,8 +375,8 @@ document.getElementById('btnSelectLocal')?.addEventListener('click', ()=>{
 document.getElementById('btnRefreshLocal')?.addEventListener('click', async ()=>{
   const btn = document.getElementById('btnRefreshLocal');
   if (btn?.dataset.busy) return;
-  if (!isTauri()) { showToast('Refresh hanya tersedia di aplikasi Tauri', 2500); return; }
-  if (!getMusicFolders().length) { showToast('Belum ada folder — klik Add Folder dulu', 3000); return; }
+  if (!isTauri()) { showToast(t('dl.refreshTauriOnly'), 2500); return; }
+  if (!getMusicFolders().length) { showToast(t('dl.noFolderYet'), 3000); return; }
   try {
     if (btn) { btn.dataset.busy = '1'; btn.classList.add('spinning'); }
     S._musicRescanAt = 0;
@@ -380,5 +390,48 @@ document.getElementById('btnRefreshLocal')?.addEventListener('click', async ()=>
 document.getElementById('btnSelectDownloads')?.addEventListener('click', ()=>{
   setSelectMode('downloads', !S.selectMode.downloads);
   renderDownloads();
+});
+document.getElementById('btnRefreshDownloads')?.addEventListener('click', async ()=>{
+  const btn = document.getElementById('btnRefreshDownloads');
+  if (btn?.dataset.busy) return;
+  if (btn) { btn.dataset.busy = '1'; btn.classList.add('spinning'); }
+  try {
+    await renderDownloads(true);
+    showToast(t('dl.refreshed'), 2000);
+  } finally {
+    if (btn) { delete btn.dataset.busy; btn.classList.remove('spinning'); }
+  }
+});
+const dlSearchBox = $('#dlSearchBox');
+const dlSearchInput = $('#dlSearchInput');
+const applyDlQuery = (v)=>{
+  S._dlQuery = String(v || '');
+  renderDownloads(true);
+};
+if (dlSearchInput) {
+  dlSearchInput.onkeydown = (e)=>{
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      applyDlQuery(e.target.value);
+    }
+  };
+}
+$('#btnDlSearch')?.addEventListener('click', ()=>{
+  if (!dlSearchBox || !dlSearchInput) return;
+  const willOpen = !dlSearchBox.classList.contains('open');
+  dlSearchBox.classList.toggle('open', willOpen);
+  if (willOpen) setTimeout(()=>dlSearchInput.focus(), 180);
+  else { dlSearchInput.value=''; applyDlQuery(''); }
+});
+$('#btnClearDlSearch')?.addEventListener('click', ()=>{
+  if (dlSearchInput) { dlSearchInput.value=''; dlSearchInput.focus(); }
+  applyDlQuery('');
+});
+document.addEventListener('keydown', (e)=>{
+  if (e.key === 'Escape' && dlSearchBox?.classList.contains('open')) {
+    dlSearchBox.classList.remove('open');
+    if (dlSearchInput) dlSearchInput.value='';
+    applyDlQuery('');
+  }
 });
 export { ensureDlWatcher, _isUnderFolder, applyDownloadedFrom, downloadProvenance, downloadProvenanceHtml, trashPathToBin, deleteSelectedPaths };

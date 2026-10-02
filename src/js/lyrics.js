@@ -1,4 +1,5 @@
 import { S } from './state.js';
+import { t } from './i18n/core.js';
 import { audio, $, lyricsEl } from './dom.js';
 import { parseLRC, defaultLyrics, escHtml, isSynced } from './lrc.js';
 import { paintRangeFill } from './eq.js';
@@ -85,7 +86,7 @@ async function fetchAndSaveLrclib(track) {
 
 function renderLyrics() {
   if (!S.lyricLines.length) {
-    lyricsEl.innerHTML = `<div style="color:var(--muted);padding:20px">No lyrics</div>`;
+    lyricsEl.innerHTML = `<div style="color:var(--muted);padding:20px">${t('lyr.noLyrics')}</div>`;
     syncLyricOffsetUI();
     return;
   }
@@ -199,13 +200,13 @@ function syncLyricOffsetUI(){
   const toggle = document.getElementById('lyrOffToggle');
   if (toggle) {
     toggle.style.display = synced ? 'inline-flex' : 'none';
-    toggle.title = collapsed ? 'Tampilkan kontrol offset lirik' : 'Sembunyikan kontrol offset lirik';
+    toggle.title = collapsed ? t('lyr.showOffsetCtl') : t('lyr.hideOffsetCtl');
   }
   const badge = document.getElementById('lyrOffBadge');
   if (badge) {
     const v = S.lyricOffsetMs;
     badge.textContent = (v > 0 ? '+' : '') + v + 'ms';
-    badge.title = v === 0 ? 'Tepat (on-beat)' : (v > 0 ? 'Highlight lebih awal' : 'Highlight lebih lambat');
+    badge.title = v === 0 ? t('lyr.onBeat') : (v > 0 ? t('lyr.early') : t('lyr.late'));
   }
   const slider = document.getElementById('lyrOffSlider');
   if (slider && document.activeElement !== slider) slider.value = String(Math.max(-10000, Math.min(10000, S.lyricOffsetMs)));

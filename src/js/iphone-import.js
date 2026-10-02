@@ -1,3 +1,4 @@
+import { t } from './i18n/core.js';
 import { S } from './state.js';
 import { showToast } from './engine.js';
 import { showModal } from './modal.js';
@@ -39,11 +40,11 @@ export async function handleLibraryDrop(paths) {
   const all = paths || [];
   const audio = all.filter(p => AUDIO_EXT_RE.test(p));
   if (all.length > audio.length) {
-    showToast(`${all.length - audio.length} file dilewatkan (bukan audio)`, 3000);
+    showToast(t('iph.skippedNonAudio', { n: all.length - audio.length }), 3000);
   }
-  if (!audio.length) { showToast('Tidak ada file audio yang di-drop', 3000); return; }
-  if (S._prevIPhoneConnected === false) { showToast('iPhone tidak terhubung — hubungkan via USB dulu', 4000); return; }
-  if (S.importRunning) { showToast('Tunggu import yang berjalan selesai', 4000); return; }
+  if (!audio.length) { showToast(t('iph.noDroppedAudio'), 3000); return; }
+  if (S._prevIPhoneConnected === false) { showToast(t('iph.notConnectedShort'), 4000); return; }
+  if (S.importRunning) { showToast(t('iph.waitRunning'), 4000); return; }
   const entries = audio.map(p => {
     const basename = p.split(/[\\/]/).pop() || p;
     return { path: p, ...parseAudioMeta(basename) };
@@ -83,9 +84,9 @@ export async function handleLibraryDrop(paths) {
   if (dupEntries.length) {
     const names = dupEntries.map(f => f.title).slice(0, 3).join(', ') + (dupEntries.length > 3 ? ` dan ${dupEntries.length - 3} lainnya` : '');
     const replace = await showModal({
-      title: 'Lagu Duplikat',
-      message: `${dupEntries.length} file sudah ada di iPhone (${names}). Ganti yang lama?`,
-      confirmText: 'Ganti', cancelText: 'Keduanya',
+      title: t('dl.dupeTitle'),
+      message: t('dl.dupeMsg', { n: dupEntries.length, names }),
+      confirmText: t('dl.dupeReplace'), cancelText: t('dl.dupeKeepAll'),
     });
     if (replace == null) return;
     if (replace) deletePids = dupPids;
@@ -122,7 +123,7 @@ if (isTauri()) {
               if (x >= r.left - 8 && x <= r.right + 8 && y >= r.top - 8 && y <= r.bottom + 8) {
                 (async () => {
                   const hit = paths.find(p => /\.(jpe?g|png|webp)$/i.test(p));
-                  if (!hit) { showToast('File bukan gambar (jpg/png/webp)', 3000); return; }
+                  if (!hit) { showToast(t('ds.notImage'), 3000); return; }
                   const url = await readCoverPathDrop(hit);
                   if (url && window.__activeCoverDrop === cz) { try { cz.onPick(url); } catch {} }
                 })().catch(() => {});
@@ -134,7 +135,7 @@ if (isTauri()) {
         if (S.activeView === 'device' && dropPositionOverList(event.payload.position)) {
           handleLibraryDrop(paths).catch(() => {});
         } else if (S.activeView === 'device') {
-          showToast('Drop file musik di area Device untuk import ke iPhone', 3500);
+          showToast(t('iph.dropHint'), 3500);
         }
       });
     } catch {}
@@ -171,7 +172,7 @@ async function startIPhoneImport(deletePids = []) {
   S.importRunning = true;
   const total = S.importQueue.length;
   setImportProgress(0, `0% — Import 0/${total}`);
-  showToast(`Mengupload ${total} lagu ke iPhone...`, 3000);
+  showToast(t('dl.importingCount', { n: total }), 3000);
 
   const files = S.importQueue.map(f => ({ path: f.path, title: f.title, artist: f.artist, album: f.album }));
   try {
@@ -185,7 +186,7 @@ async function startIPhoneImport(deletePids = []) {
     S.importQueue = [];
     pollImportProgress();
   } catch (e) {
-    showToast('Import gagal: ' + e.message, 4000);
+    showToast(t('iph.importFail', { n: err?.message || err }), 5000);
     S.importRunning = false;
     setImportProgress(-1, '');
   }
@@ -215,7 +216,7 @@ function pollImportProgress() {
         S.importRunning = false;
         S.importJobId = null;
         setImportProgress(100, '100% Selesai');
-        showToast(`${j.done} lagu diimport — force-quit lalu buka lagi app Music iPhone`, 6000);
+        showToast(`${j.done} ${t('dl.imported')}`, 6000);
         if (S.activeView === 'device') { try { loadIPhoneLibrary(); } catch {} }
         setTimeout(() => setImportProgress(-1, ''), 4000);
       } else if (j.status === 'error') {
@@ -223,8 +224,8 @@ function pollImportProgress() {
         S.importPollTimer = null;
         S.importRunning = false;
         S.importJobId = null;
-        setImportProgress(0, 'Error: ' + (j.error || 'Unknown'));
-        showToast('Import error: ' + j.error, 5000);
+        setImportProgress(0, t('std.error', { n: j.error || t('dl.unknownErr') }));
+        showToast(t('std.error', { n: j.error }), 5000);
         setTimeout(() => setImportProgress(-1, ''), 4000);
       } else if (j.status === 'cancelled') {
         clearInterval(S.importPollTimer);
@@ -232,7 +233,7 @@ function pollImportProgress() {
         S.importRunning = false;
         S.importJobId = null;
         setImportProgress(0, 'Dibatalkan');
-        showToast('Import dibatalkan', 3000);
+        showToast(t('iph.importCancelled'), 3000);
         setTimeout(() => setImportProgress(-1, ''), 2000);
       } else {
         const total = j.total || 1, done = j.done || 0;

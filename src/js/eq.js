@@ -1,5 +1,6 @@
 import { S } from './state.js';
 import { $ } from './dom.js';
+import { t } from './i18n/core.js';
 import { EQ_FREQS, EQ_PRESETS } from './eq-data.js';
 import { applyFxState, ensureGraph, applyKaraokeMakeup } from '../app.js';
 
@@ -40,6 +41,7 @@ function paintEqKnobs(){
 }
 paintEqKnobs();
 const EQ_STORE_KEY = 'vocalyx_eq_v1';
+const LEGACY_PRESET = { Flat:'flat', Rock:'rock', Pop:'pop', Jazz:'jazz', Electro:'electro', HipHop:'hiphop', 'Hip-Hop':'hiphop', Classical:'classical', Vocal:'vocal', Custom:'custom' };
 function eqGains(){
   return EQ_FREQS.map((_, i) => {
     const el = document.querySelector(`[data-eq="${i}"]`);
@@ -52,7 +54,11 @@ export function saveEqState(presetName){
 }
 export function restoreEqState(){
   let s = null;
-  try { s = JSON.parse(localStorage.getItem(EQ_STORE_KEY) || 'null'); } catch {}
+  try { s = JSON.parse(localStorage.getItem(EQ_STORE_KEY) || 'null'); } catch { s = null; }
+  if (s && typeof s.preset === 'string' && LEGACY_PRESET[s.preset]) {
+    s.preset = LEGACY_PRESET[s.preset];
+    try { localStorage.setItem(EQ_STORE_KEY, JSON.stringify(s)); } catch {}
+  }
   if (!s || typeof s !== 'object') return false;
   const gains = Array.isArray(s.gains) && s.gains.length === EQ_FREQS.length ? s.gains : null;
   if (gains) {
@@ -63,14 +69,14 @@ export function restoreEqState(){
       if (S.eqNodes[i]) S.eqNodes[i].gain.value = S.fxEnabled ? g : 0;
     });
   }
-  const preset = typeof s.preset === 'string' ? s.preset : '';
-  if (preset && preset !== 'Custom' && EQ_PRESETS[preset]) {
+const preset = typeof s.preset === 'string' ? s.preset : '';
+  if (preset && preset !== 'custom' && EQ_PRESETS[preset]) {
     applyPreset(preset);
     return true;
   }
   if (gains) {
     const btn = $('#btnPreset');
-    if (btn) btn.textContent = 'Custom ▾';
+    if (btn) btn.textContent = t('eq.custom') + ' ▾';
     document.querySelectorAll('.preset-menu button').forEach(b=>b.classList.remove('active'));
     paintEqKnobs();
     return true;
@@ -88,16 +94,16 @@ function applyPreset(name) {
   document.querySelectorAll('.preset-menu button').forEach(b=>b.classList.toggle('active', b.dataset.preset===name));
   saveEqState(name);
   const btn = $('#btnPreset');
-  if (btn) btn.textContent = name + ' ▾';
+  if (btn) btn.textContent = t('eq.' + name) + ' ▾';
   paintEqKnobs();
 }
 eqBox.addEventListener('input', (e) => {
   const i = parseInt(e.target.dataset.eq);
   if (S.eqNodes[i]) S.eqNodes[i].gain.value = S.fxEnabled ? parseFloat(e.target.value) : 0;
   const btn = $('#btnPreset');
-  if (btn) btn.textContent = 'Custom ▾';
+  if (btn) btn.textContent = t('eq.custom') + ' ▾';
   document.querySelectorAll('.preset-menu button').forEach(b=>b.classList.remove('active'));
-  saveEqState('Custom');
+  saveEqState('custom');
   paintEqKnobs();
 });
 window.addEventListener('resize', ()=>{ try { paintEqKnobs(); } catch {} });

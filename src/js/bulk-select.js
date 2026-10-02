@@ -5,6 +5,8 @@ import { renderTracks } from '../app.js';
 
 export function selKeyDL(d){ return d.path ? 'p:'+d.path : 'id:'+(d.id||''); }
 function selKeyLocal(path){ return path ? 'p:'+path : ''; }
+const SELECT_BTN = { local:'btnSelectLocal', downloads:'btnSelectDownloads' };
+const VISIBLE = { local:'_visibleLocal', downloads:'_visibleDL' };
 function toggleSelLocal(path){
   if (!path) return;
   const k = selKeyLocal(path);
@@ -19,27 +21,22 @@ export function toggleSelDL(d){
   renderDownloads();
 }
 export function setSelectMode(scope, on){
-  if (scope === 'local') {
-    S.selectMode.local = !!on;
-    if (!S.selectMode.local) S.selectedPaths.local.clear();
-    document.getElementById('btnSelectLocal')?.classList.toggle('active-sel', S.selectMode.local);
-  } else {
-    S.selectMode.downloads = !!on;
-    if (!S.selectMode.downloads) S.selectedPaths.downloads.clear();
-    document.getElementById('btnSelectDownloads')?.classList.toggle('active-sel', S.selectMode.downloads);
-  }
+  const btnId = SELECT_BTN[scope];
+  if (!btnId) return;
+  S.selectMode[scope] = !!on;
+  if (!S.selectMode[scope]) S.selectedPaths[scope].clear();
+  document.getElementById(btnId)?.classList.toggle('active-sel', S.selectMode[scope]);
   syncSelHeader(scope);
 }
 export function syncSelHeader(scope){
-  const cell = document.querySelector(scope === 'local' ? '[data-sel-head="local"]' : '[data-sel-head="downloads"]');
+  const cell = document.querySelector(`[data-sel-head="${scope}"]`);
   if (!cell) return;
-  const on = scope === 'local' ? S.selectMode.local : S.selectMode.downloads;
-  cell.classList.toggle('sel-on', !!on);
+  cell.classList.toggle('sel-on', !!S.selectMode[scope]);
 }
-function toggleSelHead(scope){
-  const on = scope === 'local' ? S.selectMode.local : S.selectMode.downloads;
-  const set = scope === 'local' ? S.selectedPaths.local : S.selectedPaths.downloads;
-  const vis = scope === 'local' ? S._visibleLocal : S._visibleDL;
+function toggleSelHead(scope, reRender){
+  const on = S.selectMode[scope];
+  const set = S.selectedPaths[scope];
+  const vis = S[VISIBLE[scope]] || [];
   if (!on) {
     setSelectMode(scope, true);
     vis.forEach(k=>set.add(k));
@@ -48,9 +45,9 @@ function toggleSelHead(scope){
     if (all) vis.forEach(k=>set.delete(k));
     else vis.forEach(k=>set.add(k));
   }
-  if (scope === 'local') renderTracks($('#globalSearch')?.value || '');
-  else renderDownloads();
+  syncSelHeader(scope);
+  if (typeof reRender === 'function') reRender();
 }
-document.querySelector('[data-sel-head="local"]')?.addEventListener('click', ()=>toggleSelHead('local'));
-document.querySelector('[data-sel-head="downloads"]')?.addEventListener('click', ()=>toggleSelHead('downloads'));
+document.querySelector('[data-sel-head="local"]')?.addEventListener('click', ()=>toggleSelHead('local', () => renderTracks($('#globalSearch')?.value || '')));
+document.querySelector('[data-sel-head="downloads"]')?.addEventListener('click', ()=>toggleSelHead('downloads', () => renderDownloads()));
 export { selKeyLocal, toggleSelLocal, toggleSelHead };

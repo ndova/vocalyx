@@ -1,6 +1,8 @@
 import { S } from './state.js';
 import { $ } from './dom.js';
 import { ico } from './icons-tabler.js';
+import { applyLang, translateTree, t } from './i18n/core.js';
+import { renderTracks, renderDownloads } from '../app.js';
 import { showModal, showAlert } from './modal.js';
 import { _rgGainCache, rgTargetDb, ensureVolumeGain, applyEnhanceState, saveDownloadOptions, setEnhPromptBlocked, sweepEnhance, renderMainView, renderSearchView, tauriWin, refreshCudaStatus } from '../app.js';
 
@@ -12,7 +14,7 @@ async function syncMaxBtn(){
     const { getCurrentWindow } = await import('@tauri-apps/api/window');
     const max = await getCurrentWindow().isMaximized();
     btn.textContent = max ? '❐' : '▢';
-    btn.title = max ? 'Restore' : 'Maximize';
+    btn.title = max ? t('win.restore') : t('win.maximize');
   } catch {}
 }
 $('#btnMax').onclick = async () => {
@@ -42,10 +44,39 @@ function attachDrag(el) {
 attachDrag(document.querySelector('.topbar'));
 attachDrag(document.querySelector('.playlist-head'));
 
-document.getElementById('btnWaveSettings')?.addEventListener('click', ()=>{ // satu-satunya pintu Settings; topbar sekarang #btnAbout
+document.getElementById('btnWaveSettings')?.addEventListener('click', ()=>{
   document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
   S.activeView='settings'; renderMainView();
 });
+
+document.getElementById('btnHelp')?.addEventListener('click', ()=>{
+  document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
+  S.activeView='help'; renderMainView();
+});
+
+function syncLangCode(langCode) {
+  const sel = document.getElementById('setLang');
+  if (sel && sel.value !== langCode) sel.value = langCode;
+  const code = document.getElementById('setLangCode');
+  if (code) {
+    const opt = sel?.querySelector(`option[value="${langCode}"]`);
+    code.textContent = (opt?.dataset.code || langCode).toUpperCase();
+  }
+}
+window.__syncLangCode = syncLangCode;
+
+function setAppLang(langCode) {
+  applyLang(langCode);
+  translateTree(document);
+  syncLangCode(langCode);
+  try { renderMainView(); } catch {}
+  try { renderTracks($('#globalSearch')?.value || ''); } catch {}
+  try { renderDownloads(); } catch {}
+}
+document.getElementById('setLang')?.addEventListener('change', (e)=>{
+  setAppLang(e.target.value);
+});
+syncLangCode(applyLang());
 
 document.querySelectorAll('.nav-item').forEach(btn=>{
   btn.addEventListener('click', ()=>{
@@ -64,20 +95,20 @@ const ICON_MOON = ico('moon');
 const ICON_SUN = ico('sun');
 function getTheme() {
   try {
-    const t = localStorage.getItem('vocalyx_theme_v1');
-    if (t === 'dark' || t === 'light') return t;
+    const saved = localStorage.getItem('vocalyx_theme_v1');
+    if (saved === 'dark' || saved === 'light') return saved;
   } catch {}
   return (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
 }
-function applyTheme(t, save = true) {
-  const dark = t === 'dark';
+function applyTheme(mode, save = true) {
+  const dark = mode === 'dark';
   if (dark) document.documentElement.dataset.theme = 'dark';
   else delete document.documentElement.dataset.theme;
   if (save) { try { localStorage.setItem('vocalyx_theme_v1', dark ? 'dark' : 'light'); } catch {} }
   const b = document.getElementById('btnTheme');
   if (b) {
     b.innerHTML = dark ? ICON_SUN : ICON_MOON;
-    b.title = dark ? 'Mode terang' : 'Mode gelap';
+    b.title = dark ? t('th.lightMode') : t('th.darkMode');
   }
   document.querySelectorAll('.brand-logo').forEach((el) => { el.src = dark ? './logo-dark.png' : './logo.png'; });
 }
@@ -204,22 +235,22 @@ document.getElementById('vgBulk')?.addEventListener('click', async ()=>{
   if (S._vgBulkBusy) return;
   const folder = (localStorage.getItem('vocalyx_gainFolder') || S.downloadFolder || '').trim();
   if (!folder || folder.startsWith('Default:')) {
-    await showAlert('Gain Massal', 'Pilih folder ukur dulu (Browse).');
+    await showAlert(t('gain.mass'), t('gain.pickFirst'));
     return;
   }
   const target = rgTargetDb();
   const ok = await showModal({
-    title: 'Gain Massal',
-    message: `Ukur semua audio di:\n${folder}\nke target ${target} LUFS?\n\nFile asli tidak diubah → simpan ke .gain-cache.json.`,
-    confirmText: 'Mulai',
-    cancelText: 'Batal',
+    title: t('gain.mass'),
+    message: t('gain.folderPrompt', { folder, target }),
+    confirmText: t('gain.start'),
+    cancelText: t('modal.cancel'),
   });
   if (!ok) return;
   S._vgBulkBusy = true;
   const btn = document.getElementById('vgBulk');
   const prog = document.getElementById('vgBulkProgress');
   if (btn) btn.disabled = true;
-  if (prog) { prog.style.display = ''; prog.textContent = 'Mengukur… 0/…'; }
+  if (prog) { prog.style.display = ''; prog.textContent = t('gain.measuring', { n: '0/…' }); }
   let offset = 0;
   let measured = 0, skipped = 0, failed = 0, total = 0;
   const errors = [];
@@ -239,7 +270,7 @@ document.getElementById('vgBulk')?.addEventListener('click', async ()=>{
       failed += j.failed || 0;
       total = j.total || total;
       if (j.errors && j.errors.length) errors.push(...j.errors);
-      if (prog) prog.textContent = `Mengukur… ${j.done}/${j.total} (+${measured} baru)`;
+      if (prog) prog.textContent = t('gain.measuringNew', { done: j.done, total: j.total, new: measured });
       if (j.complete || !j.nextOffset || j.nextOffset <= offset) break;
       offset = j.nextOffset;
     }
@@ -248,7 +279,7 @@ document.getElementById('vgBulk')?.addEventListener('click', async ()=>{
     await showAlert('Gain Massal', msg);
     Object.keys(_rgGainCache).forEach(k => { if (k.endsWith('|' + target)) delete _rgGainCache[k]; });
   } catch (err) {
-    await showAlert('Gain Massal', 'Gagal: ' + (err?.message || err));
+    await showAlert(t('gain.mass'), t('gain.failed', { n: err?.message || err }));
   } finally {
     S._vgBulkBusy = false;
     if (btn) btn.disabled = false;

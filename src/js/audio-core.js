@@ -1,3 +1,4 @@
+import { t } from './i18n/core.js';
 import { S } from './state.js';
 import { audio } from './dom.js';
 import { EQ_FREQS } from './eq-data.js';
@@ -182,7 +183,7 @@ function ensurePreviewAudio() {
         const notify = !_pvNotified;
         _pvNotified = true;
         stopPreview();
-        if (notify) showToast('Preview 30 detik selesai — download untuk versi full', 4000);
+        if (notify) showToast(t('ac.previewDone'), 4000);
       }
     };
   }

@@ -20,7 +20,7 @@ from fastapi.responses import JSONResponse
 from vx_core import (
     AUDIO_JOB_LOCK, _audio_duration_sec, _cache_hit_notice, _make_notice,
     _probe_audio, _set_progress, download_progress, encode_cap_for, ffmpeg_bin,
-    ffmpeg_loc_for_ytdlp, log,
+    ffmpeg_loc_for_ytdlp, ffprobe_bin, log,
 )
 from vx_cover import _embed_cover, _resolve_cover_bytes
 from vx_search import (
@@ -802,6 +802,38 @@ def _finalize_download(download_id: str, out_path: Path, via: str, source_kbps,
     return True
 
 
+def _probe_bits(path: Path, timeout: int = 30) -> int | None:
+    """Bit depth PCM file via ffprobe (hanya ``bits_per_raw_sample``).
+
+    Dipakai supaya encode ulang mempertahankan bit depth sumber. Tanpa itu
+    ffmpeg memilih 24-bit dari input float untuk FLAC sehingga file 16-bit
+    membengkak ~70% tanpa tambahan informasi apa pun - sementara file 24-bit
+    harus tetap 24-bit, dipaksa s16 justru merusak.
+
+    Hanya ``bits_per_raw_sample`` yang dipercaya; ``sample_fmt`` ambigu
+    (``s32`` bisa berarti 24 atau 32 bit). File lossy tidak melapor, dan
+    memang ``None`` di situ berarti "pakai 16-bit" karena sumbernya sudah
+    kehilangan informasi lebih dari itu.
+    """
+    fp = ffprobe_bin()
+    if not fp or not Path(path).exists():
+        return None
+    try:
+        proc = subprocess.run(
+            [fp, "-v", "error", "-select_streams", "a:0",
+             "-show_entries", "stream=bits_per_raw_sample",
+             "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
+            capture_output=True, text=True, timeout=max(2, min(20, timeout)))
+    except Exception:
+        return None
+    raw = (proc.stdout or "").strip().splitlines()
+    if raw:
+        v = raw[0].strip()
+        if v.isdigit() and int(v) > 0:
+            return int(v)
+    return None
+
+
 def _enhance_audio(out_path: Path, options: dict, download_id: str, force: bool = False) -> bool:
     """Post-process audio: declip + HQ resample + loudnorm.
     Returns True if enhanced (file replaced), False if skipped/failed.
@@ -836,7 +868,10 @@ def _enhance_audio(out_path: Path, options: dict, download_id: str, force: bool 
         elif ext == "mp3":
             codec_args = ["-c:a", "libmp3lame", "-qscale:a", "2"]
         elif ext in ("flac",):
-            codec_args = ["-c:a", "flac", "-compression_level", "5"]
+            src_bits = _probe_bits(out_path)
+            bits = 16 if src_bits is None else min(24, max(16, int(src_bits)))
+            codec_args = ["-sample_fmt", f"s{bits}", "-c:a", "flac",
+                          "-compression_level", "5"]
         elif ext in ("ogg", "opus"):
             codec_args = ["-c:a", "libvorbis", "-qscale:a", "3"]
         else:

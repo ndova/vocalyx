@@ -1,3 +1,4 @@
+import { t } from './i18n/core.js';
 import { S } from './state.js';
 import { trackListEl } from './dom.js';
 import { localLibraryTracks, albumKeyOf, clearPlaylistPlayback, clearCollectionPlayback, clearDownloadPlayback, playlistTracks, plPathIndex, savePlaylists, uid } from './library.js';
@@ -12,7 +13,8 @@ import { paintEnhanceItem, enhanceOneFile } from './enhance.js';
 import { editLocalTrack } from './track-edit.js';
 import { handleLibraryDrop } from './iphone-import.js';
 import { renderPlaylistDetail, renderPlaylistsOverview, groupArtists, groupAlbums, playCollection, pickCoverQuad, collectionCoverStack, renderMainView } from './views.js';
-import { showPrompt } from './modal.js';
+import { showPrompt, showConfirm } from './modal.js';
+import { deleteSelectedPaths } from './downloads.js';
 
 function renderLocalCollection(filter, kind){
   const f = (filter || '').toLowerCase();
@@ -62,7 +64,7 @@ export function renderTracks(filter = '') {
   let visibleNo = 0;
   S._visibleLocal = [];
   if (localLibraryTracks().length === 0) {
-    trackListEl.innerHTML = `<div style="padding:24px;text-align:center;color:var(--muted);font-size:14px;line-height:1.6">Belum ada lagu<br><span style="font-size:12px">Klik <b>＋ Add Folder</b> di atas untuk memilih folder berisi mp3/m4a<br>Lirik otomatis dari subfolder <b>Lyrics/</b> → <i>NamaLagu.lrc</i></span></div>`;
+    trackListEl.innerHTML = `<div style="padding:24px;text-align:center;color:var(--muted);font-size:14px;line-height:1.6">${t('lib.emptyTitle')}<br><span style="font-size:12px">${t('lib.emptyHint')}</span></div>`;
     syncSelHeader('local');
     return;
   }
@@ -75,49 +77,49 @@ export function renderTracks(filter = '') {
     return;
   }
   if (headEl) headEl.style.display = '';
-  S.tracks.forEach((t, i) => {
-    if (t.fromDownloads) return;
+  S.tracks.forEach((tk, i) => {
+    if (tk.fromDownloads) return;
     if (filter) {
       const f = filter.toLowerCase();
       let hay = '';
-      if (filterType === 'title') hay = t.title || '';
-      else if (filterType === 'artist') hay = t.artist || '';
-      else if (filterType === 'album') hay = albumKeyOf(t);
-      else hay = `${t.title || ''} ${t.artist || ''} ${albumKeyOf(t)}`;
+      if (filterType === 'title') hay = tk.title || '';
+      else if (filterType === 'artist') hay = tk.artist || '';
+      else if (filterType === 'album') hay = albumKeyOf(tk);
+      else hay = `${tk.title || ''} ${tk.artist || ''} ${albumKeyOf(tk)}`;
       if (!hay.toLowerCase().includes(f)) return;
     }
     visibleNo++;
-    S._visibleLocal.push(selKeyLocal(t.path));
+    S._visibleLocal.push(selKeyLocal(tk.path));
     const b = document.createElement('button');
     b.className = 'track' + (i === S.idx ? ' active' : '');
-    if (t.path) b.dataset.tpath = t.path;
-    const hasLyric = t.lyric_path ? ' ♪' : '';
-    const kBadge = karaokeBadgeHtml(t);
+    if (tk.path) b.dataset.tpath = tk.path;
+    const hasLyric = tk.lyric_path ? ' ♪' : '';
+    const kBadge = karaokeBadgeHtml(tk);
     const checkCell = S.selectMode.local
-      ? `<input type="checkbox" data-sel="${i}" ${S.selectedPaths.local.has(selKeyLocal(t.path))?'checked':''} title="Pilih">`
+      ? `<input type="checkbox" data-sel="${i}" ${S.selectedPaths.local.has(selKeyLocal(tk.path))?'checked':''} title="Pilih">`
       : `<span style="color:#8b93a9">${visibleNo}</span>`;
     b.innerHTML = `
       ${checkCell}
-      <span class="t-main">${coverHtml(t)}
-        <span><div class="t-title">${t.title}${hasLyric}${kBadge}</div><div class="t-sub">${t.artist}</div>${karaokeProgressHtml(t)}</span>
+      <span class="t-main">${coverHtml(tk)}
+        <span><div class="t-title">${tk.title}${hasLyric}${kBadge}</div><div class="t-sub">${tk.artist}</div>${karaokeProgressHtml(tk)}</span>
       </span>
-      <span class="c-type">${(t.ext || '').toUpperCase()}</span>
-      <span class="c-size">${t.size_str || '--'}</span>
-      <span class="c-dur">${t.dur || '--:--'}</span>
-      <span class="c-more"><div class="more-menu" data-menu="${i}"><button data-edit-track="${i}">${ICON.pencil} Edit info lagu</button><button data-enhance-track="${i}">${ICON.sparkles} Enhance file</button><button data-iphone-import="${i}">${ICON.upload} Import to iPhone</button><button data-action="addToPlaylist" data-idx="${i}">${ICON.listPlus} Add to playlist ${ICON.chevronRight}</button><div class="submenu" id="submenu-${i}"></div></div></span>`;
+      <span class="c-type">${(tk.ext || '').toUpperCase()}</span>
+      <span class="c-size">${tk.size_str || '--'}</span>
+      <span class="c-dur">${tk.dur || '--:--'}</span>
+      <span class="c-more"><div class="more-menu" data-menu="${i}"><button data-edit-track="${i}">${ICON.pencil} ${t('me.editInfo')}</button><button data-enhance-track="${i}">${ICON.sparkles} ${t('me.enhanceFile')}</button><button data-iphone-import="${i}">${ICON.upload} ${t('me.importToIphone')}</button><button data-del-track="${i}">${ICON.trash} ${t('modal.delete')}</button><button data-action="addToPlaylist" data-idx="${i}">${ICON.listPlus} ${t('me.addToPlaylist')} ${ICON.chevronRight}</button><div class="submenu" id="submenu-${i}"></div></div></span>`;
     const selBox = b.querySelector('[data-sel]');
     if (selBox) {
-      selBox.onchange = ()=>{ toggleSelLocal(t.path); };
+      selBox.onchange = ()=>{ toggleSelLocal(tk.path); };
     }
     b.ondblclick = (e) => {
       if (e.target.closest('.more-menu') || e.target.closest('[data-sel]')) return;
-      if (S.selectMode.local) { toggleSelLocal(t.path); return; }
+      if (S.selectMode.local) { toggleSelLocal(tk.path); return; }
       clearPlaylistPlayback();
       clearCollectionPlayback();
       clearDownloadPlayback();
       load(i, true);
     };
-    b.addEventListener('mouseenter', () => prefetchVolumeGain(t.path), { once: true });
+    b.addEventListener('mouseenter', () => prefetchVolumeGain(tk.path), { once: true });
     trackListEl.appendChild(b);
   });
   syncSelHeader('local');
@@ -189,12 +191,12 @@ function openRowMenu(row, anchor){
   const submenu = menu.querySelector('.submenu');
   if (submenu) {
     const idx = menu.dataset.menu;
-    const head = `<div class="submenu-head">Playlist</div>`;
+    const head = `<div class="submenu-head">${t('pl.playlist')}</div>`;
     if (S.playlists.length===0) {
-      submenu.innerHTML = head + `<button data-create="${idx}" class="submenu-create">${ICON.plus} Create new playlist</button>`;
+      submenu.innerHTML = head + `<button data-create="${idx}" class="submenu-create">${ICON.plus} ${t('me.newPlaylist')}</button>`;
       submenu.classList.add('open');
     } else {
-      submenu.innerHTML = head + S.playlists.map(p=> `<button data-playlist-id="${p.id}" data-idx="${idx}" title="${escAttr(p.name)}">${escAttr(p.name)} <span class="submenu-count">(${playlistTracks(p).length})</span></button>`).join('') + `<button data-create="${idx}" class="submenu-create">${ICON.plus} Create new</button>`;
+      submenu.innerHTML = head + S.playlists.map(p=> `<button data-playlist-id="${p.id}" data-idx="${idx}" title="${escAttr(p.name)}">${escAttr(p.name)} <span class="submenu-count">(${playlistTracks(p).length})</span></button>`).join('') + `<button data-create="${idx}" class="submenu-create">${ICON.plus} </button>`;
       submenu.classList.add('open');
     }
   }
@@ -232,7 +234,23 @@ document.addEventListener('click', (e)=>{
     closePortalMenu();
     document.querySelectorAll('.submenu.open').forEach(m=>m.classList.remove('open'));
     if (t?.path) handleLibraryDrop([t.path]);
-    else showToast('File lagu tidak ditemukan', 3000);
+    else showToast(t('loc.fileNotFound'), 3000);
+    return;
+  }
+  const delBtn = e.target.closest('[data-del-track]');
+  if (delBtn && menuScopeOk(delBtn)) {
+    e.stopPropagation();
+    const tIdx = parseInt(delBtn.dataset.delTrack, 10);
+    const tk = S.tracks[tIdx];
+    delBtn.closest('.more-menu')?.classList.remove('open');
+    closePortalMenu();
+    document.querySelectorAll('.submenu.open').forEach(m=>m.classList.remove('open'));
+    if (!tk) return;
+    (async()=>{
+      const ok = await showConfirm(t('confirm.deleteFile'), t('confirm.deleteSelected', { n: 1 }));
+      if (!ok) return;
+      await deleteSelectedPaths('local', [selKeyLocal(tk.path)]);
+    })();
     return;
   }
   const plBtn = e.target.closest('[data-playlist-id]');
@@ -254,11 +272,11 @@ document.addEventListener('click', (e)=>{
   if (createBtn && menuScopeOk(createBtn)) {
     e.stopPropagation();
     const tIdx = parseInt(createBtn.dataset.create,10);
-    const t = S.tracks[tIdx];
+    const tk = S.tracks[tIdx];
     (async()=>{
-      const name = await showPrompt('New Playlist', 'Masukkan nama playlist:', '');
+      const name = await showPrompt(t('modal.createPlaylist'), t('modal.enterPlaylistName'), '');
       if (!name || !name.trim()) return;
-      const pl = { id: uid(), name: name.trim(), trackPaths: t ? [t.path] : [], createdAt: Date.now() };
+      const pl = { id: uid(), name: name.trim(), trackPaths: tk ? [tk.path] : [], createdAt: Date.now() };
       S.playlists.push(pl);
       savePlaylists();
       createBtn.closest('.more-menu')?.classList.remove('open');

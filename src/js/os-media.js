@@ -1,4 +1,5 @@
 import { S } from './state.js';
+import { t } from './i18n/core.js';
 import { audio, $ } from './dom.js';
 import { setMediaSessionState, setMediaSessionMeta, clearMediaSession, setupMediaSession } from './media-session.js';
 import { albumKeyOf, ensureTrackForPath, invokeTauri, isTauri, load, pause, play, playlistTracks, plPathIndex, showSep, trackIndexByPath } from '../app.js';
@@ -292,7 +293,7 @@ $('#btnPrev').onclick = () => { if (!S.tracks.length) return; const pi = getPrev
 $('#btnShuffle').onclick = () => {
   S.isShuffle = !S.isShuffle;
   $('#btnShuffle').classList.toggle('active', S.isShuffle);
-  showSep(S.isShuffle ? 'Shuffle: ON' : 'Shuffle: OFF', 1500);
+  showSep(S.isShuffle ? t('np.shuffleOn') : t('np.shuffleOff'), 1500);
 };
 const btnRepeat = $('#btnRepeat');
 if (btnRepeat) {
@@ -300,8 +301,8 @@ if (btnRepeat) {
     S.repeatMode = S.repeatMode === 'off' ? 'all' : S.repeatMode === 'all' ? 'one' : 'off';
     btnRepeat.classList.toggle('active', S.repeatMode !== 'off');
     btnRepeat.classList.toggle('repeat-one', S.repeatMode === 'one');
-    btnRepeat.title = S.repeatMode === 'off' ? 'Repeat Off' : S.repeatMode === 'all' ? 'Repeat All' : 'Repeat One';
-    showSep(S.repeatMode === 'off' ? 'Repeat: OFF' : S.repeatMode === 'all' ? 'Repeat: ALL' : 'Repeat: ONE', 1500);
+    btnRepeat.title = S.repeatMode === 'off' ? t('np.repeatOff') : S.repeatMode === 'all' ? t('np.repeatAll') : t('np.repeatOne');
+    showSep(S.repeatMode === 'off' ? t('np.repeatOff') : S.repeatMode === 'all' ? t('np.repeatAll') : t('np.repeatOne'), 1500);
   };
 }
 

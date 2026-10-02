@@ -1,5 +1,9 @@
 import { $, audio, trackListEl, lyricsEl, canvas, ctx, seek, tCur, tLeft } from './js/dom.js';
 import { EQ_FREQS, EQ_PRESETS } from './js/eq-data.js';
+export { initI18n, applyLang, lang, t, onLangChange, translateTree, syncDocument, i18nBase, i18nLangs, i18nMissing, i18nKeys } from './js/i18n/core.js';
+import { initI18n, lang, translateTree } from './js/i18n/core.js';
+export { presetLabel, presetList, migrateEqState } from './js/i18n/presets.js';
+import { migrateEqState } from './js/i18n/presets.js';
 import { fmt, coverHtml, hashStr, escAttr } from './js/format.js';
 import { parseLRC, defaultLyrics, shiftLrcByOffset, lyricLinesToLrc } from './js/lrc.js';
 import { showModal, showPrompt, showConfirm, showAlert } from './js/modal.js';
@@ -76,6 +80,11 @@ window.dumpTracks = function(limit=20){
   else console.log("No BAD tracks found");
   return { sample, badCount: bad.length };
 };
+try { initI18n(); migrateEqState(); } catch {}
+try { translateTree(document); } catch {}
+const setLangEl = document.getElementById('setLang');
+if (setLangEl) { try { setLangEl.value = lang(); } catch {} }
+try { if (typeof window.__syncLangCode === 'function') window.__syncLangCode(lang()); } catch {}
 renderTracks();
 try { hydrateIcons(document); } catch {}
 initResizableGrid();
@@ -85,7 +94,7 @@ syncPlayerState();
 try { initMediaSync(); } catch {}
 try { initAbout(); } catch {}
 setTimeout(()=>{ try {
-  startBackgroundCheck((r)=>{ try { showToast(`VocaLyx ${r.latest} tersedia — buka About untuk unduh`, 7000); } catch {} });
+  startBackgroundCheck((r)=>{ try { showToast(t('ab.newVerToast', { v: r.latest }), 7000); } catch {} });
 } catch {} }, 4000);
 try { restoreMusicFolders(); } catch {}
 setTimeout(()=>{ try { cleanupDownloadArtifacts(); } catch {} }, 6000);

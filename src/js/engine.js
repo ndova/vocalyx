@@ -1,3 +1,4 @@
+import { t } from './i18n/core.js';
 import { S } from './state.js';
 import { audio, $ } from './dom.js';
 import { fmt } from './format.js';
@@ -19,20 +20,20 @@ export function showToast(msg, ms = 5000) {
 }
 const SRC_CAP = { youtube: 160, 'youtube-fallback': 160, 'youtube-music': 160, soundcloud: 128, 'soundcloud-search': 128, 'soundcloud-alt': 128, premium: 320 };
 const SRC_LABEL = { youtube: 'YouTube', 'youtube-fallback': 'YouTube', 'youtube-music': 'YT Music', soundcloud: 'SoundCloud', 'soundcloud-direct': 'SoundCloud', 'soundcloud-search': 'SoundCloud', 'soundcloud-alt': 'SoundCloud', 'soundcloud-preview': 'SoundCloud', 'archive-direct': 'Archive.org', '4shared-direct': '4shared', premium: 'Spotify Premium', 'spotify-premium': 'Spotify Premium' };
-function showAudioNotice(t, notice, via) {
+function showAudioNotice(tk, notice, via) {
   if (!notice) return;
   const srcKey = notice.source || via;
-  const src = SRC_LABEL[srcKey] || SRC_LABEL[via] || (srcKey || via || 'sumber').replace(/-/g, ' ');
-  const actual = notice.actualKbps ? `${notice.actualKbps}kbps` : 'tak terukur';
+  const src = SRC_LABEL[srcKey] || SRC_LABEL[via] || (srcKey || via || t('eng.srcGeneric')).replace(/-/g, ' ');
+  const actual = notice.actualKbps ? `${notice.actualKbps}kbps` : t('eng.unmeasured');
   let msg;
   if (notice.passthrough) {
-    msg = `Sumber ${src} asli ${actual} — disimpan apa adanya (tanpa convert)`;
+    msg = t('eng.passthrough', { src, kbps: actual });
   } else if (notice.capped) {
     const cap = SRC_CAP[via] ?? null;
-    msg = cap ? `Sumber ${src} maks ${cap}kbps — disimpan apa adanya (aktual ${actual})`
-              : `Kualitas dibatasi sumber — aktual ${actual}`;
+    msg = cap ? t('eng.cappedMax', { src, cap, kbps: actual })
+              : t('eng.cappedSrc', { kbps: actual });
   } else {
-    msg = `${t.title || 'Lagu'} selesai: ${actual} dari ${src}`;
+    msg = `${tk.title || t('eng.genericTrack')} selesai: ${actual} dari ${src}`;
   }
   showToast(msg);
 }
@@ -86,7 +87,7 @@ async function karaokeCaps(selected) {
   return null;
 }
 function karaokeCudaLabel(caps) {
-  if (!caps) return 'CUDA: engine offline — tidak terdeteksi';
+  if (!caps) return t('eng.offlineCuda');
   if (caps.cuda) {
     const vram = (caps.vram_free_gb != null && caps.vram_total_gb != null)
       ? ` • VRAM bebas ${caps.vram_free_gb}/${caps.vram_total_gb} GB` : '';
@@ -108,7 +109,7 @@ async function refreshCudaStatus() {
   const dot = document.getElementById('cudaConnDot');
   const el = document.getElementById('karaokeCudaStatus');
   if (!el && !dot) return false;
-  if (el) el.textContent = 'CUDA: mengecek…';
+  if (el) el.textContent = t('eng.cudaChecking');
   const sel = String((S.downloadOptions && S.downloadOptions.karaokeDevice) || 'auto').toLowerCase();
   let caps = null;
   try { caps = await karaokeCaps(sel); } catch { caps = null; }
@@ -117,8 +118,8 @@ async function refreshCudaStatus() {
     const th = (caps && caps.cpu_threads) || 0;
     if (dot) dot.style.background = caps ? 'var(--accent)' : 'var(--muted)';
     if (el) {
-      if (!caps) el.textContent = 'Engine offline — jalankan npm run engine';
-      else el.textContent = `Aktif: ${nm || 'CPU'}${th ? ` • ${th} thread` : ''}`;
+      if (!caps) el.textContent = t('eng.offlineRun');
+      else el.textContent = `${t('eng.active')}: ${nm || 'CPU'}${th ? ` • ${th} thread` : ''}`;
       el.style.color = caps ? 'var(--muted)' : '#e5484d';
     }
     S._prevCudaActive = !!caps;
@@ -127,11 +128,11 @@ async function refreshCudaStatus() {
   const active = !!(caps && caps.cuda);
   if (dot) dot.style.background = active ? 'var(--accent)' : 'var(--muted)';
   if (el) {
-    if (!caps) el.textContent = 'Engine offline — jalankan npm run engine';
+    if (!caps) el.textContent = t('eng.offlineRun');
     else if (active) {
       const vram = (caps.vram_free_gb != null && caps.vram_total_gb != null) ? ` • VRAM bebas ${caps.vram_free_gb}/${caps.vram_total_gb} GB` : '';
-      el.textContent = `Aktif: ${caps.device || 'GPU'}${vram}`;
-    } else el.textContent = 'Tidak terdeteksi — karaoke jalan di CPU';
+      el.textContent = `${t('eng.active')}: ${caps.device || 'GPU'}${vram}`;
+    } else el.textContent = t('eng.notDetected');
     el.style.color = active ? 'var(--muted)' : '#e5484d';
   }
   S._prevCudaActive = active;
@@ -153,6 +154,8 @@ function parseEngineError(text) {
 
 const KARAOKE_STAGE_LABELS = {
   queued: 'menunggu', probe: 'membaca audio', separate: 'memisahkan vokal',
+  dsp: 'membersihkan sisa vokal', 'dsp:load': 'membersihkan sisa vokal',
+  'dsp:cleanup': 'membersihkan sisa vokal', 'dsp:done': 'membersihkan sisa vokal',
   loudnorm: 'menyamakan volume', 'convert-target': 'menyimpan', trim: 'menyimpan',
   'to-wav-demucs': 'fallback Demucs', 'demucs-fallback': 'fallback Demucs',
   'cache-persist': 'dari cache', cache: 'dari cache', done: 'selesai',
@@ -160,7 +163,9 @@ const KARAOKE_STAGE_LABELS = {
 export function karaokeStageLabel(stage) {
   const s = String(stage || '').trim();
   if (!s) return 'bekerja';
-  return KARAOKE_STAGE_LABELS[s] || s;
+  if (KARAOKE_STAGE_LABELS[s]) return KARAOKE_STAGE_LABELS[s];
+  if (s.startsWith('separate:')) return KARAOKE_STAGE_LABELS.separate;
+  return s;
 }
 export function karaokeBadgeHtml(t) {
   if (t.karaoke_job) {
@@ -186,11 +191,19 @@ function updateKaraokeBadge(t) {
     const barHtml = karaokeProgressHtml(t);
     rows.forEach((row) => {
       try {
-        const badge = row.querySelector('.k-badge.busy');
-        if (badge) {
-          const tmp = document.createElement('span');
-          tmp.innerHTML = badgeHtml;
-          if (tmp.firstChild) badge.replaceWith(tmp.firstChild);
+        const tmp = document.createElement('span');
+        tmp.innerHTML = badgeHtml;
+        const fresh = tmp.firstChild || null;
+        const badge = row.querySelector('.k-badge.busy') || row.querySelector('.k-badge');
+        if (fresh) {
+          if (badge) badge.replaceWith(fresh);
+          else {
+            const titleEl = row.querySelector('.t-title');
+            if (titleEl) titleEl.insertAdjacentHTML('afterend', badgeHtml);
+            else row.insertAdjacentHTML('beforeend', badgeHtml);
+          }
+        } else if (badge && !t.karaoke_job && !t.karaoke_path) {
+          badge.remove();
         }
         let bar = row.querySelector('.k-prog');
         if (bar) {
@@ -304,37 +317,37 @@ async function switchKaraokeAudio(targetUrl, opts = {}) {
   applyKaraokeMakeup();
 }
 
-function isKaraokeBlocked(t) {
+function isKaraokeBlocked(tk) {
   if (S.karaokeJobId) return false;
   if (typeof S.activeView !== 'undefined' && S.activeView === 'downloads') return true;
-  if (!t) return false;
-  if (t.fromDownloads) return true;
+  if (!tk) return false;
+  if (tk.fromDownloads) return true;
   try {
     if (typeof S.downloadPlayback !== 'undefined' && S.downloadPlayback && S.downloadPlayback.paths &&
-        S.downloadPlayback.paths.includes(t.path)) return true;
+        S.downloadPlayback.paths.includes(tk.path)) return true;
   } catch {}
   return false;
 }
 function syncKaraokeBtn(){
   const kb = $('#btnKaraoke');
   if (!kb) return;
-  const t = (typeof S.tracks !== 'undefined' && typeof S.idx === 'number') ? S.tracks[S.idx] : null;
+  const tk = (typeof S.tracks !== 'undefined' && typeof S.idx === 'number') ? S.tracks[S.idx] : null;
   if (kb) { kb.classList.toggle('on', S.karaokeOn); if ('checked' in kb) kb.checked = S.karaokeOn; }
   if (S.karaokeJobId) {
     kb.disabled = false;
-    kb.title = 'Konversi karaoke berjalan — klik untuk membatalkan';
+    kb.title = t('eng.karaokeRunning');
     return;
   }
-  kb.title = 'Karaoke mode';
-  kb.disabled = isKaraokeBlocked(t);
+  kb.title = t('eng.karaokeMode');
+  kb.disabled = isKaraokeBlocked(tk);
 }
 async function separate(mode) {
-  const t = S.tracks[S.idx];
-  if (!t || (!t.file && !t.url && !t.path)) { showSep('Pilih lagu dulu (Add Folder)', 3000); return; }
-  if (!S.karaokeJobId && isKaraokeBlocked(t)) { showSep('Karaoke tidak tersedia untuk lagu dari menu Downloads', 3000); syncKaraokeBtn(); return; }
+  const tk = S.tracks[S.idx];
+  if (!tk || (!tk.file && !tk.url && !tk.path)) { showSep(t('eng.pickFirst'), 3000); return; }
+  if (!S.karaokeJobId && isKaraokeBlocked(tk)) { showSep(t('eng.karaokeFromDl'), 3000); syncKaraokeBtn(); return; }
   delete audio.dataset.previewCap;
   delete audio.dataset.previewNotified;
-  if (t.karaoke_path) {
+  if (tk.karaoke_path) {
     const isSameModeActive = audio.dataset.karaoke === 'true' && audio.dataset.mode === mode;
     try {
       const { convertFileSrc } = await import('@tauri-apps/api/core');
@@ -344,18 +357,18 @@ async function separate(mode) {
         audio.dataset.karaoke = 'false';
         audio.dataset.mode = '';
         S.karaokeOn = false; S.vocalOffOn = false;
-        await switchKaraokeAudio(convertFileSrc(t.path), { pos, wasPlaying });
+        await switchKaraokeAudio(convertFileSrc(tk.path), { pos, wasPlaying });
       } else {
         audio.dataset.karaoke = 'true';
         audio.dataset.mode = mode;
         S.karaokeOn = mode === 'karaoke';
         S.vocalOffOn = mode === 'vocal';
-        await switchKaraokeAudio(convertFileSrc(t.karaoke_path), { pos, wasPlaying, fallbackUrl: convertFileSrc(t.path) });
+        await switchKaraokeAudio(convertFileSrc(tk.karaoke_path), { pos, wasPlaying, fallbackUrl: convertFileSrc(tk.path) });
       }
       syncKaraokeBtn();
       return;
     } catch (e) {
-      showSep('Gagal play karaoke lokal: ' + e, 3000);
+      showSep(t('eng.karaokeLocalFail', { n: e }), 3000);
       return;
     }
   }
@@ -367,44 +380,52 @@ async function separate(mode) {
       await fetch(ENG_BASE + '/separate/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload })
         .catch(() => fetch('/api/separate/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload }).catch(() => {}));
     } catch {}
-    t.karaoke_job = false;
+    tk.karaoke_job = false;
     try { renderTracks($('#globalSearch')?.value || ''); } catch {}
     syncKaraokeBtn();
-    showSep('Karaoke dibatalkan', 2500);
+    showSep(t('eng.karaokeCancelled'), 2500);
     return;
   }
   const online = await engineHealth();
   if (!online) {
-    showSep('Karaoke tidak tersedia — engine offline', 2500);
+    showSep(t('eng.karaokeNoEngine'), 2500);
     return;
   }
   const kb = $('#btnKaraoke'); if (kb) kb.disabled = true;
   S.karaokeCancelled = false;
-  const caps0 = await karaokeCaps().catch(() => null);
-  const selDev0 = String((S.downloadOptions && S.downloadOptions.karaokeDevice) || 'auto').toLowerCase();
-  if (caps0 && !caps0.cuda && selDev0 !== 'cpu') showToast(karaokeCudaLabel(caps0), 6000);
-  try { refreshCudaStatus().catch(() => {}); } catch {}
+const caps0 = await karaokeCaps().catch(() => null);
+    const selDev0 = String((S.downloadOptions && S.downloadOptions.karaokeDevice) || 'auto').toLowerCase();
+    if (caps0 && !caps0.cuda && selDev0 !== 'cpu') showToast(karaokeCudaLabel(caps0), 6000);
+    const needVram = Number(caps0 && caps0.min_free_vram_gb) || 0;
+    const freeVram = caps0 ? Number(caps0.vram_free_gb) : NaN;
+    if (caps0 && caps0.cuda && selDev0 !== 'cpu' && needVram > 0 && Number.isFinite(freeVram) && freeVram < needVram) {
+      const kb0 = $('#btnKaraoke'); if (kb0) kb0.disabled = false;
+      showSep(t('eng.vramLow', { free: freeVram.toFixed(2), need: needVram.toFixed(1) }), 7000);
+      showToast(t('eng.vramLow', { free: freeVram.toFixed(2), need: needVram.toFixed(1) }), 7000);
+      return;
+    }
+    try { refreshCudaStatus().catch(() => {}); } catch {}
   try {
-    const quality = S.downloadOptions.karaokeQuality || 'standard';
+    const quality = ['high','roformer','standard'].includes(S.downloadOptions.karaokeQuality) ? S.downloadOptions.karaokeQuality : 'high';
     const kDevice = S.downloadOptions.karaokeDevice || 'auto';
     const kFormat = S.downloadOptions.karaokeFormat || 'flac';
     const t0 = Date.now();
     try { showSep(''); } catch {}
-    t.karaoke_job = true;
-    t.karaoke_pct = 0; t.karaoke_stage = 'queued';
-    t.karaoke_pct_at = Date.now(); t.karaoke_stalled = false; t._karaokeDevLbl = null;
+    tk.karaoke_job = true;
+    tk.karaoke_pct = 0; tk.karaoke_stage = 'queued';
+    tk.karaoke_pct_at = Date.now(); tk.karaoke_stalled = false; tk._karaokeDevLbl = null;
     try { renderTracks($('#globalSearch')?.value || ''); } catch {}
     const { convertFileSrc } = await import('@tauri-apps/api/core');
-    const url = convertFileSrc(t.path);
+    const url = convertFileSrc(tk.path);
     const blob = await (await fetch(url)).blob();
     const fd = new FormData();
-    fd.append('file', blob, karaokeUploadName(t));
+    fd.append('file', blob, karaokeUploadName(tk));
     fd.append('mode', mode);
     fd.append('model', 'bsroformer');
     fd.append('quality', quality);
     fd.append('device', kDevice);
     fd.append('format', kFormat);
-    if (t.path) fd.append('track_path', t.path);
+    if (tk.path) fd.append('track_path', tk.path);
     let startRes = null;
     try {
       startRes = await fetch(ENG_BASE + '/separate', { method: 'POST', body: fd });
@@ -416,6 +437,7 @@ async function separate(mode) {
     if (!startRes.ok) throw new Error(parseEngineError(await startRes.text()));
     const startCt = (startRes.headers.get('content-type') || '').toLowerCase();
     let outBlob = null;
+    let jobId = null;
     if (startCt.includes('audio') || startCt.includes('octet-stream')) {
       outBlob = await startRes.blob();
     } else {
@@ -427,7 +449,7 @@ async function separate(mode) {
         if (!outBlob || !outBlob.size) throw new Error('Respons engine bukan JSON job (kemungkinan engine lama). Restart engine lalu coba lagi.');
       }
       if (!outBlob) {
-        const jobId = started.job_id;
+        jobId = started.job_id;
         if (!jobId) throw new Error('engine tidak mengembalikan job_id');
         S.karaokeJobId = jobId;
         try { syncKaraokeBtn(); } catch {}
@@ -436,7 +458,7 @@ async function separate(mode) {
     let done = false, failErr = '';
     let lastBadgeRender = 0;
     for (;;) {
-      if (S.karaokeCancelled) { S.karaokeJobId = null; t.karaoke_job = false; t.karaoke_pct = null; t.karaoke_stalled = false; try { renderTracks($('#globalSearch')?.value || ''); } catch {} return; }
+      if (S.karaokeCancelled) { S.karaokeJobId = null; tk.karaoke_job = false; tk.karaoke_pct = null; tk.karaoke_stalled = false; try { renderTracks($('#globalSearch')?.value || ''); } catch {} return; }
       let pj = null;
       try {
         let pr = await fetch(progUrl(jobId), { cache: 'no-store' });
@@ -447,21 +469,21 @@ async function separate(mode) {
         let changed = false;
         if (typeof pj.pct === 'number' && isFinite(pj.pct)) {
           const p = Math.max(0, Math.min(100, Math.round(pj.pct)));
-          if (p !== t.karaoke_pct) { t.karaoke_pct = p; t.karaoke_pct_at = Date.now(); t.karaoke_stalled = false; changed = true; }
+          if (p !== tk.karaoke_pct) { tk.karaoke_pct = p; tk.karaoke_pct_at = Date.now(); tk.karaoke_stalled = false; changed = true; }
         }
-        if (pj.stage && pj.stage !== t.karaoke_stage) { t.karaoke_stage = pj.stage; changed = true; }
+        if (pj.stage && pj.stage !== tk.karaoke_stage) { tk.karaoke_stage = pj.stage; changed = true; }
         if (pj.device_info || pj.device) {
           const lbl = cudaDeviceLabel(pj.device_info, pj.device);
-          if (lbl && lbl !== t._karaokeDevLbl) {
-            t._karaokeDevLbl = lbl;
-            try { if (sepStatus) { sepStatus.textContent = `Separasi berjalan di: ${lbl}`; sepStatus.style.display = 'block'; } } catch {}
+          if (lbl && lbl !== tk._karaokeDevLbl) {
+            tk._karaokeDevLbl = lbl;
+            try { if (sepStatus) { sepStatus.textContent = t('eng.sepRunning', { n: lbl }); sepStatus.style.display = 'block'; } } catch {}
           }
         }
-        if (!t.karaoke_stalled && Date.now() - (t.karaoke_pct_at || t0) > 15000) {
-          t.karaoke_stalled = true; changed = true;
+        if (!tk.karaoke_stalled && Date.now() - (tk.karaoke_pct_at || t0) > 15000) {
+          tk.karaoke_stalled = true; changed = true;
         }
         if (changed) {
-          if (!updateKaraokeBadge(t) && Date.now() - lastBadgeRender > 3000) {
+          if (!updateKaraokeBadge(tk) && Date.now() - lastBadgeRender > 3000) {
             lastBadgeRender = Date.now();
             rerenderTrackViews();
           }
@@ -474,10 +496,10 @@ async function separate(mode) {
       await new Promise(r => setTimeout(r, 1000));
     }
     S.karaokeJobId = null;
-    if (S.karaokeCancelled) { t.karaoke_job = false; t.karaoke_pct = null; t.karaoke_stalled = false; try { renderTracks($('#globalSearch')?.value || ''); } catch {} return; }
-    if (!done) { t.karaoke_job = false; t.karaoke_pct = null; t.karaoke_stalled = false; try { renderTracks($('#globalSearch')?.value || ''); } catch {} throw new Error(failErr || 'separation gagal'); }
-    t.karaoke_pct = 100; t.karaoke_stalled = false;
-    try { if (!updateKaraokeBadge(t)) rerenderTrackViews(); } catch {}
+    if (S.karaokeCancelled) { tk.karaoke_job = false; tk.karaoke_pct = null; tk.karaoke_stalled = false; try { renderTracks($('#globalSearch')?.value || ''); } catch {} return; }
+    if (!done) { tk.karaoke_job = false; tk.karaoke_pct = null; tk.karaoke_stalled = false; try { renderTracks($('#globalSearch')?.value || ''); } catch {} throw new Error(failErr || 'separation gagal'); }
+    tk.karaoke_pct = 100; tk.karaoke_stalled = false;
+    try { if (!updateKaraokeBadge(tk)) rerenderTrackViews(); } catch {}
     try {
       const rr = await fetch(ENG_BASE + '/separate/result?job_id=' + encodeURIComponent(jobId));
       if (rr.ok) {
@@ -502,6 +524,7 @@ async function separate(mode) {
       }
     }
     if (!outBlob || !outBlob.size) throw new Error('Hasil karaoke kosong');
+    let savePath = null;
     try {
       const b64 = await new Promise((res, rej) => {
         const reader = new FileReader();
@@ -514,37 +537,49 @@ async function separate(mode) {
         reader.readAsDataURL(outBlob);
       });
       const ext = outBlob.type.includes('flac') ? 'flac' : outBlob.type.includes('ogg') ? 'ogg' : outBlob.type.includes('wav') ? 'wav' : kFormat;
-      const savePath = await invokeTauri('save_karaoke', { trackPath: t.path, b64Data: b64, ext });
-      t.karaoke_path = savePath;
+      if (!tk || !tk.path || tk.path === '.') throw new Error(t('eng.noTrackPath'));
+      const live = S.tracks.find((x) => x && x.path === tk.path) || tk;
+      savePath = await invokeTauri('save_karaoke', { trackPath: live.path, b64Data: b64, ext });
+      if (!savePath) throw new Error(t('eng.emptySavePath'));
+      live.karaoke_path = savePath;
+      tk.karaoke_path = savePath;
       try {
         const cuBody = JSON.stringify({ job_id: jobId });
         const cuOpt = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: cuBody };
         await fetch(ENG_BASE + '/separate/cleanup', cuOpt)
           .catch(() => fetch('/api/separate/cleanup', cuOpt).catch(() => {}));
       } catch {}
-      t.karaoke_job = false; t.karaoke_pct = null; t.karaoke_stalled = false;
+      live.karaoke_job = false; live.karaoke_pct = null; live.karaoke_stalled = false;
+      tk.karaoke_job = false; tk.karaoke_pct = null; tk.karaoke_stalled = false;
       renderTracks($('#globalSearch')?.value || '');
-    } catch {
+    } catch (saveErr) {
+      S.karaokeJobId = null;
+      try { const tt = S.tracks[S.idx]; if (tt) { tt.karaoke_job = false; tt.karaoke_pct = null; tt.karaoke_stalled = false; } } catch {}
+      tk.karaoke_job = false; tk.karaoke_pct = null; tk.karaoke_stalled = false;
+      showSep(t('eng.saveFail', { n: (saveErr && saveErr.message) || saveErr || 'unknown' }), 5000);
+      try { refreshCudaStatus().catch(() => {}); } catch {}
+      try { syncKaraokeBtn(); } catch {}
+      return;
     }
     const outUrl = URL.createObjectURL(outBlob);
     const wasPlaying2 = !audio.paused;
     const pos2 = audio.currentTime;
     let fallbackOrig = null;
-    try { fallbackOrig = convertFileSrc(t.path); } catch {}
+    try { fallbackOrig = convertFileSrc(tk.path); } catch {}
     audio.dataset.karaoke = 'true';
     audio.dataset.mode = mode;
     S.karaokeOn = mode === 'karaoke';
     S.vocalOffOn = mode === 'vocal';
     syncKaraokeBtn();
     await switchKaraokeAudio(outUrl, { pos: pos2, wasPlaying: wasPlaying2, fallbackUrl: fallbackOrig });
-    t.karaoke_job = false;
+    tk.karaoke_job = false;
     try { renderTracks($('#globalSearch')?.value || ''); } catch {}
-    showSep('Karaoke BS-RoFormer selesai', 2500);
+    showSep(t('eng.karaokeDone'), 2500);
     try { refreshCudaStatus().catch(() => {}); } catch {}
   } catch (e) {
     S.karaokeJobId = null;
     try { const tt = S.tracks[S.idx]; if (tt) { tt.karaoke_job = false; tt.karaoke_pct = null; tt.karaoke_stalled = false; } renderTracks($('#globalSearch')?.value || ''); } catch {}
-    showSep('Gagal BS-RoFormer: ' + (e?.message || e), 5000);
+    showSep(t('eng.bsrfFail', { n: e?.message || e }), 5000);
     try { refreshCudaStatus().catch(() => {}); } catch {}
   } finally {
     syncKaraokeBtn();

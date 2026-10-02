@@ -1,7 +1,9 @@
 import { S } from './state.js';
+import { t } from './i18n/core.js';
 import { $ } from './dom.js';
 import { ICON } from './icons.js';
 import { showAlert, showModal, showPrompt } from './modal.js';
+import { uid } from './library.js';
 import { showToast, activeDownloadIds, getDownloadFolderEffective, getMusicFolders, groupAlbums, groupArtists, invokeTauri, isTauri, load, onDownloadFolderChanged, playCollection, playlistTracks, renderDownloads, renderMainView, renderPlaylistsOverview, renderTracks, requestDlRender, saveDownloadFolder, savePlaylists, setPlaylistPlayback, trackIndexByPath } from '../app.js';
 
 const ENH_MARK_KEY = 'vocalyx_enhanced_v1';
@@ -120,7 +122,7 @@ export async function sweepEnhance(opts={}){
   const silent = !!opts.silent;
   const noPrompt = !!opts.noPrompt;
   if (!isTauri()) return;
-  if (S._sweepRunning) { if (!silent && !noPrompt) showToast('Enhance batch masih berjalan', 2500); return; }
+  if (S._sweepRunning) { if (!silent && !noPrompt) showToast(t('enh.batchRunning'), 2500); return; }
   if (!(S.downloadOptions.audioEnhance || S.downloadOptions.normalizeVolume)) return;
   if (activeDownloadIds.size > 0) {
     if (!silent && !noPrompt) showToast('Tunggu download selesai dulu', 2500);
@@ -132,9 +134,9 @@ export async function sweepEnhance(opts={}){
     if (activeDownloadIds.size > 0) return;
     try { if (!(await isEnhMarked(c.path))) todo.push(c); } catch { todo.push(c); }
   }
-  if (!todo.length) { if (!opts.quiet && !silent && !noPrompt) showToast('Semua file sudah sesuai setting Enhance', 2500); return; }
+  if (!todo.length) { if (!opts.quiet && !silent && !noPrompt) showToast(t('enh.allMatch'), 2500); return; }
   if (!silent && !noPrompt && todo.length > 5 && opts.auto !== false && !enhPromptBlocked()) {
-    const ok = await showModal({ title:'Enhance File Lama', message:`${todo.length} file belum sesuai setting Enhance.\nProses di background satu-per-satu?`, confirmText:'Proses', cancelText:'Batal' });
+    const ok = await showModal({ title: t('enh.enhanceOld'), message: t('enh.notDone', { n: todo.length }), confirmText:'Proses', cancelText:'Batal' });
     if (!ok) { setEnhPromptBlocked(true); return; }
     setEnhPromptBlocked(false);
   }
@@ -162,8 +164,8 @@ export async function sweepEnhance(opts={}){
     }
   } finally { S._sweepRunning = false; }
   try { renderDownloads(); renderTracks($('#globalSearch')?.value || ''); } catch {}
-  if (noPrompt) { if (done > 0) showToast(`Enhance otomatis: ${done} file diperbarui`, 4000); }
-  else if (!silent) showToast(`Enhance selesai: ${done} diperbarui, ${failed} gagal/dilewati`, 5000);
+  if (noPrompt) { if (done > 0) showToast(t('enh.autoDone', { n: done }), 4000); }
+  else if (!silent) showToast(t('enh.doneSummary', { done, failed }), 5000);
 }
 document.getElementById('btnBrowseFolder')?.addEventListener('click', async ()=>{
   try{
@@ -174,7 +176,7 @@ document.getElementById('btnBrowseFolder')?.addEventListener('click', async ()=>
       const el = document.getElementById('dlFolder'); if (el) el.value = p;
       await onDownloadFolderChanged();
       if (isTauri() && getMusicFolders().some(d => _inFolder(d, p))) {
-        showToast('Folder ini juga terdaftar sebagai folder musik — isinya tampil di Local Music.', 4500);
+        showToast(t('enh.dlFolderNote'), 4500);
       }
       requestDlRender();
     }
@@ -187,54 +189,54 @@ document.getElementById('btnSaveSettings')?.addEventListener('click', async ()=>
   if(secEl) localStorage.setItem('spotify_client_secret', secEl.value.trim());
   if(userEl) localStorage.setItem('spotify_premium_user', userEl.value.trim());
   if(passEl) localStorage.setItem('spotify_premium_pass', passEl.value.trim());
-  await showAlert('Settings', 'Settings disimpan (format '+S.downloadOptions.format.toUpperCase()+', kualitas asli sumber, folder global)');
+  await showAlert(t('topbar.settings'), t('enh.settingsSaved2', { n: S.downloadOptions.format.toUpperCase() }));
 });
 document.getElementById('btnSaveCreds')?.addEventListener('click', async ()=>{
   const idEl=document.getElementById('spClientId'), secEl=document.getElementById('spClientSecret');
   if(idEl) localStorage.setItem('spotify_client_id', idEl.value.trim());
   if(secEl) localStorage.setItem('spotify_client_secret', secEl.value.trim());
-  await showAlert('Spotify', 'Client ID/Secret disimpan');
+  await showAlert('Spotify', t('enh.clientSaved'));
 });
 document.getElementById('btnTestCreds')?.addEventListener('click', async ()=>{
-  const status=document.getElementById('credsStatus'); if(status) status.textContent='Testing...';
+  const status=document.getElementById('credsStatus'); if(status) status.textContent=t('enh.testing');
   try{
     const id=localStorage.getItem('spotify_client_id')||'', sec=localStorage.getItem('spotify_client_secret')||'';
     const r=await fetch('http://127.0.0.1:8001/spotify/validate', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({clientId:id, clientSecret:sec})});
     const j=await r.json();
-    if(status) { status.textContent = j.valid ? '✓ valid' : '✗ invalid'; status.style.color = j.valid ? 'var(--accent2)' : '#ff6b6b'; }
-  }catch{ if(status) status.textContent='✗ error'; }
+    if(status) { status.textContent = j.valid ? t('enh.valid') : t('enh.invalid'); status.style.color = j.valid ? 'var(--accent2)' : '#ff6b6b'; }
+  }catch{ if(status) status.textContent=t('enh.error'); }
 });
 document.getElementById('btnSaveArl')?.addEventListener('click', async ()=>{
   const v=document.getElementById('dzArl')?.value.trim()||'';
   localStorage.setItem('deezer_arl', v);
-  await showAlert('Deezer', v ? 'ARL disimpan' : 'ARL dihapus');
+  await showAlert('Deezer', v ? t('enh.arlSaved') : t('enh.arlCleared'));
   const st=document.getElementById('arlStatus'); if(st) st.textContent = v ? 'tersimpan' : '';
 });
 document.getElementById('btnTestArl')?.addEventListener('click', async ()=>{
-  const st=document.getElementById('arlStatus'); if(st) st.textContent='Testing...';
+  const st=document.getElementById('arlStatus'); if(st) st.textContent=t('enh.testing');
   try{
     const arl=localStorage.getItem('deezer_arl')||'';
     const r=await fetch('http://127.0.0.1:8001/deezer/arl', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action:'test', arl})});
     const j=await r.json();
-    if(st){ st.textContent = j.data ? `✓ ${j.data.tier} ${j.data.maxQuality}` : `✗ ${j.error||'gagal'}`; st.style.color = j.data ? 'var(--accent2)' : '#ff6b6b'; }
-  }catch{ if(st) st.textContent='✗ error'; }
+    if(st){ st.textContent = j.data ? `✓ ${j.data.tier} ${j.data.maxQuality}` : t('enh.failed'); st.style.color = j.data ? 'var(--accent2)' : '#ff6b6b'; }
+  }catch{ if(st) st.textContent=t('enh.error'); }
 });
 document.getElementById('btnSavePremium')?.addEventListener('click', async ()=>{
   const u=document.getElementById('spUser')?.value.trim()||'', p=document.getElementById('spPass')?.value.trim()||'';
   localStorage.setItem('spotify_premium_user', u); localStorage.setItem('spotify_premium_pass', p);
-  await showAlert('Premium', 'User/Pass disimpan');
+  await showAlert('Premium', t('enh.premiumSaved'));
 });
 document.getElementById('btnTestPremium')?.addEventListener('click', async ()=>{
-  const status=document.getElementById('premiumStatus'); if(status) status.textContent='Testing...';
+  const status=document.getElementById('premiumStatus'); if(status) status.textContent=t('enh.testing');
   try{
     const u=localStorage.getItem('spotify_premium_user')||'', p=localStorage.getItem('spotify_premium_pass')||'';
     const r=await fetch('http://127.0.0.1:8001/spotify/premium', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action:'test', username:u, password:p})});
     const j=await r.json();
-    if(status) { status.textContent = j.ok ? '✓ Connected' : '✗ '+ (j.error||'failed'); status.style.color=j.ok?'var(--accent2)':'#ff6b6b'; }
-  }catch{ if(status) status.textContent='✗ error'; }
+    if(status) { status.textContent = j.ok ? t('enh.connected') : t('enh.failed'); status.style.color=j.ok?'var(--accent2)':'#ff6b6b'; }
+  }catch{ if(status) status.textContent=t('enh.error'); }
 });
 document.getElementById('btnConnectPremium')?.addEventListener('click', async ()=>{
-  const status=document.getElementById('premiumStatus'); if(status) status.textContent='Connecting VocaLyx-XXXX...';
+  const status=document.getElementById('premiumStatus'); if(status) status.textContent=t('enh.connecting');
   try{
     const r=await fetch('http://127.0.0.1:8001/spotify/premium', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action:'connect-start'})});
     const j=await r.json();
@@ -242,19 +244,19 @@ document.getElementById('btnConnectPremium')?.addEventListener('click', async ()
     const poll = async()=>{
       const pr=await fetch('http://127.0.0.1:8001/spotify/premium', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action:'connect-status', sessionId:sid})});
       const pj=await pr.json();
-      if(pj.connected){ if(status){ status.textContent='✓ Connected '+ (pj.deviceName||'VocaLyx-XXXX'); status.style.color='var(--accent2)'; } }
-      else if(pj.waiting){ setTimeout(poll,2000); if(status) status.textContent='Waiting...'; }
-      else { if(status) status.textContent='✗ failed'; }
+      if(pj.connected){ if(status){ status.textContent=t('enh.connected') + ' ' + (pj.deviceName||'VocaLyx-XXXX'); status.style.color='var(--accent2)'; } }
+      else if(pj.waiting){ setTimeout(poll,2000); if(status) status.textContent=t('enh.waiting'); }
+      else { if(status) status.textContent=t('enh.failed'); }
     };
     setTimeout(poll,2000);
-  }catch{ if(status) status.textContent='✗ error'; }
+  }catch{ if(status) status.textContent=t('enh.error'); }
 });
 document.getElementById('btnDisconnectPremium')?.addEventListener('click', async ()=>{
   await fetch('http://127.0.0.1:8001/spotify/premium', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action:'disconnect'})});
-  const status=document.getElementById('premiumStatus'); if(status) status.textContent='Disconnected';
+  const status=document.getElementById('premiumStatus'); if(status) status.textContent=t('enh.disconnected');
 });
 document.getElementById('btnNewPlaylist')?.addEventListener('click', async ()=>{
-  const name = await showPrompt('New Playlist', 'Masukkan nama playlist:', '');
+  const name = await showPrompt(t('modal.createPlaylist'), t('modal.enterPlaylistName'), '');
   if (!name || !name.trim()) return;
   S.playlists.push({ id: uid(), name: name.trim(), trackPaths: [], createdAt: Date.now() });
   savePlaylists();
