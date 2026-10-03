@@ -408,7 +408,7 @@
             </div>
 
             <div class="settings-group">
-              <div class="settings-group-title" data-t="set.karaoke">Karaoke BS-RoFormer</div>
+              <div class="settings-group-title" data-t="set.karaoke">Karaoke</div>
               <div class="settings-group-hint" data-t="set.karaokeHint">Dua preset: Best = MelBand RoFormer Karaoke (Aufr33/Viperx) untuk GPU, dan UVR-MDX-NET-Inst_HQ_4 untuk CPU (dipilih otomatis saat Device = CPU). Tanpa fallback otomatis. Klik Karaoke lagi untuk Batal.</div>
 
               <div class="settings-row">
@@ -433,7 +433,7 @@
                   </select>
                 </label>
               </div>
-              <div class="settings-group-hint" data-t="set.karaokeTuningHint">Stem instrumental dari model dipakai apa adanya (tanpa masking). Pasca proses: high-pass 30 Hz, limiter -1 dBTP, dan penyamaan loudness ke lagu asli.</div>
+              <div class="settings-group-hint" data-t="set.karaokeTuningHint">Stem instrumental dari model dipakai apa adanya (tanpa masking). Pasca proses: limiter -1 dBTP dan penyamaan loudness ke lagu asli. High-pass mati secara bawaan dan hanya dipakai bila flag --highpass-hz disetel.</div>
               <div class="settings-row" style="align-items:center">
                 <span id="cudaConnDot" style="width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none"></span>
                 <div id="karaokeCudaStatus" class="settings-desc" data-t="set.cuDA" style="flex:1">CUDA: checking…</div>

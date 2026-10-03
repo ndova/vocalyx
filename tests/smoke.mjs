@@ -264,6 +264,8 @@ ok($('#dlFolder'), 'download folder row visible');
   ok(karaokeItems.length === 4, 'help: topik karaoke 4 langkah');
   ok(!/npm run engine/.test(document.getElementById('helpSteps')?.textContent || ''), 'help: guide tak menyuruh npm run engine');
   ok(/RoFormer/i.test(document.getElementById('helpSteps')?.textContent || ''), 'help: karaoke menyebut RoFormer');
+  ok(!/BS-RoFormer/.test(document.querySelector('.settings-group-title[data-t="set.karaoke"]')?.textContent || ''), 'settings: judul grup Karaoke tanpa BS-RoFormer');
+  ok(!/high-pass 30/i.test(document.querySelector('[data-t="set.karaokeTuningHint"]')?.textContent || ''), 'settings: hint karaoke tidak mengklaim high-pass 30 Hz');
 }
 
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
@@ -347,6 +349,18 @@ ok(idOrphanEn.length === 0, `i18n: setiap key ID punya pasangan Inggris${idOrpha
 ok(Object.keys(i18nCore.i18nMissing()).join(',') === 'id,jv', `i18n: i18nMissing() Reports Per Bahasa Non-dasar (dapat ${Object.keys(i18nCore.i18nMissing()).join(',')})`);
 ok((i18nCore.i18nMissing().en || []).length === 0, 'i18n: tidak ada key Inggris yang hilang');
 ok(Object.keys(i18nId).length > 100, `i18n: kamus ID punya entri (dapat ${Object.keys(i18nId).length})`);
+{
+  const staleKeys = ['set.karaoke', 'set.karaokeHint', 'set.karaokeTuningHint', 'eng.karaokeDone', 'eng.bsrfFail', 'eng.offlineRun', 'iph.engineOffline'];
+  const staleEn = staleKeys.filter((k) => /BS-RoFormer|npm run engine/.test(i18nEn[k] || ''));
+  const staleId = staleKeys.filter((k) => /BS-RoFormer|npm run engine/.test(i18nId[k] || ''));
+  const staleJv = staleKeys.filter((k) => /BS-RoFormer|npm run engine/.test(i18nJv[k] || ''));
+  ok(staleEn.length === 0, `i18n EN: tak ada teks basi BS-RoFormer/npm run engine (dapat ${staleEn.join(',') || 'kosong'})`);
+  ok(staleId.length === 0, `i18n ID: tak ada teks basi BS-RoFormer/npm run engine (dapat ${staleId.join(',') || 'kosong'})`);
+  ok(staleJv.length === 0, `i18n JV: tak ada teks basi BS-RoFormer/npm run engine (dapat ${staleJv.join(',') || 'kosong'})`);
+  ok(!/high-pass 30/i.test(i18nEn['set.karaokeTuningHint'] || ''), 'i18n EN: hint karaoke tidak mengklaim high-pass 30 Hz');
+  const pySep = fs.readFileSync(path.join(root, 'python-engine/vx_separate.py'), 'utf8');
+  ok(!/Post: high-pass 30Hz/.test(pySep), 'py: pesan job tidak mengklaim high-pass 30Hz');
+}
 const jvOrphan = Object.keys(i18nJv).filter((k) => i18nId[k] == null);
 ok(jvOrphan.length === 0, `i18n: setiap key Jawa punya pasangan Indonesia${jvOrphan.length ? ' :: ' + jvOrphan.join(',') : ''}`);
 const idOrphan = Object.keys(i18nId).filter((k) => i18nJv[k] == null);

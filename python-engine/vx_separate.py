@@ -491,7 +491,8 @@ def karaoke_caps(device: str = "auto"):
                     "Setiap preset memakai SATU model dan stem instrumentalnya "
                     f"dipakai apa adanya (dsp v{KARAOKE_DSP_VERSION}) — tanpa "
                     "masking, karena masking ganda yang dulu jadi sumber 'suara air'. "
-                    "Post: high-pass 30Hz + limiter -1dBTP + loudness match ke lagu asli.")
+                    "Post: limiter -1dBTP + loudness match ke lagu asli "
+                    "(high-pass mati secara bawaan).")
     if missing:
         quality_note += " Model Best belum ada (diunduh saat proses): " + ", ".join(missing)
     model_names = [name for name, detail in (info.get("models") or {}).items() if detail.get("cached")]
