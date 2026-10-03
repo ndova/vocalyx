@@ -269,6 +269,11 @@ fn bundled_runtime_root() -> Option<PathBuf> {
             }
         }
     }
+    // Runtime milik aplikasi sendiri, hasil ekstraksi Installer Full / Lite.
+    // Wajib sebelum kandidat `cwd`: kalau tidak, aplikasi yang dijalankan dari
+    // dalam folder repo akan memakai `build/runtime` dev dan mengabaikan
+    // runtime yang sudah diekstrak (persis yang dilaporkan `runtime_status`).
+    cands.push(crate::runtime::runtime_root());
     if let Ok(cwd) = std::env::current_dir() {
         cands.push(cwd.join("build/runtime"));
         cands.push(cwd.join("runtime"));
@@ -309,7 +314,9 @@ fn project_root(script: &Path) -> PathBuf {
 /// 1. `VOCALYX_PYTHON` (escape hatch manual)
 /// 2. Runtime bawaan installer (`runtime/pythonw.exe`) — dipakai untuk build
 ///    mandiri tanpa Python sistem
-/// 3. Python sistem, di skor kelengkapan dependensinya
+/// 3. Runtime hasil ekstraksi `%APPDATA%\NetKara\runtime` — ini yang dipakai
+///    Installer Full, dan harus sama dengan yang dilaporkan `runtime_status`
+/// 4. Python sistem, di skor kelengkapan dependensinya
 fn find_python() -> Option<String> {
     if let Some(custom) = std::env::var_os("VOCALYX_PYTHON") {
         let p = PathBuf::from(custom);

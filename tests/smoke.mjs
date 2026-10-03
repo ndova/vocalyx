@@ -1060,6 +1060,24 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
     }
     const unusedKeys = drvKeys.filter((k) => !jsIph.includes(`'${k}'`));
     ok(unusedKeys.length === 0, `4: semua key driver dipakai di iphone.js (${unusedKeys.join(', ') || 'lengkap'})`);
+
+    const jsRt = fs.readFileSync(path.join(root, 'src/js/runtime.js'), 'utf8');
+    ok(/fn common_prefix_dir/.test(rtRs), '4: extract_zip menentukan folder teratas bersama');
+    ok(/strip_prefix\(p\)/.test(rtRs), '4: extract_zip melepas prefix runtime/');
+    ok(/fs::remove_dir_all\(&root\)/.test(rtRs), '4: runtime_install menghapus folder runtime lama');
+    ok(!/fs::remove_file\(&root\)/.test(rtRs),
+      '4: runtime_install tidak memakai remove_file untuk folder');
+    ok(/async fn resolve_expected_hash/.test(rtRs) && /fn parse_sha256sum/.test(rtRs),
+      '4: sha256 menerima digest langsung maupun URL file .sha256');
+    ok(/starts_with\("https:\/\/"\)/.test(rtRs), '4: URL checksum http/https dikenali');
+    ok(/runtime-cpu-\$\{v\}\.zip\.sha256/.test(jsRt),
+      '4: frontend mengirim URL .sha256 yang didukung Rust');
+    const engRs = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'utf8');
+    const brr = engRs.match(/fn bundled_runtime_root\(\)[\s\S]*?\n}/)[0];
+    const appdataIdx = brr.indexOf('crate::runtime::runtime_root()');
+    const cwdIdx = brr.indexOf('current_dir()');
+    ok(appdataIdx > -1 && cwdIdx > -1 && appdataIdx < cwdIdx,
+      '4: runtime %APPDATA% diutamakan sebelum cwd dev');
   }
     const pyReq = fs.readFileSync(path.join(root, 'python-engine/requirements.txt'), 'utf8');
     const pyBench = fs.readFileSync(path.join(root, 'python-engine/scripts/bench_cpu.py'), 'utf8');

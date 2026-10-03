@@ -95,6 +95,14 @@ fn sha256_file(path: &Path) -> Result<String, String> {
 fn extract_zip(zip_path: &Path, dest: &Path) -> Result<u64, String> {
     let file = fs::File::open(zip_path).map_err(|e| format!("gagal buka zip: {e}"))?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("zip rusak: {e}"))?;
+
+    // `build_runtime.py` menulis archive dengan satu folder teratas (`runtime/`)
+    // supaya zip bisa dipakai seperti folder biasa. Karena kita ekstrak ke
+    // `%APPDATA%\NetKara/runtime`, prefix itu harus dilepas; kalau tidak,
+    // interpreter mendarat di `runtime/runtime/python.exe` dan `runtime_status`
+    // selalu melaporkan runtime belum terpasang.
+    let strip = common_prefix_dir(&mut archive);
+
     fs::create_dir_all(dest).map_err(|e| format!("gagal buat folder: {e}"))?;
     let mut count = 0u64;
     for i in 0..archive.len() {
@@ -103,6 +111,14 @@ fn extract_zip(zip_path: &Path, dest: &Path) -> Result<u64, String> {
             Err(_) => continue,
         };
         let Some(rel) = entry.enclosed_name() else { continue };
+        let rel: PathBuf = match &strip {
+            Some(p) => match rel.strip_prefix(p) {
+                Ok(r) if r.as_os_str().is_empty() => continue,
+                Ok(r) => r.to_path_buf(),
+                Err(_) => continue,
+            },
+            None => rel,
+        };
         let out = dest.join(&rel);
         if entry.is_dir() {
             let _ = fs::create_dir_all(&out);
@@ -118,6 +134,32 @@ fn extract_zip(zip_path: &Path, dest: &Path) -> Result<u64, String> {
     Ok(count)
 }
 
+/// Satu folder teratas yang sama untuk semua entri, kalau ada.
+///
+/// Untuk zip dari `build_runtime.py` hasilnya `Some("runtime")` supaya
+/// `extract_zip` melepasnya. Kalau zip sudah datar, entri pertama berbeda-beda
+/// sehingga hasilnya `None` dan tidak ada yang dibuang.
+fn common_prefix_dir<R: std::io::Read + std::io::Seek>(
+    archive: &mut zip::ZipArchive<R>,
+) -> Option<PathBuf> {
+    let mut prefix: Option<PathBuf> = None;
+    for i in 0..archive.len() {
+        let entry = match archive.by_index(i) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let Some(name) = entry.enclosed_name() else { continue };
+        let first = name.components().next()?.as_os_str().to_os_string();
+        let first = PathBuf::from(first);
+        match &prefix {
+            Some(p) if p != &first => return None,
+            Some(_) => {}
+            None => prefix = Some(first),
+        }
+    }
+    prefix
+}
+
 /// Unduh paket runtime, verifikasi sha256, ekstrak. Perintah Tauri sudah
 /// async, jadi jaringan tidak memblokir loop UI.
 #[tauri::command]
@@ -125,7 +167,6 @@ pub async fn runtime_install(app: AppHandle, url: String, sha256: String) -> Res
     if url.trim().is_empty() {
         return Err("URL runtime kosong".to_string());
     }
-    let want = sha256.trim().to_ascii_lowercase();
     let root = runtime_root();
     let dl_dir = app_data_dir().join("downloads");
     fs::create_dir_all(&dl_dir).map_err(|e| format!("gagal buat folder unduhan: {e}"))?;
@@ -148,6 +189,12 @@ pub async fn runtime_install(app: AppHandle, url: String, sha256: String) -> Res
         .user_agent("VocaLyx/0.1 runtime-installer")
         .build()
         .map_err(|e| format!("HTTP client gagal: {e}"))?;
+
+    // `sha256` boleh berupa digest langsung (64 hex) atau URL file `.sha256`.
+    // Frontend mengirim URL supaya tidak perlu tahu digest saat build, jadi
+    // dua bentuk ini diterima di sini.
+    let want = resolve_expected_hash(&client, &sha256).await?;
+
     let resp = client
         .get(&url)
         .send()
@@ -174,14 +221,16 @@ pub async fn runtime_install(app: AppHandle, url: String, sha256: String) -> Res
     drop(file);
     emit(received, total, "verify");
 
-    if !want.is_empty() {
+    if let Some(want) = &want {
         let got = sha256_file(&tmp)?;
-        if got != want {
+        if &got != want {
             let _ = fs::remove_file(&tmp);
             return Err(format!("sha256 tidak cocok (harap: {want}, dapat: {got})"));
         }
     }
-    let _ = fs::remove_file(&root);
+    if root.exists() {
+        fs::remove_dir_all(&root).map_err(|e| format!("gagal bersihkan runtime lama: {e}"))?;
+    }
     emit(received, total, "extract");
     extract_zip(&tmp, &root)?;
     let _ = fs::remove_file(&tmp);
@@ -199,6 +248,47 @@ pub fn runtime_remove() -> Result<(), String> {
         fs::remove_dir_all(&root).map_err(|e| format!("gagal hapus runtime: {e}"))?;
     }
     Ok(())
+}
+
+/// Terima digest sha256 langsung (64 hex) atau URL file `.sha256`.
+///
+/// Releases hanya menaruh file teks berisi `<digest>  <nama file>` (format
+/// `sha256sum`), jadi URL harus diunduh lebih dulu. Kalau tidak ada referensi
+/// digest, hasilnya `None` dan verifikasi dilewati.
+async fn resolve_expected_hash(client: &reqwest::Client, raw: &str) -> Result<Option<String>, String> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Ok(None);
+    }
+    if raw.len() == 64 && raw.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Ok(Some(raw.to_ascii_lowercase()));
+    }
+    if !raw.starts_with("http://") && !raw.starts_with("https://") {
+        return Err(format!("referensi sha256 tidak valid: {raw}"));
+    }
+    let text = client
+        .get(raw)
+        .send()
+        .await
+        .map_err(|e| format!("gagal mengunduh {raw}: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("checksum membalas error: {e}"))?
+        .text()
+        .await
+        .map_err(|e| format!("gagal membaca checksum: {e}"))?;
+    let digest = parse_sha256sum(&text)
+        .ok_or_else(|| format!("tidak ada digest sha256 di {raw}"))?;
+    Ok(Some(digest))
+}
+
+/// Ambil token hex 64 karakter pertama, mengabaikan format lain.
+fn parse_sha256sum(text: &str) -> Option<String> {
+    for token in text.split_whitespace() {
+        if token.len() == 64 && token.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Some(token.to_ascii_lowercase());
+        }
+    }
+    None
 }
 
 /// Status prasyarat driver Apple untuk iPhone.
@@ -327,4 +417,97 @@ pub fn spawn_ensure_and_start(app: AppHandle) {
         }
         crate::engine::start(&app);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    fn scratch(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "vocalyx-zip-{tag}-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn make_zip(path: &Path, names: &[&str]) {
+        let file = fs::File::create(path).unwrap();
+        let mut w = zip::ZipWriter::new(file);
+        for name in names {
+            let opts: zip::write::FileOptions<'_, ()> =
+                zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+            w.start_file(*name, opts).unwrap();
+            w.write_all(b"x").unwrap();
+        }
+        w.finish().unwrap();
+    }
+
+    #[test]
+    fn strips_single_top_level_dir() {
+        let dir = scratch("prefix");
+        let zip_path = dir.join("in.zip");
+        make_zip(
+            &zip_path,
+            &[
+                "runtime/python.exe",
+                "runtime/python311._pth",
+                "runtime/engine/server.py",
+                "runtime/Lib/site-packages/torch/__init__.py",
+            ],
+        );
+        let out = dir.join("out");
+        let n = extract_zip(&zip_path, &out).unwrap();
+        assert_eq!(n, 4, "semua file harus ikut terekstrak");
+        assert!(out.join("python.exe").is_file(), "prefix harus dilepas");
+        assert!(out.join("engine/server.py").is_file());
+        assert!(out.join("Lib/site-packages/torch/__init__.py").is_file());
+        assert!(
+            !out.join("runtime").exists(),
+            "tidak boleh ada folder runtime/ di dalam runtime"
+        );
+        assert!(python_ok(&out), "python_ok harus true setelah ekstrak");
+        assert!(site_packages_ok(&out), "site_packages_ok harus true");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn keeps_flat_zip_intact() {
+        let dir = scratch("flat");
+        let zip_path = dir.join("in.zip");
+        make_zip(&zip_path, &["a.txt", "b/c.txt"]);
+        let out = dir.join("out");
+        extract_zip(&zip_path, &out).unwrap();
+        assert!(out.join("a.txt").is_file(), "zip datar tidak boleh diratakan");
+        assert!(out.join("b/c.txt").is_file());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn parses_sha256sum_text() {
+        let d = "a".repeat(64);
+        assert_eq!(parse_sha256sum(&format!("{d}  runtime-cpu.zip\n")), Some(d.clone()));
+        assert_eq!(parse_sha256sum(&d), Some(d));
+        assert_eq!(parse_sha256sum("ganti_release\n"), None);
+        assert_eq!(parse_sha256sum(""), None);
+    }
+
+    #[test]
+    fn rejects_nested_traversal() {
+        let dir = scratch("evil");
+        let zip_path = dir.join("in.zip");
+        let file = fs::File::create(&zip_path).unwrap();
+        let mut w = zip::ZipWriter::new(file);
+        let opts: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default();
+        w.start_file("../escaped.txt", opts).unwrap();
+        w.write_all(b"x").unwrap();
+        w.finish().unwrap();
+        let out = dir.join("out");
+        extract_zip(&zip_path, &out).unwrap();
+        assert!(!dir.join("escaped.txt").exists(), "path keluar zip harus diabaikan");
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
