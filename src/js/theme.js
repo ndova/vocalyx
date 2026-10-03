@@ -1,7 +1,7 @@
 import { S } from './state.js';
 import { $ } from './dom.js';
 import { ico } from './icons-tabler.js';
-import { applyLang, translateTree, t } from './i18n/core.js';
+import { applyLang, lang, translateTree, t } from './i18n/core.js';
 import { renderTracks, renderDownloads } from '../app.js';
 import { showModal, showAlert } from './modal.js';
 import { _rgGainCache, rgTargetDb, ensureVolumeGain, applyEnhanceState, saveDownloadOptions, renderMainView, renderSearchView, tauriWin, refreshCudaStatus } from '../app.js';
@@ -76,7 +76,7 @@ function setAppLang(langCode) {
 document.getElementById('setLang')?.addEventListener('change', (e)=>{
   setAppLang(e.target.value);
 });
-syncLangCode(applyLang());
+syncLangCode(lang());
 
 document.querySelectorAll('.nav-item').forEach(btn=>{
   btn.addEventListener('click', ()=>{

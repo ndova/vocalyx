@@ -14,6 +14,7 @@ import {
 } from './lrc.js';
 
 const PLAIN_T = 99999;
+const SAVE_NOTICE_MS = 2000;
 const E = { open: false, raw: '', base: '', lines: [], dirty: false, saving: false, sel: 0, active: -1, raf: 0, editing: -1, path: '', seeking: false };
 
 const el = (id) => document.getElementById(id);
@@ -306,6 +307,7 @@ async function doSave() {
   const btn = el('lyrEditSave');
   if (btn) btn.disabled = true;
   const tk = S.tracks[S.idx];
+  const t0 = Date.now();
   try {
     if (!tk || !isTauri() || !tk.path) {
       showToast(t('le.desktopOnly'), 3000);
@@ -320,10 +322,10 @@ async function doSave() {
     commitToPlayer();
     showToast(t('le.savedTo', { n: p.split(/[\\/]/).pop() }), 2500);
     render();
+    const wait = SAVE_NOTICE_MS - (Date.now() - t0);
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
   } catch {
-    E.saving = false;
     showToast(t('le.saveFail'), 3000);
-    markDirty();
   } finally {
     E.saving = false;
     const b = el('lyrEditSave');

@@ -152,33 +152,35 @@ function parseEngineError(text) {
   } catch { return text; }
 }
 
-const KARAOKE_STAGE_LABELS = {
-  queued: 'menunggu', probe: 'membaca audio', separate: 'memisahkan vokal',
-  dsp: 'membersihkan sisa vokal', 'dsp:load': 'membersihkan sisa vokal',
-  'dsp:cleanup': 'membersihkan sisa vokal', 'dsp:done': 'membersihkan sisa vokal',
-  loudnorm: 'menyamakan volume', 'convert-target': 'menyimpan', trim: 'menyimpan',
-  'cache-persist': 'dari cache', cache: 'dari cache', done: 'selesai',
+const KARAOKE_STAGE_KEYS = {
+  queued: 'eng.kStageQueued', probe: 'eng.kStageProbe', separate: 'eng.kStageSeparate',
+  dsp: 'eng.kStageDsp', 'dsp:load': 'eng.kStageDsp',
+  'dsp:cleanup': 'eng.kStageDsp', 'dsp:done': 'eng.kStageDsp',
+  loudnorm: 'eng.kStageLoudnorm', 'convert-target': 'eng.kStageSave', trim: 'eng.kStageSave',
+  'cache-persist': 'eng.kStageCache', cache: 'eng.kStageCache', done: 'eng.kStageDone',
 };
+const KARAOKE_STAGE_LABELS = KARAOKE_STAGE_KEYS;
 export function karaokeStageLabel(stage) {
   const s = String(stage || '').trim();
-  if (!s) return 'bekerja';
-  if (KARAOKE_STAGE_LABELS[s]) return KARAOKE_STAGE_LABELS[s];
-  if (s.startsWith('separate:')) return KARAOKE_STAGE_LABELS.separate;
+  if (!s) return t('eng.kStageWorking');
+  const key = KARAOKE_STAGE_KEYS[s];
+  if (key) return t(key);
+  if (s.startsWith('separate:')) return t('eng.kStageSeparate');
   return s;
 }
-export function karaokeBadgeHtml(t) {
-  if (t.karaoke_job) {
-    const stalled = t.karaoke_stalled ? ' stalled' : '';
-    return `<span class="k-badge busy${stalled}">proses konversi karaoke</span>`;
+export function karaokeBadgeHtml(track) {
+  if (track.karaoke_job) {
+    const stalled = track.karaoke_stalled ? ' stalled' : '';
+    return `<span class="k-badge busy${stalled}">${t('eng.kBadgeSeparating')}</span>`;
   }
-  return t.karaoke_path ? '<span class="k-badge">karaoke</span>' : '';
+  return track.karaoke_path ? `<span class="k-badge">${t('eng.karaokeLabel')}</span>` : '';
 }
-export function karaokeProgressHtml(t) {
-  if (!t.karaoke_job) return '';
-  const hasPct = typeof t.karaoke_pct === 'number' && isFinite(t.karaoke_pct);
-  const p = hasPct ? Math.max(0, Math.min(100, Math.round(t.karaoke_pct))) : 0;
-  const stalled = t.karaoke_stalled ? ' stalled' : '';
-  const label = hasPct ? `${p}%` : karaokeStageLabel(t.karaoke_stage);
+export function karaokeProgressHtml(track) {
+  if (!track.karaoke_job) return '';
+  const hasPct = typeof track.karaoke_pct === 'number' && isFinite(track.karaoke_pct);
+  const p = hasPct ? Math.max(0, Math.min(100, Math.round(track.karaoke_pct))) : 0;
+  const stalled = track.karaoke_stalled ? ' stalled' : '';
+  const label = hasPct ? `${p}%` : karaokeStageLabel(track.karaoke_stage);
   return `<div class="k-prog${stalled}"><div class="k-prog-track"><div class="k-prog-fill" style="width:${p}%"></div></div><span class="k-prog-txt">${label}</span></div>`;
 }
 function updateKaraokeBadge(t) {

@@ -431,7 +431,22 @@ ok(i18nCore.lang() === 'en', 'i18n: applyLang en tersimpan');
 ok(i18nCore.t('th.title') === 'Title' && i18nCore.t('topbar.artist') === 'Artist', 'i18n: t() membaca kamus Inggris');
 ok(i18nCore.t('nav.local') === 'Local Music' && i18nCore.t('np.noTrack') === 'No songs yet', 'i18n: teks Inggris sesuai');
 ok(document.documentElement.lang === 'en', 'i18n: html[lang] ikut en');
-i18nCore.translateTree(document);
+  {
+    const themeSrc = fs.readFileSync(path.join(root, 'src/js/theme.js'), 'utf8');
+    ok(!/applyLang\(\s*\)/.test(themeSrc),
+      'i18n: theme.js tidak memanggil applyLang() tanpa argumen (tidak menimpa bahasa tersimpan)');
+    ok(/syncLangCode\(lang\(\)\)/.test(themeSrc), 'i18n: theme.js sinkronkan dropdown dari lang()');
+    localStorage.setItem('vocalyx_lang_v1', 'jv');
+    const bootLang = i18nCore.initI18n();
+    ok(bootLang === 'jv', `i18n: boot membaca bahasa tersimpan jv (dapat ${bootLang})`);
+    ok(localStorage.getItem('vocalyx_lang_v1') === 'jv', 'i18n: boot tidak menimpa bahasa tersimpan');
+    ok(document.documentElement.lang === 'jv', 'i18n: html[lang] ikut bahasa tersimpan saat boot');
+    i18nCore.applyLang('id');
+    i18nCore.initI18n();
+    ok(i18nCore.lang() === 'id', 'i18n: boot terakhir (id) dipulihkan');
+    i18nCore.applyLang('en');
+  }
+  i18nCore.translateTree(document);
 ok(document.querySelector('[data-nav="downloads"] .nav-label')?.textContent?.trim() === 'Downloads', 'i18n: translateTree menulis ulang label nav ke Inggris');
 ok(document.querySelector('[data-preset="classical"]')?.textContent?.trim() === 'Classical', 'i18n: preset EQ ke Inggris');
 i18nCore.applyLang('zz');
@@ -723,21 +738,36 @@ await sleep(50);
 
 try {
   const app = await import('../src/app.js');
-  ok(app.karaokeStageLabel('separate') === 'memisahkan vokal', 'stage separate label');
-  ok(app.karaokeStageLabel('loudnorm') === 'menyamakan volume', 'stage loudnorm label');
-  ok(app.karaokeStageLabel('convert-target') === 'menyimpan', 'stage convert label');
+  ok(app.karaokeStageLabel('separate') === i18nCore.t('eng.kStageSeparate'), 'stage separate label');
+  ok(app.karaokeStageLabel('loudnorm') === i18nCore.t('eng.kStageLoudnorm'), 'stage loudnorm label');
+  ok(app.karaokeStageLabel('convert-target') === i18nCore.t('eng.kStageSave'), 'stage convert label');
   ok(app.karaokeStageLabel('tahap-asing') === 'tahap-asing', 'unknown stage passthrough');
-  ok(app.karaokeStageLabel('') === 'bekerja', 'empty stage fallback');
+  ok(app.karaokeStageLabel('') === i18nCore.t('eng.kStageWorking'), 'empty stage fallback');
+  const badgeTxt = i18nCore.t('eng.kBadgeSeparating');
   const busy = app.karaokeBadgeHtml({ karaoke_job: true, karaoke_pct: 72, karaoke_stage: 'separate' });
-  ok(busy === '<span class="k-badge busy">proses konversi karaoke</span>', 'busy badge single text');
+  ok(busy === `<span class="k-badge busy">${badgeTxt}</span>`, `busy badge single text (dapat ${busy})`);
   const noPct = app.karaokeBadgeHtml({ karaoke_job: true, karaoke_pct: null, karaoke_stage: '' });
   ok(!noPct.includes('NaN') && !noPct.includes('undefined'), 'busy badge null-safe');
   const stall = app.karaokeBadgeHtml({ karaoke_job: true, karaoke_pct: 72, karaoke_stage: 'separate', karaoke_stalled: true });
-  ok(stall.includes('stalled') && stall.includes('proses konversi karaoke'), 'stalled badge');
+  ok(stall.includes('stalled') && stall.includes(badgeTxt), 'stalled badge');
   const bar = app.karaokeProgressHtml({ karaoke_job: true, karaoke_pct: 72, karaoke_stage: 'separate' });
   ok(bar.includes('k-prog') && bar.includes('72%') && bar.includes('width:72%'), 'progress bar below title');
   const barIdle = app.karaokeProgressHtml({ karaoke_job: true, karaoke_pct: null, karaoke_stage: '' });
-  ok(barIdle.includes('bekerja') && !barIdle.includes('NaN'), 'progress bar null-safe');
+  ok(barIdle.includes(i18nCore.t('eng.kStageWorking')) && !barIdle.includes('NaN'), 'progress bar null-safe');
+  {
+    const langBefore = i18nCore.lang();
+    const badgeEn = (() => { i18nCore.applyLang('en'); return app.karaokeBadgeHtml({ karaoke_job: true, karaoke_stage: 'separate' }); })();
+    const badgeJv = (() => { i18nCore.applyLang('jv'); return app.karaokeBadgeHtml({ karaoke_job: true, karaoke_stage: 'separate' }); })();
+    i18nCore.applyLang('en');
+    const stageEn = app.karaokeStageLabel('separate');
+    i18nCore.applyLang('id');
+    const stageId = app.karaokeStageLabel('separate');
+    i18nCore.applyLang(langBefore);
+    ok(/Separating vocals/.test(badgeEn), `badge karaoke ikut bahasa EN (dapat ${badgeEn})`);
+    ok(/Misahake vokal/.test(badgeJv), `badge karaoke ikut bahasa JV (dapat ${badgeJv})`);
+    ok(!/proses konversi karaoke/.test(badgeEn), 'badge karaoke tidak lagi hardcoded Indonesia');
+    ok(/separating vocals/i.test(stageEn) && /memisahkan vokal/i.test(stageId), 'stage label karaoke ikut bahasa (en/id)');
+  }
   ok(app.karaokeProgressHtml({}) === '', 'no bar when idle');
   const src = readSrc();
   const vsrc = fs.readFileSync(path.join(root, 'src/js/views.js'), 'utf8');
@@ -746,7 +776,7 @@ try {
   ok(albumRow.includes('karaokeBadgeHtml(t)') && albumRow.includes('karaokeProgressHtml(t)') && albumRow.includes('dataset.tpath'), 'album detail badge+bar');
   ok(artistRow.includes('karaokeBadgeHtml(t)') && artistRow.includes('karaokeProgressHtml(t)') && artistRow.includes('dataset.tpath'), 'artist detail badge+bar');
   ok(src.includes('querySelectorAll(`button.track[data-tpath='), 'badge update covers all views');
-  ok(app.karaokeBadgeHtml({ karaoke_path: '/x/no_vocals.flac' }).includes('>karaoke<'), 'done badge');
+  ok(app.karaokeBadgeHtml({ karaoke_path: '/x/no_vocals.flac' }).includes(`>${i18nCore.t('eng.karaokeLabel')}<`), 'done badge');
   ok(app.karaokeBadgeHtml({}) === '', 'no badge when idle');
   ok(app.cudaDeviceLabel({ cuda: true, device: 'NVIDIA GeForce RTX 3050' }) === 'GPU (NVIDIA GeForce RTX 3050)', 'label GPU dari device_info');
   ok(app.cudaDeviceLabel({ cuda: false, device: 'cpu' }) === 'CPU', 'label CPU dari device_info');
@@ -773,7 +803,7 @@ try {
     tk.karaoke_path = 'C:/m/mdx_extra/uji/no_vocals.flac';
     engMod.updateKaraokeBadge(tk);
     const done = row.querySelector('.k-badge');
-    ok(!!done && !done.classList.contains('busy') && done.textContent === 'karaoke', `karaoke: badge tersisip saat path ada :: "${done?.textContent}"`);
+    ok(!!done && !done.classList.contains('busy') && done.textContent === i18nCore.t('eng.karaokeLabel'), `karaoke: badge tersisip saat path ada :: "${done?.textContent}"`);
     tk.karaoke_job = true; tk.karaoke_pct = 50; tk.karaoke_stage = 'separate';
     engMod.updateKaraokeBadge(tk);
     ok(!!row.querySelector('.k-badge.busy'), 'karaoke: badge busy menggantikan badge selesai');
@@ -1107,7 +1137,8 @@ try {
   ok(rows().length === 3, 'editor: hapus baris');
   document.getElementById('lyrEditRevert').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   await sleep(20);
-  ok(ts(0) === '00:10.00' && document.getElementById('lyrEditSave').textContent === 'Save', 'editor: Batal mengembalikan isi disk');
+  ok(ts(0) === '00:10.00' && document.getElementById('lyrEditSave').textContent === 'Save',
+    `editor: Batal mengembalikan isi disk (ts0=${ts(0)} save="${document.getElementById('lyrEditSave').textContent}")`);
   ok(S.lyricLines.length === 3 && Math.abs(S.lyricLines[0].t - 10) < 0.01, 'editor: Batal juga mengembalikan kartu lirik');
   ed.closeLyricEditor();
   await sleep(10);
@@ -1213,6 +1244,42 @@ try {
     await sleep(10);
     lyrM.setLyricOffset(0);
   }
+  {
+    const core3 = await import('../src/js/i18n/core.js');
+    const S4 = (await import('../src/js/state.js')).S;
+    const ed4 = await import('../src/js/lyrics-editor.js');
+    const lrcY = await import('../src/js/lrc.js');
+    core3.applyLang('en');
+    S4.tracks = [{ path: 'C:\\Musik\\E - Save.mp3', title: 'Save', artist: 'E', name: 'E - Save' }];
+    S4.idx = 0;
+    S4.lyricLines = lrcY.parseLRC('[00:10.00]satu\n[00:20.00]dua');
+    const hadTauriStub = !!window.__TAURI_INTERNALS__;
+    const realInvoke = window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke;
+    installTauriStub();
+    window.__TAURI_INTERNALS__.invoke = async (cmd) => (
+      (cmd === 'save_lyric' || cmd === 'write_lyric_to') ? 'C:/Lyrics/E - Save.lrc' : null
+    );
+    ed4.openLyricEditor();
+    await sleep(50);
+    const rowSave = document.querySelector('#lyrEditList .lyr-edit-row');
+    rowSave.querySelector('[data-act="nudge"][data-d="200"]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await sleep(30);
+    const saveBtn = document.getElementById('lyrEditSave');
+    ok(saveBtn.textContent === 'Save *', `editor save: tombol jadi "Save *" saat dirty (dapat ${saveBtn.textContent})`);
+    saveBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await sleep(80);
+    const toastTxt = (document.getElementById('toast')?.textContent || '').trim();
+    ok(saveBtn.textContent === 'Saving…', `editor save: tombol jadi "Saving…" saat proses (dapat "${saveBtn.textContent}" toast="${toastTxt}")`);
+    ok(saveBtn.disabled === true, 'editor save: tombol nonaktif selama proses');
+    ok(saveBtn.textContent === 'Saving…', 'editor save: "Saving…" masih tampil sebelum 2 detik');
+    await sleep(2300);
+    ok(saveBtn.textContent === 'Save', `editor save: tombol kembali "Save" setelah ~2 detik (dapat ${saveBtn.textContent})`);
+    ok(saveBtn.disabled === false, 'editor save: tombol aktif lagi setelah selesai');
+    ed4.closeLyricEditor();
+    await sleep(10);
+    if (window.__TAURI_INTERNALS__ && realInvoke) window.__TAURI_INTERNALS__.invoke = realInvoke;
+    if (!hadTauriStub) delete window.__TAURI_INTERNALS__;
+  }
 } catch (e) {
   ok(false, `editor fungsional :: ${e.message}`);
 }
@@ -1221,7 +1288,8 @@ try {
   const localSrc = fs.readFileSync(path.join(root, 'src/js/local.js'), 'utf8');
   ok(!/const t = S\.tracks\[S\.idx\]/.test(edSrc), 'editor: tak ada lokal `t` yang menutupi fungsi t()');
   ok(/finally\s*\{/.test(edSrc), 'editor: doSave dibungkus try/finally');
-  ok(/E\.saving = false;[\s\S]{0,400}finally/.test(edSrc), 'editor: saving direset di finally');
+  ok(/finally\s*\{[\s\S]{0,300}?E\.saving = false;/.test(edSrc), 'editor: saving direset di dalam finally');
+  ok(/SAVE_NOTICE_MS = 2000/.test(edSrc), 'editor: SAVE_NOTICE_MS 2000ms');
   ok(/isLyricEditorOpen\(\)[\s\S]{0,80}return;/.test((localSrc.match(/audio\.onended = \(\) => \{[\s\S]{0,400}?\};/) || [''])[0]), 'local: onended mengecek isLyricEditorOpen');
   ok(!/Tidak ada baris lirik|Memuat lirik|Putar dari|Geser baris|\+ baris|baris baru|Sisipkan baris baru/.test(edSrc), 'editor: tak ada teks Indonesia hardcoded');
   const i18nFiles = { en: i18nEn, id: i18nId, jv: i18nJv };
