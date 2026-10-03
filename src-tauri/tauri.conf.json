@@ -43,6 +43,8 @@
       "icons/icon.ico"
     ],
     "category": "Music",
+    "publisher": "Ndova",
+    "copyright": "Copyright (c) 2026 Ndova",
     "shortDescription": "Desktop Music Manager | Vocal Isolation | Karaoke & EQ",
     "resources": {
       "../build/engine": "python-engine",
