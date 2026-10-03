@@ -1191,6 +1191,15 @@ input[type="range"].wfill.hfill::-moz-range-track { height: 6px; }
 .about-actions { flex-wrap: wrap; gap: 8px; }
 .about-spacer { flex: 1; }
 .about-dl { display: inline-flex; gap: 8px; }
+.about-support { display: flex; justify-content: center; margin-top: 12px; }
+.about-support-link {
+  display: inline-flex; border-radius: 8px; line-height: 0;
+  transition: opacity .15s ease, transform .15s ease;
+}
+.about-support-link:hover { opacity: .88; }
+.about-support-link:active { transform: scale(.98); }
+.about-support-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.about-support-link img { display: block; width: 200px; height: 50px; border-radius: 8px; }
 [data-theme="dark"] .about-val.is-new { color: #6cb8ff; }
 [data-theme="dark"] .about-rows { background: #1c1c1f; border-color: rgba(255, 255, 255, 0.07); }
 

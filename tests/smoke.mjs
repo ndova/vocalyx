@@ -248,6 +248,22 @@ ok($('#dlFolder'), 'download folder row visible');
   ok(credItems.length === 5, 'help: topik kredensial 5 langkah sekaligus');
   ok(/VocaLyx-XXXX/.test(credItems[2]?.textContent || ''), 'help: langkah Connect menyebut nama device');
   ok(/developer\.spotify\.com/.test(credItems[0]?.textContent || ''), 'help: langkah API menyebut developer.spotify.com');
+  topicSel.value = 'settings';
+  topicSel.dispatchEvent(new window.Event('change'));
+  await sleep(20);
+  const settingsItems = [...document.querySelectorAll('#helpSteps .help-step-item')];
+  ok(settingsItems.length === 6, `help: topik pengaturan 6 langkah (dapat ${settingsItems.length})`);
+  ok(/ReplayGain/i.test(settingsItems[3]?.textContent || ''), 'help: langkah 4 pengaturan soal VolumeGain');
+  ok(/Declip/i.test(settingsItems[3]?.textContent || ''), 'help: langkah 4 pengaturan soal Pembersih Audio');
+  ok(/CUDA/i.test(settingsItems[4]?.textContent || ''), 'help: langkah 5 pengaturan soal Karaoke');
+  ok(!/BS-RoFormer/.test(document.getElementById('helpSteps')?.textContent || ''), 'help: guide tak menyebut BS-RoFormer');
+  topicSel.value = 'karaoke';
+  topicSel.dispatchEvent(new window.Event('change'));
+  await sleep(20);
+  const karaokeItems = [...document.querySelectorAll('#helpSteps .help-step-item')];
+  ok(karaokeItems.length === 4, 'help: topik karaoke 4 langkah');
+  ok(!/npm run engine/.test(document.getElementById('helpSteps')?.textContent || ''), 'help: guide tak menyuruh npm run engine');
+  ok(/RoFormer/i.test(document.getElementById('helpSteps')?.textContent || ''), 'help: karaoke menyebut RoFormer');
 }
 
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
@@ -589,6 +605,22 @@ ok(!document.getElementById('dlSearchBox')?.classList.contains('open'), 'downloa
 const iphoneNote = $('#aboutDesc');
 ok(/import from PC to iPhone/.test(iphoneNote?.textContent || ''), 'about: kalimat transfer iPhone import PC ke iPhone');
 ok(/export from iPhone to PC/.test(iphoneNote?.textContent || ''), 'about: kalimat transfer iPhone export ke PC');
+{
+  const sup = document.getElementById('aboutSupport');
+  const supImg = sup?.querySelector('img');
+  ok(!!sup && /^https:\/\/www\.buymeacoffee\.com\/nny7jp2d2bh$/.test(sup.href), 'about: link dukungan buymeacoffee ada');
+  ok(!!supImg && /^https:\/\/img\.buymeacoffee\.com\/button-api\//.test(supImg.src), 'about: gambar tombol kopi dari img.buymeacoffee.com');
+  ok((supImg?.getAttribute('alt') || '').length > 0, 'about: tombol kopi punya alt text');
+  ok(sup?.getAttribute('rel')?.includes('noopener'), 'about: link kopi pakai rel noopener');
+  ok($('#aboutSupport')?.closest('#aboutModal') !== null, 'about: tombol kopi ada di dalam modal About');
+  let supPrevented = null;
+  sup?.addEventListener('click', (e) => { supPrevented = e.defaultPrevented; });
+  let supErr = null;
+  try { sup?.click(); } catch (e) { supErr = e; }
+  await sleep(40);
+  ok(!supErr, 'about: klik tombol kopi tidak melempar error');
+  ok(supPrevented === true, 'about: klik tombol kopi dicegat (webview tidak navigasi)');
+}
 
 document.querySelector('[data-nav="local"]')?.click();
 $('#btnKaraoke')?.click();

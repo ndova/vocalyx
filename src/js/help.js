@@ -7,7 +7,7 @@ const HELP_TOPICS = [
   { id: 'iphone', steps: 4 },
   { id: 'karaoke', steps: 4 },
   { id: 'eqlyrics', steps: 4 },
-  { id: 'settings', steps: 4 },
+  { id: 'settings', steps: 6 },
   { id: 'cred', steps: 5 },
 ];
 

@@ -5,6 +5,8 @@ import { checkForUpdate, manifestUrl, openDownload } from './updater.js';
 let aboutOpen = false;
 let updateState = null;
 
+const SUPPORT_URL = 'https://www.buymeacoffee.com/nny7jp2d2bh';
+
 function setRow(id, value) {
   const el = document.getElementById(id);
   if (el) el.textContent = value;
@@ -128,6 +130,11 @@ export function initAbout() {
   document.getElementById('aboutDlMsi')?.addEventListener('click', async () => {
     const ok = await openDownload(updateState && updateState.msi);
     if (!ok) showToast(t('ab.dlLinkMissing'), 3000);
+  });
+  document.getElementById('aboutSupport')?.addEventListener('click', async (e) => {
+    e.preventDefault();
+    const ok = await openDownload(SUPPORT_URL);
+    if (!ok) showToast(t('ab.openLinkFail'), 3000);
   });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAbout(); });
   loadVersion();
