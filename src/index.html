@@ -31,6 +31,18 @@
     </header>
     <input id="globalSearch" type="text" hidden="">
 
+    <div class="runtime-banner" id="runtimeBanner" style="display:none">
+      <div class="runtime-banner-body">
+        <strong class="runtime-banner-title" id="runtimeBannerTitle" data-t="runtime.missing">Runtime belum terpasang</strong>
+        <span class="runtime-banner-desc" id="runtimeDesc" data-t="runtime.missingDesc">Fitur karaoke dan unduhan butuh mesin audio. Unduh paket runtime sekali ini.</span>
+        <span class="runtime-progress" id="runtimeProgress" style="display:none"><span class="runtime-progress-track"><span class="runtime-progress-fill" id="runtimeProgressFill"></span></span><span class="runtime-progress-txt" id="runtimeProgressTxt"></span></span>
+      </div>
+      <div class="runtime-banner-actions">
+        <button class="btn-add-folder" id="runtimeDismissBtn" type="button" data-t="runtime.later">Nanti dulu</button>
+        <button class="btn-add-folder" id="runtimeInstallBtn" type="button" data-t="runtime.download">Unduh Runtime</button>
+      </div>
+    </div>
+
     <div class="layout">
       <aside class="sidebar">
         <nav class="nav">

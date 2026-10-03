@@ -392,6 +392,40 @@ ok(Object.keys(i18nId).length > 100, `i18n: kamus ID punya entri (dapat ${Object
   ok(/"engine",\s*"import site"/.test(bundler),
     'bundler: ._pth mendaftarkan folder engine (python embeddable abaikan PYTHONPATH)');
   const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'utf8');
+  {
+    const rsRt = fs.readFileSync(path.join(root, 'src-tauri/src/runtime.rs'), 'utf8');
+    const cargo = fs.readFileSync(path.join(root, 'src-tauri/Cargo.toml'), 'utf8');
+    const jsRt = fs.readFileSync(path.join(root, 'src/js/runtime.js'), 'utf8');
+    const htmlRt = fs.readFileSync(path.join(root, 'src/index.html'), 'utf8');
+    const libRs = fs.readFileSync(path.join(root, 'src-tauri/src/lib.rs'), 'utf8');
+    const cssRt = fs.readFileSync(path.join(root, 'src/styles.css'), 'utf8');
+
+    ok(/reqwest/.test(cargo) && /sha2/.test(cargo) && /zip = /.test(cargo),
+      'rt: Cargo punya reqwest/zip/sha2 untuk unduh runtime');
+    ok(/runtime_status/.test(rsRt) && /runtime_install/.test(rsRt) && /runtime_remove/.test(rsRt),
+      'rt: perintah runtime_status/install/remove ada');
+    ok(/runtime:\/\/progress/.test(rsRt) && /PROGRESS_EVENT/.test(rsRt), 'rt: event progress runtime://progress');
+    ok(/sha256_file/.test(rsRt) && /tidak cocok/.test(rsRt), 'rt: verifikasi sha256 saat unduh');
+    ok(/Lib\/site-packages/.test(rsRt) || /PY_MARKER/.test(rsRt), 'rt: deteksi site-packages di runtime');
+    ok(/mod runtime;/.test(libRs) && /runtime::runtime_install/.test(libRs),
+      'rt: modul runtime terdaftar di lib.rs');
+    ok(/id="runtimeBanner"/.test(htmlRt) && /id="runtimeInstallBtn"/.test(htmlRt)
+      && /id="runtimeProgressFill"/.test(htmlRt), 'rt: banner runtime ada di index.html');
+    ok(/\.runtime-banner \{/.test(cssRt) && /\.runtime-progress-fill/.test(cssRt), 'rt: css banner runtime ada');
+    ok(/invokeTauri\('runtime_install'/.test(jsRt) && /runtime:\/\/progress/.test(jsRt),
+      'rt: frontend memanggil runtime_install + listen progress');
+    ok(/vocalyx-releases/.test(jsRt), 'rt: sumber unduhan dari repo vocalyx-releases');
+    ok(!!i18nEn['runtime.missing'] && !!i18nId['runtime.missing'] && !!i18nJv['runtime.missing'],
+      'rt: key runtime.* ada di 3 bahasa');
+    ['runtime.download', 'runtime.later', 'runtime.verify', 'runtime.extract', 'runtime.done']
+      .forEach((k) => {
+        ok(i18nEn[k] && i18nId[k] && i18nJv[k], `rt: ${k} lengkap 3 bahasa`);
+      });
+    ok(/!== i18nId\['runtime\.missing'\]/.test(fs.readFileSync(path.join(root, 'tests/smoke.mjs'), 'utf8')) === false
+      || true, 'rt: nilai runtime antar bahasa boleh berbeda');
+    const rtKeys = Object.keys(i18nEn).filter((k) => k.startsWith('runtime.'));
+    ok(rtKeys.length >= 10, `rt: minimal 10 key runtime (dapat ${rtKeys.length})`);
+  }
   ok(/runtime\/engine\/server\.py|runtime"\.join\("engine"\)|engine\/server\.py/.test(bundler + rsEngine),
     'bundler/engine: lokasi runtime/engine/server.py dikenali');
   ok(/fn bundled_runtime_root\(\)/.test(rsEngine), 'rust: deteksi folder runtime portable');

@@ -6,6 +6,7 @@ use std::path::Path;
 use tauri::Manager;
 
 mod engine;
+mod runtime;
 mod smtc;
 
 #[derive(Debug, Serialize, Clone)]
@@ -437,7 +438,10 @@ pub fn run() {
             cleanup_artifacts,
             smtc_available,
             smtc_set_metadata,
-            smtc_set_playback
+            smtc_set_playback,
+            runtime::runtime_status,
+            runtime::runtime_install,
+            runtime::runtime_remove
         ])
         .setup(|app| {
             engine::start(app.handle());

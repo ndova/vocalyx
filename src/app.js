@@ -54,6 +54,7 @@ import { ICON } from './js/icons.js';
 import { initAbout } from './js/about.js';
 import { hydrateIcons } from './js/icons-tabler.js';
 export { openLyricEditor, closeLyricEditor, isLyricEditorOpen } from './js/lyrics-editor.js';
+import { initRuntime } from './js/runtime.js';
 import { startBackgroundCheck } from './js/updater.js';
 
 
@@ -97,6 +98,7 @@ setTimeout(()=>{ try {
 } catch {} }, 4000);
 try { restoreMusicFolders(); } catch {}
 setTimeout(()=>{ try { cleanupDownloadArtifacts(); } catch {} }, 6000);
+try { initRuntime(); } catch {}
 engineHealth();
 setInterval(engineHealth, 15000);
 setInterval(()=>{ if(S.activeView==='device') checkIPhoneConnected(); }, 3000);
