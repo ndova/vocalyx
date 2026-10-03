@@ -12,6 +12,7 @@
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -21,6 +22,18 @@ pub const PROGRESS_EVENT: &str = "runtime://progress";
 const RUNTIME_DIRNAME: &str = "runtime";
 const PY_MARKER: &str = "Lib/site-packages";
 
+/// Penanda runtime yang sudah selesai diekstrak utuh.
+///
+/// Dulu `installed` hanya mengecek `python.exe` + folder `Lib/site-packages`.
+/// Itu terlalu dangkal: menutup app saat ekstraksi berjalan bisa meninggalkan
+/// dua item itu sudah ada sementara ribuan file lain belum, sehingga banner
+/// disembunyikan padahal engine tidak bisa jalan. Marker ini hanya ditulis
+/// setelah `extract_zip` selesai tanpa error.
+const READY_MARKER: &str = ".ready";
+const FAILED_MARKER: &str = ".failed";
+
+static EXTRACTING: AtomicBool = AtomicBool::new(false);
+
 #[derive(Serialize)]
 pub struct RuntimeStatus {
     pub installed: bool,
@@ -29,6 +42,12 @@ pub struct RuntimeStatus {
     pub python: bool,
     pub engine: bool,
     pub cuda: bool,
+    /// Ada `runtime-bundle.zip` di paket installer (installer Full).
+    pub bundled: bool,
+    /// Ekstraksi terbundul sedang berjalan di thread startup.
+    pub extracting: bool,
+    /// Ekstraksi terakhir gagal; banner menawarkan ekstrak ulang.
+    pub failed: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -71,10 +90,39 @@ fn cuda_available(root: &Path) -> bool {
         .is_dir()
 }
 
-#[tauri::command]
-pub fn runtime_status() -> RuntimeStatus {
+/// Tanda runtime sudah utuh, dipakai untuk略带-sdk install lama yang belum
+/// punya marker: kalau semua penanda besar ada, marker ditulis agar user tidak
+/// dipaksa ekstrak ulang 1,9 GB.
+fn looks_complete(root: &Path) -> bool {
+    python_ok(root)
+        && root.join(PY_MARKER).join("torch").is_dir()
+        && root.join("Scripts").is_dir()
+        && root.join("ffmpeg").join("bin").join("ffmpeg.exe").is_file()
+}
+
+fn mark_ready(root: &Path) {
+    let _ = fs::write(root.join(READY_MARKER), b"v1\n");
+    let _ = fs::remove_file(root.join(FAILED_MARKER));
+}
+
+/// Ekstraksi terakhir gagal. Dipakai supaya banner bisa menawarkan "coba lagi"
+/// alih-alih tampil "menyiapkan" selamanya tanpa tombol apa pun.
+fn mark_failed(root: &Path) {
+    if root.is_dir() {
+        let _ = fs::write(root.join(FAILED_MARKER), b"v1\n");
+    }
+}
+
+/// Status installation. Menyentuh marker berarti `installed` hanya true kalau
+/// ekstraksi selesai; instalasi lama yang sudah utuh dituliskan marker-nya di
+/// sini supaya tidak perlu ekstrak ulang.
+pub fn status_with(app: Option<&AppHandle>) -> RuntimeStatus {
     let root = runtime_root();
-    let installed = python_ok(&root) && site_packages_ok(&root);
+    let marker = root.join(READY_MARKER).is_file();
+    let installed = marker || looks_complete(&root);
+    if installed && !marker && root.is_dir() {
+        mark_ready(&root);
+    }
     RuntimeStatus {
         installed,
         variant: if cuda_available(&root) { "cuda" } else { "cpu" }.to_string(),
@@ -82,7 +130,15 @@ pub fn runtime_status() -> RuntimeStatus {
         python: python_ok(&root),
         engine: engine_ok(&root),
         cuda: cuda_available(&root),
+        bundled: app.and_then(|a| bundled_zip(a)).is_some(),
+        extracting: EXTRACTING.load(Ordering::Relaxed),
+        failed: root.join(FAILED_MARKER).is_file(),
     }
+}
+
+#[tauri::command]
+pub fn runtime_status(app: AppHandle) -> RuntimeStatus {
+    status_with(Some(&app))
 }
 
 fn sha256_file(path: &Path) -> Result<String, String> {
@@ -232,11 +288,15 @@ pub async fn runtime_install(app: AppHandle, url: String, sha256: String) -> Res
         fs::remove_dir_all(&root).map_err(|e| format!("gagal bersihkan runtime lama: {e}"))?;
     }
     emit(received, total, "extract");
-    extract_zip(&tmp, &root)?;
+    EXTRACTING.store(true, Ordering::Relaxed);
+    let result = extract_zip(&tmp, &root);
+    EXTRACTING.store(false, Ordering::Relaxed);
+    result?;
     let _ = fs::remove_file(&tmp);
     if !python_ok(&root) || !site_packages_ok(&root) {
         return Err("paket runtime ter ekstrak tapi python/site-packages tidak ditemukan".to_string());
     }
+    mark_ready(&root);
     emit(received, total, "done");
     Ok(())
 }
@@ -382,20 +442,32 @@ fn emit_progress(app: &AppHandle, stage: &str, received: u64, total: u64) {
 /// fungsi ini diam-diam dilewati dan banner unduh yang bekerja.
 pub fn extract_bundled(app: &AppHandle) -> Result<bool, String> {
     let root = runtime_root();
-    if python_ok(&root) && site_packages_ok(&root) {
+    if root.join(READY_MARKER).is_file() || looks_complete(&root) {
+        if !root.join(READY_MARKER).is_file() {
+            mark_ready(&root);
+        }
         return Ok(false);
     }
     let Some(zip) = bundled_zip(app) else {
         return Ok(false);
     };
+    EXTRACTING.store(true, Ordering::Relaxed);
+    let _ = fs::remove_file(root.join(FAILED_MARKER));
     let total = fs::metadata(&zip).map(|m| m.len()).unwrap_or(0);
     emit_progress(app, "extract", 0, total);
     let _ = fs::remove_dir_all(&root);
-    extract_zip(&zip, &root)?;
-    emit_progress(app, "done", total, total);
+    let result = extract_zip(&zip, &root);
+    EXTRACTING.store(false, Ordering::Relaxed);
+    if let Err(e) = result {
+        mark_failed(&root);
+        return Err(e);
+    }
     if !python_ok(&root) || !site_packages_ok(&root) {
+        mark_failed(&root);
         return Err("runtime ter-ekstrak tapi python/site-packages tidak ditemukan".to_string());
     }
+    mark_ready(&root);
+    emit_progress(app, "done", total, total);
     Ok(true)
 }
 
@@ -409,6 +481,14 @@ pub fn runtime_extract_bundled(app: AppHandle) -> Result<bool, String> {
 /// engine. Dijalankan di thread terpisah supaya jendela tetap responsif saat
 /// ekstrak ~1.9 GB pada installer Full.
 pub fn spawn_ensure_and_start(app: AppHandle) {
+    // Ditandai sebelum thread dibuat: kalau tidak, frontend bisa membaca status
+    // "tidak sedang apa-apa" tepat di sela sebelum ekstraksi berjalan, lalu
+    // menampilkan "menyiapkan" tanpa progres atau tombol apa pun.
+    if runtime_root().join(READY_MARKER).is_file() || looks_complete(&runtime_root()) {
+        mark_ready(&runtime_root());
+    } else if bundled_zip(&app).is_some() {
+        EXTRACTING.store(true, Ordering::Relaxed);
+    }
     tauri::async_runtime::spawn_blocking(move || {
         match extract_bundled(&app) {
             Ok(true) => crate::engine::write_log_note("runtime terbundul diekstrak"),
@@ -508,6 +588,68 @@ mod tests {
         let out = dir.join("out");
         extract_zip(&zip_path, &out).unwrap();
         assert!(!dir.join("escaped.txt").exists(), "path keluar zip harus diabaikan");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Susun folder runtime minimal yang dianggap utuh oleh `looks_complete`.
+    fn fake_complete(root: &Path) {
+        fs::create_dir_all(root.join("Lib").join("site-packages").join("torch")).unwrap();
+        fs::create_dir_all(root.join("Scripts")).unwrap();
+        fs::create_dir_all(root.join("ffmpeg").join("bin")).unwrap();
+        fs::write(root.join("python.exe"), b"x").unwrap();
+        fs::write(root.join("ffmpeg").join("bin").join("ffmpeg.exe"), b"x").unwrap();
+    }
+
+    #[test]
+    fn looks_complete_needs_torch_scripts_ffmpeg() {
+        let dir = scratch("complete");
+        let root = dir.join("runtime");
+        fs::create_dir_all(&root).unwrap();
+
+        // Hanya python.exe: belum utuh (kasus ekstraksi terputus).
+        fs::write(root.join("python.exe"), b"x").unwrap();
+        assert!(!looks_complete(&root), "python.exe saja tidak boleh dianggap utuh");
+
+        // Tambah site-packages tapi tanpa Scripts/ffmpeg: masih belum utuh.
+        fs::create_dir_all(root.join("Lib").join("site-packages").join("torch")).unwrap();
+        assert!(!looks_complete(&root), "site-packages tanpa Scripts/ffmpeg belum utuh");
+
+        fake_complete(&root);
+        assert!(looks_complete(&root), "lengkap harus terdeteksi utuh");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn markers_control_installed_state() {
+        let dir = scratch("marker");
+        let root = dir.join("runtime");
+        fs::create_dir_all(&root).unwrap();
+        fake_complete(&root);
+
+        // Tanpa marker tapi utuh ->looks_complete true (installer lama).
+        assert!(looks_complete(&root));
+
+        // Tulis marker.
+        mark_ready(&root);
+        assert!(root.join(READY_MARKER).is_file());
+        assert!(!root.join(FAILED_MARKER).is_file());
+
+        // Tandai gagal -> marker failed ada (untuk banner "coba lagi").
+        mark_failed(&root);
+        assert!(root.join(FAILED_MARKER).is_file());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn mark_ready_clears_failed() {
+        let dir = scratch("clears");
+        let root = dir.join("runtime");
+        fs::create_dir_all(&root).unwrap();
+        mark_failed(&root);
+        assert!(root.join(FAILED_MARKER).is_file());
+        mark_ready(&root);
+        assert!(root.join(READY_MARKER).is_file());
+        assert!(!root.join(FAILED_MARKER).is_file(), "sukses harus menghapus marker gagal");
         let _ = fs::remove_dir_all(&dir);
     }
 }

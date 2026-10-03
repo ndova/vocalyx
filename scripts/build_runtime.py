@@ -47,7 +47,13 @@ PY_VERSION = "3.11.9"
 PY_EMBED_URL = f"https://www.python.org/ftp/python/{PY_VERSION}/python-{PY_VERSION}-embed-amd64.zip"
 GET_PIP_URL = "https://bootstrap.pypa.io/get-pip.py"
 TORCH_CPU_INDEX = "https://download.pytorch.org/whl/cpu"
-TORCH_PIN = "torch==2.5.1"
+# Pasangan torch/torchvision resmi. Torchvision wajib ikut dipin: torchvision
+# mengikat torch ke versi pasangannya, dan `pip install -r requirements-cpu.txt`
+# menarik onnx2torch-py313 -> torchvision, yang tanpa pin akan menaikkan torch
+# melewati nilai di sini. Lihat python-engine/constraints-cpu.txt.
+TORCH_PIN = "torch==2.14.1"
+TORCHVISION_PIN = "torchvision==0.29.1"
+CONSTRAINTS = ENGINE_SRC / "constraints-cpu.txt"
 FFMPEG_URL = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
 UVR_REPO = "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models"
 CPU_MODEL = "UVR-MDX-NET-Inst_HQ_4.onnx"
@@ -233,14 +239,18 @@ def run(cmd: list[str], cwd: Path | None = None) -> int:
 
 def install_python_deps(py: Path, dry: bool = False) -> bool:
     req = ENGINE_SRC / "requirements-cpu.txt"
+    con = ["-c", str(CONSTRAINTS)]
     if dry:
-        log("[dry-run] pip install torch (cpu) + requirements-cpu.txt")
+        log("[dry-run] pip install torch+torchvision (cpu) + requirements-cpu.txt (dengan constraints)")
         return True
+    # torch + torchvision dipasang bersama dari indeks CPU. Kalau dipisah,
+    # torchvision dari PyPI menarik varian CUDA besertaCUDA runtime ~3 GB.
     if run([str(py), "-m", "pip", "install", "--no-warn-script-location", "--upgrade",
-            TORCH_PIN, "--index-url", TORCH_CPU_INDEX]) != 0:
-        log("GAGAL: install torch CPU")
+            TORCH_PIN, TORCHVISION_PIN, "--index-url", TORCH_CPU_INDEX]) != 0:
+        log("GAGAL: install torch/torchvision CPU")
         return False
-    if run([str(py), "-m", "pip", "install", "--no-warn-script-location", "-r", str(req)]) != 0:
+    if run([str(py), "-m", "pip", "install", "--no-warn-script-location",
+            *con, "-r", str(req)]) != 0:
         log("GAGAL: install requirements-cpu.txt")
         return False
     return True

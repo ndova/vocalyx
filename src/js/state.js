@@ -17,7 +17,7 @@ export const S = {
   activePlaylistId: null,
   activeAlbumKey: null,
   activeArtistKey: null,
-  downloadOptions: JSON.parse(localStorage.getItem('vocalyx_downloadOptions')||'null') || { format:'m4a', bitrate:'256', audioSource:'youtube', audioEnhance:false, normalizeVolume:false, targetLufs:-14, karaokeDevice:'auto', karaokeQuality:'karaoke_aufr33', karaokeFormat:'flac', replayGainEnabled:false, replayGainTarget:-14, replayGainPreAmp:0, replayGainClipPrevention:true },
+  downloadOptions: JSON.parse(localStorage.getItem('vocalyx_downloadOptions')||'null') || { format:'m4a', bitrate:'256', audioSource:'youtube', audioEnhance:false, normalizeVolume:false, targetLufs:-14, karaokeDevice:'auto', karaokeQuality:'karaoke_aufr33', karaokeFormat:'flac', gpuPython:'', replayGainEnabled:false, replayGainTarget:-14, replayGainPreAmp:0, replayGainClipPrevention:true },
   downloadFolder: localStorage.getItem('vocalyx_downloadFolder') || '',
   downloads: JSON.parse(localStorage.getItem('vocalyx_downloads')||'[]'),
   playlistPlayback: null,

@@ -95,7 +95,7 @@ function karaokeCudaLabel(caps) {
     return `CUDA terdeteksi: ${caps.device || 'GPU'}${vram}${kim}`;
   }
   const prov = (caps.providers && caps.providers.length) ? caps.providers.join(',') : 'tanpa provider GPU';
-  return `CUDA ERROR: tidak terdeteksi (${prov}) — karaoke akan jatuh ke CPU yang sangat lambat. Cek driver/NVIDIA.`;
+  return `CUDA tidak aktif — runtime bawaan memakai PyTorch CPU (${prov}). Untuk memakai GPU, atur "Python CUDA" di Settings › Karaoke.`;
 }
 function cudaDeviceLabel(dinfo, resolved) {
   const r = String(resolved || '').toLowerCase();
@@ -395,6 +395,12 @@ async function separate(mode) {
   S.karaokeCancelled = false;
 const caps0 = await karaokeCaps().catch(() => null);
     const selDev0 = String((S.downloadOptions && S.downloadOptions.karaokeDevice) || 'auto').toLowerCase();
+    if (caps0 && !caps0.cuda && selDev0 === 'cuda') {
+      const kb1 = $('#btnKaraoke'); if (kb1) kb1.disabled = false;
+      showSep(t('eng.cudaRequired'), 9000);
+      showToast(t('eng.cudaRequired'), 9000);
+      return;
+    }
     if (caps0 && !caps0.cuda && selDev0 !== 'cpu') showToast(karaokeCudaLabel(caps0), 6000);
     const needVram = Number(caps0 && caps0.min_free_vram_gb) || 0;
     const freeVram = caps0 ? Number(caps0.vram_free_gb) : NaN;

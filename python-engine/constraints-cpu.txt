@@ -1,0 +1,16 @@
+# Batas versi agar runtime portable bisa dibangun ulang (reproducible).
+#
+# Dipakai `scripts/build_runtime.py` dengan flag `-c` pada SETIAP perintah pip.
+# Tanpa ini, `pip install -r requirements-cpu.txt` menarik `onnx2torch-py313` ->
+# `torchvision>=0.9.0`, lalu memasang torchvision terbaru yang pasangannya
+# memaksa torch naik versinya. Akibatnya pin torch di build_runtime.py tidak
+# pernah berlaku: yang requesting torch==2.5.1, yang terpasang torch 2.14.1.
+#
+# Pasangan versi di bawah adalah pasangan resmi:
+#   torch 2.14.1  <->  torchvision 0.29.1
+# Dan keduanya satisfy semua dependensi audio-separator:
+#   audio-separator  -> torch>=2.3,<3
+#   onnx2torch-py313 -> torch>=1.8.0, torchvision>=0.9.0
+
+torch==2.14.1
+torchvision==0.29.1

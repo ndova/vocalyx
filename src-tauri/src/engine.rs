@@ -13,6 +13,8 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
 
+use serde::Serialize;
+
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
@@ -48,6 +50,41 @@ impl Engine {
     }
 }
 
+/// Tunggu sampai port 8001 benar-benar bebas, supaya start baru tidak gagal
+/// bind karena engine lama masih shutting down.
+fn wait_port_free(max_ms: u64) {
+    let step = Duration::from_millis(150);
+    let mut waited: u64 = 0;
+    while waited < max_ms {
+        if !port_listening() {
+            return;
+        }
+        std::thread::sleep(step);
+        waited += step.as_millis() as u64;
+    }
+}
+
+fn port_listening() -> bool {
+    let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, ENGINE_PORT));
+    TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok()
+}
+
+/// Restart engine dengan pilihan device baru. Dipakai saat user mengganti
+/// Device / Python CUDA di Settings: interpreter yang hidup harus diganti,
+/// karena `torch.cuda` ditentukan saat proses Python start.
+pub fn restart(app: &AppHandle) {
+    if let Some(state) = app.try_state::<Engine>() {
+        let child = { state.0.lock().ok().and_then(|mut g| g.take()) };
+        if let Some(mut child) = child {
+            log_line!("restart: stop engine (pid {})", child.id());
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+    wait_port_free(6000);
+    start(app);
+}
+
 pub fn start(app: &AppHandle) {
     if engine_alive() {
         log_line!("engine sudah hidup di 127.0.0.1:8001, skip spawn");
@@ -58,13 +95,22 @@ pub fn start(app: &AppHandle) {
         log_line!("GAGAL: python-engine/server.py tidak ditemukan");
         return;
     };
-    let Some(py) = find_python() else {
+    let Some(py) = find_python(Some(app)) else {
         log_line!("GAGAL: interpreter python tidak ditemukan (set VOCALYX_PYTHON untuk manual)");
         return;
     };
 
     let cwd = project_root(&script);
     log_line!("start engine: {} -u {} (cwd {})", py, script.display(), cwd.display());
+
+    // Catat interpreter aktif + apakah dia punya CUDA, supaya UI bisa tahu
+    // device yang benar-benar terpakai tanpa harus menebak.
+    let active_cuda = gpu::detect()
+        .into_iter()
+        .find(|i| i.path.eq_ignore_ascii_case(&py))
+        .map(|i| i.cuda)
+        .unwrap_or(false);
+    EngineChoice::record_active(app, &py, active_cuda);
 
     let mut cmd = Command::new(&py);
     cmd.arg("-u")
@@ -155,11 +201,31 @@ fn apply_runtime_env(cmd: &mut Command, py: &str, cwd: &Path, script: &Path) {
     if let Some(dir) = script.parent() {
         paths.push(dir.to_string_lossy().to_string());
     }
+    // Interpreter sistem (yang dipakai untuk CUDA) tidak punya `._pth`, tapi
+    // tetap butuh akses ke runtime hasil ekstraksi: ffmpeg, model, dan data
+    // aplikasi ada di sana. `VOCALYX_RUNTIME_DIR` dipakai engine untuk
+    // menemukan ffmpeg, dan `ffmpeg\bin` masuk PATH supaya panggilan
+    // `ffmpeg` polos (audio-separator) juga ketemu.
+    let mut runtime_dirs: Vec<PathBuf> = Vec::new();
     if let Some(rt) = bundled_runtime_dir(py) {
+        runtime_dirs.push(rt);
+    }
+    if let Some(rt) = crate::runtime::runtime_root().canonicalize().ok() {
+        if !runtime_dirs.iter().any(|d| *d == rt) {
+            runtime_dirs.push(rt);
+        }
+    }
+    for rt in &runtime_dirs {
         let sp = rt.join("Lib").join("site-packages");
         if sp.is_dir() {
             paths.push(sp.to_string_lossy().to_string());
-        } else if let Ok(entries) = std::fs::read_dir(&rt) {
+        }
+        cmd.env("VOCALYX_RUNTIME_DIR", rt);
+    }
+    // Kalau interpreter milik runtime bawaan, tambahkan juga seluruh folder
+    // di bawahnya yang punya site-packages (setuptools/venv yang lebih dalam).
+    if let Some(rt) = bundled_runtime_dir(py) {
+        if let Ok(entries) = std::fs::read_dir(&rt) {
             let mut dirs: Vec<String> = entries
                 .filter_map(|e| e.ok())
                 .map(|e| e.path().to_string_lossy().to_string())
@@ -169,7 +235,22 @@ fn apply_runtime_env(cmd: &mut Command, py: &str, cwd: &Path, script: &Path) {
             paths.extend(dirs);
         }
         cmd.env("PYTHONHOME", &rt);
-        cmd.env("VOCALYX_RUNTIME_DIR", &rt);
+    }
+    // Prepend ffmpeg runtime ke PATH agar memanggil `ffmpeg` polos bekerja.
+    let ffmpeg_bin = runtime_dirs
+        .iter()
+        .map(|d| d.join("ffmpeg").join("bin"))
+        .find(|d| d.join("ffmpeg.exe").is_file() || d.join("ffmpeg").is_file());
+    if let Some(fb) = ffmpeg_bin {
+        let existing_path = std::env::var("PATH").unwrap_or_default();
+        let fb_s = fb.to_string_lossy().to_string();
+        let value = if existing_path.is_empty() {
+            fb_s
+        } else {
+            format!("{fb_s};{existing_path}")
+        };
+        cmd.env("PATH", value);
+        cmd.env("FFMPEG_BINARY", fb.join("ffmpeg.exe"));
     }
     let joined = paths.join(";");
     if !joined.is_empty() {
@@ -310,61 +391,274 @@ fn project_root(script: &Path) -> PathBuf {
     weak.map(Path::to_path_buf).unwrap_or_else(|| base.to_path_buf())
 }
 
-/// Urutan pilihan interpreter:
+/// Kandidat interpreter yang punya torch CUDA + dependensi engine lengkap.
+///
+/// Installer Full membawa runtime CPU-only (wheel CUDA ~4 GB tidak muat di
+/// installer), jadi pada PC dengan GPU yang torch-nya sudah CUDA, user punya
+/// Python sistem yang bisa dipakai. Modul ini mendeteksi interpreter itu lewat
+/// probe singkat, lalu engine dijalankan dengan interpreter tersebut supaya
+/// `torch.cuda.is_available()` benar-benar True.
+pub mod gpu {
+    use super::*;
+    use serde::Serialize;
+
+    #[derive(Serialize, Clone)]
+    pub struct PythonInfo {
+        pub path: String,
+        pub version: String,
+        pub torch: String,
+        pub cuda: bool,
+        pub cuda_build: String,
+        pub device: String,
+        pub has_deps: bool,
+        pub bundled: bool,
+    }
+
+    const PROBE: &str = concat!(
+        "import json,sys\n",
+        "d={'version':'.'.join(map(str,sys.version_info[:3]))}\n",
+        "try:\n",
+        "    import torch\n",
+        "    d['torch']=torch.__version__\n",
+        "    d['cuda']=bool(torch.cuda.is_available())\n",
+        "    d['cuda_build']=getattr(torch.version,'cuda',None) or ''\n",
+        "    d['device']=torch.cuda.get_device_name(0) if d['cuda'] else ''\n",
+        "except Exception as e:\n",
+        "    d['torch']='';d['cuda']=False;d['cuda_build']='';d['device']='';d['terr']=str(e)\n",
+        "mods=['fastapi','uvicorn','audio_separator','librosa','soundfile','pymobiledevice3','yt_dlp']\n",
+        "d['has_deps']=all(__import__('importlib.util',fromlist=['u']).find_spec(m) for m in mods)\n",
+        "print(json.dumps(d))\n",
+    );
+
+    fn run_probe(exe: &Path) -> Option<PythonInfo> {
+        let out = Command::new(exe)
+            .args(["-I", "-c", PROBE])
+            .stdin(Stdio::null())
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let text = String::from_utf8_lossy(&out.stdout);
+        let line = text.lines().rev().find(|l| l.trim_start().starts_with('{'))?;
+        let v: serde_json::Value = serde_json::from_str(line).ok()?;
+        Some(PythonInfo {
+            path: exe.to_string_lossy().into_owned(),
+            version: v["version"].as_str().unwrap_or("").into(),
+            torch: v["torch"].as_str().unwrap_or("").into(),
+            cuda: v["cuda"].as_bool().unwrap_or(false),
+            cuda_build: v["cuda_build"].as_str().unwrap_or("").into(),
+            device: v["device"].as_str().unwrap_or("").into(),
+            has_deps: v["has_deps"].as_bool().unwrap_or(false),
+            bundled: super::bundled_runtime_dir(&exe.to_string_lossy()).is_some(),
+        })
+    }
+
+    /// Semua interpreter yang bisa dipakai, hasil probe. Tidak error kalau tidak
+    /// ada yang bisa dipakai; pemanggil yang memutuskan.
+    pub fn detect() -> Vec<PythonInfo> {
+        let mut cands: Vec<PathBuf> = Vec::new();
+        if let Ok(custom) = std::env::var("VOCALYX_PYTHON") {
+            cands.push(PathBuf::from(custom));
+        }
+        if let Some(b) = super::bundled_python() {
+            cands.push(b);
+        }
+        for name in ["pythonw.exe", "python.exe", "python3.exe"] {
+            if let Some(path) = std::env::var_os("PATH") {
+                for dir in std::env::split_paths(&path) {
+                    let p = dir.join(name);
+                    if p.is_file() {
+                        cands.push(p);
+                    }
+                }
+            }
+        }
+        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+            let base = PathBuf::from(local).join("Programs").join("Python");
+            if let Ok(entries) = std::fs::read_dir(&base) {
+                let mut dirs: Vec<PathBuf> = entries
+                    .filter_map(|e| e.ok())
+                    .map(|e| e.path())
+                    .filter(|p| p.is_dir())
+                    .collect();
+                dirs.sort();
+                dirs.reverse();
+                for d in dirs.into_iter().take(4) {
+                    for exe in ["python.exe", "pythonw.exe"] {
+                        let p = d.join(exe);
+                        if p.is_file() {
+                            cands.push(p);
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut out: Vec<PythonInfo> = Vec::new();
+        let mut seen: Vec<String> = Vec::new();
+        for c in cands {
+            let key = c.to_string_lossy().to_ascii_lowercase();
+            if seen.contains(&key) {
+                continue;
+            }
+            seen.push(key);
+            if let Some(info) = run_probe(&c) {
+                out.push(info);
+            }
+        }
+        // CUDA lebih dulu, lalu yang punya dependensi lengkap.
+        out.sort_by(|a, b| {
+            b.cuda.cmp(&a.cuda)
+                .then(b.has_deps.cmp(&a.has_deps))
+                .then(a.path.cmp(&b.path))
+        });
+        out
+    }
+}
+
+/// Device yang dipilih user untuk karaoke.
+#[derive(Serialize, Clone, PartialEq)]
+pub struct EngineConfig {
+    pub device: String,
+    pub gpu_python: String,
+    pub active_python: String,
+    pub active_cuda: bool,
+}
+
+pub struct EngineChoice(pub Mutex<EngineConfig>);
+
+impl EngineChoice {
+    pub fn new() -> Self {
+        EngineChoice(Mutex::new(EngineConfig {
+            device: "auto".into(),
+            gpu_python: String::new(),
+            active_python: String::new(),
+            active_cuda: false,
+        }))
+    }
+
+    fn snapshot(app: &AppHandle) -> Option<EngineConfig> {
+        let state = app.try_state::<EngineChoice>()?;
+        let guard = state.0.lock().ok()?;
+        Some(guard.clone())
+    }
+
+    fn record_active(app: &AppHandle, python: &str, cuda: bool) {
+        if let Some(state) = app.try_state::<EngineChoice>() {
+            if let Ok(mut guard) = state.0.lock() {
+                guard.active_python = python.to_string();
+                guard.active_cuda = cuda;
+            }
+        }
+    }
+
+    fn store(app: &AppHandle, cfg: EngineConfig) -> bool {
+        if let Some(state) = app.try_state::<EngineChoice>() {
+            if let Ok(mut guard) = state.0.lock() {
+                *guard = cfg;
+                return true;
+            }
+        }
+        false
+    }
+}
+
+/// Interpreter untuk device tertentu. `cuda`/`gpu` wajib punya torch CUDA +
+/// dependensi engine; kalau tidak -> Err supaya UI bisa memberi tahu, bukan
+/// diam-diam jatuh ke CPU.
+fn resolve_interpreter(device: &str, gpu_python: &str) -> Result<PathBuf, String> {
+    let dev = device.to_ascii_lowercase();
+    let chosen = if dev == "cuda" || dev == "gpu" {
+        let detected = gpu::detect();
+        let usable = |i: &&gpu::PythonInfo| i.cuda && i.has_deps;
+        // Kalau user memilih path spesifik, pakai itu (kalau memang CUDA+lengkap).
+        let pick = if !gpu_python.trim().is_empty() {
+            detected
+                .iter()
+                .find(|i| i.path.eq_ignore_ascii_case(gpu_python.trim()))
+                .filter(usable)
+                .cloned()
+        } else {
+            detected.iter().find(usable).cloned()
+        };
+        match pick {
+            Some(i) => PathBuf::from(i.path),
+            None => {
+                let any_cuda = detected.iter().any(|i| i.cuda);
+                return Err(if any_cuda {
+                    "Python CUDA terdeteksi tapi dependensi engine belum lengkap di sana".into()
+                } else {
+                    "Tidak ada Python dengan PyTorch CUDA + dependensi engine. Set di Settings > Karaoke.".into()
+                });
+            }
+        }
+    } else {
+        // cpu / auto: pakai runtime bawaan kalau ada.
+        bundled_python()
+            .or_else(|| system_python())
+            .ok_or_else(|| "interpreter python tidak ditemukan".to_string())?
+    };
+    Ok(chosen)
+}
+
+fn system_python() -> Option<PathBuf> {
+    let mut cands: Vec<PathBuf> = Vec::new();
+    for name in ["pythonw.exe", "python.exe"] {
+        if let Some(path) = std::env::var_os("PATH") {
+            for dir in std::env::split_paths(&path) {
+                let p = dir.join(name);
+                if p.is_file() {
+                    cands.push(p);
+                }
+            }
+        }
+    }
+    let mut best: Option<(u8, PathBuf)> = None;
+    for c in cands {
+        let s = python_score(&c);
+        if best.as_ref().map(|(bs, _)| *bs < s).unwrap_or(true) {
+            best = Some((s, c));
+        }
+    }
+    best.map(|(_, c)| c)
+}
+
+/// Pilih interpreter berdasarkan device yang tersimpan (state global).
+fn chosen_python(app: &AppHandle) -> Option<PathBuf> {
+    let cfg = EngineChoice::snapshot(app);
+    let device = cfg.as_ref().map(|c| c.device.clone()).unwrap_or_else(|| "auto".into());
+    let gpu_python = cfg.as_ref().map(|c| c.gpu_python.clone()).unwrap_or_default();
+    resolve_interpreter(&device, &gpu_python).ok()
+}
+
+/// Urutan pilihan interpreter saat start:
 /// 1. `VOCALYX_PYTHON` (escape hatch manual)
-/// 2. Runtime bawaan installer (`runtime/pythonw.exe`) — dipakai untuk build
-///    mandiri tanpa Python sistem
-/// 3. Runtime hasil ekstraksi `%APPDATA%\NetKara\runtime` — ini yang dipakai
-///    Installer Full, dan harus sama dengan yang dilaporkan `runtime_status`
-/// 4. Python sistem, di skor kelengkapan dependensinya
-fn find_python() -> Option<String> {
+/// 2. Device tersimpan di Settings (cuda -> interpreter CUDA, cpu/auto -> bawaan)
+/// 3. Runtime bawaan installer
+/// 4. Runtime hasil ekstraksi `%APPDATA%\NetKara\runtime`
+/// 5. Python sistem, di skor kelengkapan dependensinya
+fn find_python(app: Option<&AppHandle>) -> Option<String> {
     if let Some(custom) = std::env::var_os("VOCALYX_PYTHON") {
         let p = PathBuf::from(custom);
         if p.is_file() {
             return Some(p.to_string_lossy().into_owned());
         }
     }
-
+    if let Some(app) = app {
+        if let Some(p) = chosen_python(app) {
+            log_line!("pakai interpreter untuk device: {}", p.display());
+            return Some(p.to_string_lossy().into_owned());
+        }
+    }
     if let Some(bundled) = bundled_python() {
         log_line!("pakai runtime bawaan: {}", bundled.display());
         return Some(bundled.to_string_lossy().into_owned());
     }
-
-    let mut cands: Vec<PathBuf> = Vec::new();
-    for name in ["pythonw.exe", "python.exe"] {
-        if let Some(p) = which(name) {
-            cands.push(PathBuf::from(p));
-        }
-    }
-    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
-        let base = PathBuf::from(local).join("Programs").join("Python");
-        if let Ok(entries) = fs::read_dir(base) {
-            let mut dirs: Vec<PathBuf> = entries
-                .filter_map(|e| e.ok())
-                .map(|e| e.path())
-                .filter(|p| p.is_dir())
-                .collect();
-            dirs.sort();
-            for d in dirs.into_iter().rev() {
-                for exe in ["pythonw.exe", "python.exe"] {
-                    let c = d.join(exe);
-                    if c.is_file() {
-                        cands.push(c);
-                    }
-                }
-            }
-        }
-    }
-
-    let mut best: Option<(u8, PathBuf)> = None;
-    for c in cands {
-        let score = python_score(&c);
-        match &best {
-            Some((bs, _)) if *bs >= score => {}
-            _ => best = Some((score, c)),
-        }
-    }
-    best.map(|(_, c)| c.to_string_lossy().into_owned())
+    system_python().map(|p| {
+        log_line!("pakai python sistem: {}", p.display());
+        p.to_string_lossy().into_owned()
+    })
 }
 
 /// Laptop bisa punya beberapa Python (mis. 3.11 yang sudah ada torch + 3.14
@@ -381,14 +675,6 @@ fn python_score(exe: &Path) -> u8 {
         score += 2;
     }
     score
-}
-
-fn which(name: &str) -> Option<String> {
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .map(|dir| dir.join(name))
-        .find(|c| c.is_file())
-        .map(|c| c.to_string_lossy().into_owned())
 }
 
 fn log_path() -> Option<PathBuf> {
@@ -422,4 +708,70 @@ pub fn write_log(args: std::fmt::Arguments<'_>) {
             .unwrap_or(0);
         let _ = writeln!(f, "[{}] {}", secs, args);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Perintah Tauri: deteksi Python CUDA + pergantian device engine
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn detect_pythons() -> Vec<gpu::PythonInfo> {
+    gpu::detect()
+}
+
+#[tauri::command]
+pub fn get_engine_config(app: AppHandle) -> EngineConfig {
+    EngineChoice::snapshot(&app).unwrap_or_else(|| EngineConfig {
+        device: "auto".into(),
+        gpu_python: String::new(),
+        active_python: String::new(),
+        active_cuda: false,
+    })
+}
+
+/// Ganti device / Python CUDA lalu restart engine.
+///
+/// Kalau `cuda` dipilih tapi interpreter yang diminta tidak punya CUDA +
+/// dependensi lengkap, command ini mengembalikan Err **sebelum** menyimpan
+/// state dan sebelum menyentuh proses yang sedang jalan. Jadi user tetap di
+/// device sebelumnya; tidak ada keadaan setengah jalan.
+///
+/// Catatan: `restart` berjalan sinkron di thread perintah Tauri. Port 8001
+/// dilepas lalu engine baru naik; `active_cuda` di response sengaja dihitung
+/// dari probe interpreter, bukan dari `/health`, supaya UI tidak perlu
+/// menunggu engine selesai boot.
+#[tauri::command]
+pub fn set_engine_config(
+    app: AppHandle,
+    device: String,
+    gpu_python: String,
+) -> Result<EngineConfig, String> {
+    let dev = device.trim().to_ascii_lowercase();
+    if !matches!(dev.as_str(), "auto" | "cpu" | "cuda" | "gpu") {
+        return Err("device tidak dikenal".into());
+    }
+    let gpu_py = gpu_python.trim().to_string();
+    let chosen = resolve_interpreter(&dev, &gpu_py)?;
+    let chosen_s = chosen.to_string_lossy().into_owned();
+    let active_cuda = gpu::detect()
+        .into_iter()
+        .find(|i| i.path.eq_ignore_ascii_case(&chosen_s))
+        .map(|i| i.cuda)
+        .unwrap_or(false);
+    if (dev == "cuda" || dev == "gpu") && !active_cuda {
+        return Err("interpreter yang dipilih tidak punya PyTorch CUDA".into());
+    }
+
+    let next = EngineConfig {
+        device: dev.clone(),
+        gpu_python: gpu_py,
+        active_python: chosen_s.clone(),
+        active_cuda,
+    };
+    if !EngineChoice::store(&app, next.clone()) {
+        return Err("state engine tidak tersedia".into());
+    }
+    log_line!("device engine -> {dev} (python {chosen_s})");
+    restart(&app);
+    Ok(next)
 }

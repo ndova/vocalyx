@@ -1,5 +1,6 @@
 """VocaLyx engine - shared state, logging, and audio probing helpers."""
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -94,8 +95,18 @@ def _portable_ffmpeg_dirs() -> list[Path]:
 
     Naik sampai 6 tingkat karena di layout release modul ini berada di
     `<target>/release/_up_/python-engine`, bukan `<root>/python-engine`.
+
+    `VOCALYX_RUNTIME_DIR` juga ikut diperiksa. Engine boleh dijalankan dengan
+    Python milik user (mis. yang punya PyTorch CUDA) sementara script-nya tetap
+    berada di folder resource installer; tanpa env itu, folder `ffmpeg` milik
+    runtime hasil ekstraksi tidak akan pernah ditemukan karena bukan ancestor
+    dari lokasi script.
     """
-    bases: list[Path] = [Path.cwd(), *Path(__file__).resolve().parents[:6]]
+    bases: list[Path] = [Path.cwd()]
+    rt = os.environ.get("VOCALYX_RUNTIME_DIR") or ""
+    if rt:
+        bases.append(Path(rt))
+    bases.extend(Path(__file__).resolve().parents[:6])
     out: list[Path] = []
     for b in bases:
         d = b / "ffmpeg" / "bin"

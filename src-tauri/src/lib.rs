@@ -430,6 +430,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .manage(engine::Engine::new())
+        .manage(engine::EngineChoice::new())
         .invoke_handler(tauri::generate_handler![
             scan_music,
             save_lyric,
@@ -443,7 +444,10 @@ pub fn run() {
             runtime::runtime_install,
             runtime::runtime_remove,
             runtime::runtime_extract_bundled,
-            runtime::apple_driver_status
+            runtime::apple_driver_status,
+            engine::detect_pythons,
+            engine::get_engine_config,
+            engine::set_engine_config
         ])
         .setup(|app| {
             runtime::spawn_ensure_and_start(app.handle().clone());

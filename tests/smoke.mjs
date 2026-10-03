@@ -12,6 +12,7 @@ const readSrc = () => {
 };
 
 const html = fs.readFileSync(path.join(root, 'src/index.html'), 'utf8');
+const rsLib = fs.readFileSync(path.join(root, 'src-tauri/src/lib.rs'), 'utf8');
 const dom = new JSDOM(html, { url: 'http://localhost:1420/' });
 const { window } = dom;
 
@@ -391,7 +392,7 @@ ok(Object.keys(i18nId).length > 100, `i18n: kamus ID punya entri (dapat ${Object
     'bundler: tulis ulang ._pth dan salin engine ke dalam runtime');
   ok(/"engine",\s*"import site"/.test(bundler),
     'bundler: ._pth mendaftarkan folder engine (python embeddable abaikan PYTHONPATH)');
-  const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'utf8');
+const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'utf8');
   {
     const rsRt = fs.readFileSync(path.join(root, 'src-tauri/src/runtime.rs'), 'utf8');
     const cargo = fs.readFileSync(path.join(root, 'src-tauri/Cargo.toml'), 'utf8');
@@ -1094,16 +1095,91 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
     ok(/VOCALYX_MODELS_DIR/.test(pySep) && /VOCALYX_MODELS_DIR/.test(pySepCache),
       'py: VOCALYX_MODELS_DIR dipakai di kedua sumber model');
 
-    ok(/fn bundled_python\(\)/.test(rsEngine) && /runtime.*pythonw\.exe|"_up_\/runtime\/pythonw\.exe"/.test(rsEngine),
-      'rust: find_python mencari runtime bawaan (runtime/pythonw.exe)');
+    ok(/fn bundled_python\(\)/.test(rsEngine) && /pythonw\.exe/.test(rsEngine),
+      'rust: find_python mencari runtime bawaan (pythonw.exe)');
     ok(/VOCALYX_PYTHON/.test(rsEngine), 'rust: escape hatch VOCALYX_PYTHON tetap ada');
     ok(/fn apply_runtime_env\(/.test(rsEngine) && /PYTHONPATH/.test(rsEngine) && /PYTHONHOME/.test(rsEngine),
       'rust: runtime bawaan set PYTHONPATH/PYTHONHOME');
     ok(/VOCALYX_MODELS_DIR/.test(rsEngine), 'rust: model diarahkan ke folder data aplikasi');
-    ok(/fn find_python\(\)[\s\S]{0,900}bundled_python\(\)/.test(rsEngine),
+    ok(/fn find_python\(app: Option<&AppHandle>\)[\s\S]{0,700}bundled_python\(\)/.test(rsEngine),
       'rust: runtime bawaan dicek sebelum Python sistem');
+    ok(/fn resolve_interpreter\(/.test(rsEngine) && /bundled_python\(\)[\s\S]{0,200}system_python\(\)/.test(rsEngine),
+      'rust: device cpu/auto memakai runtime bawaan lalu python sistem');
+    ok(/pub mod gpu[\s\S]*fn detect\(\)/.test(rsEngine) && /torch\.cuda\.is_available\(\)/.test(rsEngine),
+      'rust: deteksi interpreter memprobe torch.cuda.is_available()');
+    ok(/pub fn restart\(app: &AppHandle\)/.test(rsEngine) && /fn wait_port_free/.test(rsEngine),
+      'rust: ganti device me-restart engine dan menunggu port 8001 bebas');
+    ok(/pub fn detect_pythons\(\)/.test(rsEngine) && /pub fn set_engine_config\(/.test(rsEngine)
+      && /pub fn get_engine_config\(/.test(rsEngine),
+      'rust: perintah detect/set/get engine config tersedia');
+    ok(/engine::detect_pythons/.test(rsLib) && /engine::set_engine_config/.test(rsLib)
+      && /engine::EngineChoice::new\(\)/.test(rsLib),
+      'lib: perintah CUDA terdaftar + state EngineChoice di-manage');
+    ok(/resolve_interpreter\(&dev, &gpu_py\)\?/.test(rsEngine)
+      && /if \(dev == "cuda" \|\| dev == "gpu"\) && !active_cuda \{[\s\S]{0,120}return Err/.test(rsEngine),
+      'rust: device cuda tanpa interpreter CUDA ditolak sebelum restart');
+    ok(/VOCALYX_RUNTIME_DIR/.test(rsEngine) && /FFMPEG_BINARY/.test(rsEngine)
+      && /cmd\.env\("PATH", value\)/.test(rsEngine),
+      'rust: python sistem tetap dapat ffmpeg runtime lewat env');
     ok(!/^\s*\/\//m.test(rsEngine.replace(/^\s*\/\/![\s\S]*$/gm, '').replace(/^\s*\/\/\/.*$/gm, '')),
       'rust: engine.rs tanpa komentar // baru');
+
+    const rsRt = fs.readFileSync(path.join(root, 'src-tauri/src/runtime.rs'), 'utf8');
+    const jsRt = fs.readFileSync(path.join(root, 'src/js/runtime.js'), 'utf8');
+    const jsGpu = fs.readFileSync(path.join(root, 'src/js/gpu.js'), 'utf8');
+    ok(/pub bundled: bool/.test(rsRt) && /pub extracting: bool/.test(rsRt) && /pub failed: bool/.test(rsRt),
+      'rt: status melaporkan bundled/extracting/failed');
+    ok(/const READY_MARKER: &str = "\.ready"/.test(rsRt) && /fn mark_ready/.test(rsRt),
+      'rt: penanda .ready dipakai untuk menentukan installed');
+    ok(/fn looks_complete\(/.test(rsRt) && /torch/.test(rsRt.match(/fn looks_complete[\s\S]*?\n}/)[0])
+      && /Scripts/.test(rsRt.match(/fn looks_complete[\s\S]*?\n}/)[0]),
+      'rt: looks_complete mewajibkan torch + Scripts + ffmpeg');
+    ok(/root\.join\(READY_MARKER\)\.is_file\(\) \|\| looks_complete/.test(rsRt),
+      'rt: installed hanya true bila marker atau runtime utuh');
+    ok(/function isPreparing\(/.test(jsRt) && /s\.bundled \|\| s\.extracting/.test(jsRt),
+      'rt: banner mode "menyiapkan" saat runtime terbundul diekstrak');
+    ok(/installBtn\.style\.display = 'none'/.test(jsRt),
+      'rt: tombol Unduh disembunyikan saat sedang menyiapkan');
+    ok(/function isExtractFailed\(/.test(jsRt) && /retryExtractBundled/.test(jsRt),
+      'rt: ada mode gagal + aksi ekstrak ulang, tanpa unduhan');
+    ok(/runtime_extract_bundled/.test(jsRt),
+      'rt: aksi coba lagi memakai perintah runtime_extract_bundled');
+    for (const lang of ['en', 'id', 'jv']) {
+      const txt = fs.readFileSync(path.join(root, `src/js/i18n/${lang}.js`), 'utf8');
+      const need = ['runtime.preparing', 'runtime.preparingDesc', 'runtime.extractFailedTitle',
+        'runtime.extractFailedDesc', 'runtime.retryExtract', 'runtime.extractFailed'];
+      const miss = need.filter((k) => !txt.includes(`'${k}'`));
+      ok(miss.length === 0, `rt: i18n ${lang} punya key banner runtime (${miss.join(',') || 'lengkap'})`);
+      const need2 = ['eng.cudaRequired', 'set.gpuPython', 'set.gpuPythonAuto', 'set.detectPythons',
+        'set.gpuPythonFound', 'set.gpuPythonNoDeps', 'set.gpuPythonCpuOnly', 'set.gpuPythonActiveCuda',
+        'set.gpuPythonActiveCpu', 'set.gpuPythonSwitchFailed', 'set.gpuPythonDetecting',
+        'set.gpuPythonNone', 'set.gpuPythonTauriOnly'];
+      const miss2 = need2.filter((k) => !txt.includes(`'${k}'`));
+      ok(miss2.length === 0, `b1: i18n ${lang} punya key CUDA (${miss2.join(',') || 'lengkap'})`);
+    }
+
+    const con = fs.readFileSync(path.join(root, 'python-engine/constraints-cpu.txt'), 'utf8');
+    const bRs = fs.readFileSync(path.join(root, 'scripts/build_runtime.py'), 'utf8');
+    ok(/^torch==/m.test(con) && /^torchvision==/m.test(con),
+      'pin: constraints mengunci torch DAN torchvision');
+    ok(/TORCH_PIN = "torch==2\.14\.1"/.test(bRs) && /TORCHVISION_PIN = "torchvision==0\.29\.1"/.test(bRs),
+      'pin: build_runtime memakai pasangan torch/torchvision yang terkunci');
+    ok(/\*con, "-r", str\(req\)/.test(bRs) && /"-c", str\(CONSTRAINTS\)/.test(bRs),
+      'pin: constraints diteruskan ke pip install requirements');
+    ok(/TORCH_PIN, TORCHVISION_PIN, "--index-url", TORCH_CPU_INDEX/.test(bRs),
+      'pin: torch+torchvision dipasang bersama dari indeks CPU');
+    ok(/gpuPython:''/.test(fs.readFileSync(path.join(root, 'src/js/state.js'), 'utf8')),
+      'b1: state punya default gpuPython');
+
+    ok(/detect_pythons/.test(jsGpu) && /set_engine_config/.test(jsGpu),
+      'b1: gpu.js memakai perintah deteksi + set config');
+    ok(/gpuPythonSelect/.test(jsGpu) && /btnDetectPythons/.test(jsGpu),
+      'b1: gpu.js mengisi dropdown dan tombol deteksi');
+    ok(/selDev0 === 'cuda'/.test(fs.readFileSync(path.join(root, 'src/js/engine.js'), 'utf8')),
+      'b1: karaoke diblokir bila device cuda tanpa CUDA aktif');
+    ok(/id="gpuPythonSelect"/.test(fs.readFileSync(path.join(root, 'src/index.html'), 'utf8'))
+      && /id="btnDetectPythons"/.test(fs.readFileSync(path.join(root, 'src/index.html'), 'utf8')),
+      'b1: UI Python CUDA ada di Settings');
   }
   {
     // REGRESSION: vx_karaoke_dsp.py dijalankan sebagai proses anak oleh

@@ -282,9 +282,14 @@ document.getElementById('vgBulk')?.addEventListener('click', async ()=>{
     if (prog) { prog.style.display = 'none'; prog.textContent = ''; }
   }
 });
-document.getElementById('karaokeDevice')?.addEventListener('change', (e)=>{
-  saveDownloadOptions({ karaokeDevice: e.target.value });
-  try { refreshCudaStatus().catch(() => {}); } catch {}
+document.getElementById('karaokeDevice')?.addEventListener('change', async (e)=>{
+  const dev = e.target.value;
+  saveDownloadOptions({ karaokeDevice: dev });
+  try { refreshCudaStatus(); } catch {}
+  const gpu = (S.downloadOptions && S.downloadOptions.gpuPython) || '';
+  const gpuMod = await import('./gpu.js');
+  const ok = await gpuMod.setDeviceWithEngine(dev, gpu);
+  if (!ok) e.target.value = (S.downloadOptions && S.downloadOptions.karaokeDevice) || 'auto';
 });
 document.getElementById('karaokeQuality')?.addEventListener('change', (e)=>{
   saveDownloadOptions({ karaokeQuality: e.target.value });

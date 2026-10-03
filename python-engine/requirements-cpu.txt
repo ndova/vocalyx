@@ -7,8 +7,11 @@
 #   - onnxruntime, bukan onnxruntime-gpu, supaya tidak menarik CUDA runtime.
 #   - audio-separator tanpa [gpu] (eksplisit) agar dependensinya tidak pilih GPU wheel.
 #
-# torch sengaja TIDAK ada di file ini: build_runtime.py memasangnya terpisah dari
-# https://download.pytorch.org/whl/cpu supaya hanya wheel CPU yang terambil.
+# torch DAN torchvision sengaja TIDAK ada di file ini: build_runtime.py
+# memasangnya terpisah dari https://download.pytorch.org/whl/cpu supaya hanya
+# wheel CPU yang terambil. Versinya dikunci di constraints-cpu.txt dan dipakai
+# dengan flag `-c` saat file ini di-install, supaya dependensi turunan
+# (onnx2torch-py313 -> torchvision) tidak menaikkan versi torch.
 
 fastapi
 uvicorn[standard]
