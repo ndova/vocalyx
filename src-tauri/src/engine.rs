@@ -71,6 +71,7 @@ pub fn start(app: &AppHandle) {
         .arg(&script)
         .current_dir(&cwd)
         .stdin(Stdio::null());
+    apply_runtime_env(&mut cmd, &py, &cwd);
 
     match open_log() {
         Some((out, err)) => {
@@ -135,6 +136,83 @@ fn engine_alive() -> bool {
     resp.starts_with("HTTP/1.1 200") && resp.contains("\"ok\"")
 }
 
+/// Environment untuk child engine.
+///
+/// Runtime bawaan (hasil `scripts/build_runtime.py`) memakai Python embeddable,
+/// jadi interpreter-nya tidak punya `site-packages` global: lokasi paket harus
+/// diberi lewat `PYTHONPATH`/`PYTHONHOME`. Model karaoke dipindah ke folder data
+/// aplikasi supaya tidak menabrak instalasi milik user lain.
+fn apply_runtime_env(cmd: &mut Command, py: &str, cwd: &Path) {
+    if let Some(rt) = bundled_runtime_dir(py) {
+        if let Ok(sp) = std::fs::read_dir(&rt) {
+            let mut dirs: Vec<String> = sp
+                .filter_map(|e| e.ok())
+                .map(|e| e.path().to_string_lossy().to_string())
+                .filter(|p| {
+                    Path::new(p).join("site-packages").is_dir() || Path::new(p).join("Lib").is_dir()
+                })
+                .collect();
+            dirs.sort();
+            let joined = dirs.join(";");
+            if !joined.is_empty() {
+                cmd.env("PYTHONPATH", joined);
+            }
+        }
+        cmd.env("PYTHONHOME", &rt);
+        cmd.env("VOCALYX_RUNTIME_DIR", &rt);
+    }
+    let models = app_data_dir().join("models");
+    let _ = std::fs::create_dir_all(&models);
+    cmd.env("VOCALYX_MODELS_DIR", &models);
+    cmd.env("VOCALYX_PROJECT_ROOT", cwd);
+}
+
+/// Folder runtime bawaan tempat interpreter `py` berada, kalau `py` memang
+/// bagian dari runtime yang kita bundle (bukan Python sistem milik user).
+fn bundled_runtime_dir(py: &str) -> Option<PathBuf> {
+    let exe = Path::new(py);
+    if exe.file_name().map(|n| n.to_string_lossy().to_string().to_ascii_lowercase())
+        != Some("python.exe".into()) && exe.file_name().map(|n| n.to_string_lossy().to_string().to_ascii_lowercase())
+        != Some("pythonw.exe".into())
+    {
+        return None;
+    }
+    let dir = exe.parent()?.to_path_buf();
+    let name = dir.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    if name.eq_ignore_ascii_case("runtime") || name.eq_ignore_ascii_case("runtime-cpu") {
+        Some(dir)
+    } else {
+        None
+    }
+}
+
+fn app_data_dir() -> PathBuf {
+    let base = std::env::var_os("APPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    base.join("NetKara")
+}
+
+/// Interpreter bawaan dari runtime yang dibundel, kalau ada.
+fn bundled_python() -> Option<PathBuf> {
+    let mut cands: Vec<PathBuf> = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            cands.push(dir.join("runtime").join("pythonw.exe"));
+            cands.push(dir.join("runtime").join("python.exe"));
+            cands.push(dir.join("_up_/runtime/pythonw.exe"));
+            cands.push(dir.join("_up_/runtime/python.exe"));
+            cands.push(dir.join("../runtime/pythonw.exe"));
+            cands.push(dir.join("../runtime/python.exe"));
+        }
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        cands.push(cwd.join("runtime").join("pythonw.exe"));
+        cands.push(cwd.join("runtime").join("python.exe"));
+    }
+    cands.into_iter().find(|p| p.is_file())
+}
+
 /// Lokasi `server.py`: resource bundle dulu, lalu relatif ke exe.
 /// `_up_` dipakai Tauri untuk resource yang keluar dari folder `target`, dan
 /// `../../` kena saat dev/`cargo run` dari dalam repo.
@@ -172,7 +250,7 @@ fn project_root(script: &Path) -> PathBuf {
     let base = engine_dir.parent().unwrap_or(engine_dir);
     let mut weak: Option<&Path> = None;
     for up in base.ancestors().take(8) {
-        for marker in ["ffmpeg", ".spotify-premium", "package.json"] {
+        for marker in ["ffmpeg", ".spotify-premium", "package.json", "runtime"] {
             if up.join(marker).exists() {
                 return up.to_path_buf();
             }
@@ -184,12 +262,22 @@ fn project_root(script: &Path) -> PathBuf {
     weak.map(Path::to_path_buf).unwrap_or_else(|| base.to_path_buf())
 }
 
+/// Urutan pilihan interpreter:
+/// 1. `VOCALYX_PYTHON` (escape hatch manual)
+/// 2. Runtime bawaan installer (`runtime/pythonw.exe`) — dipakai untuk build
+///    mandiri tanpa Python sistem
+/// 3. Python sistem, di skor kelengkapan dependensinya
 fn find_python() -> Option<String> {
     if let Some(custom) = std::env::var_os("VOCALYX_PYTHON") {
         let p = PathBuf::from(custom);
         if p.is_file() {
             return Some(p.to_string_lossy().into_owned());
         }
+    }
+
+    if let Some(bundled) = bundled_python() {
+        log_line!("pakai runtime bawaan: {}", bundled.display());
+        return Some(bundled.to_string_lossy().into_owned());
     }
 
     let mut cands: Vec<PathBuf> = Vec::new();

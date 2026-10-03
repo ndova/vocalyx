@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -86,19 +87,47 @@ def _bot_hit(yt_tail: list) -> bool:
     ))
 
 
+def _yt_dlp_cmd() -> list[str] | None:
+    for base in _venv_python_candidates():
+        cmd = [str(base), "-m", "yt_dlp"]
+        try:
+            proc = subprocess.run(cmd + ["--version"], capture_output=True, text=True, timeout=25)
+            if proc.returncode == 0:
+                return cmd
+        except Exception:
+            continue
+    for name in ("yt-dlp", "yt-dlp.exe"):
+        try:
+            found = shutil.which(name)
+        except Exception:
+            found = None
+        if found:
+            return [str(found)]
+    return None
+
+
+def _venv_python_candidates() -> list[Path]:
+    out: list[Path] = []
+    try:
+        out.append(Path(sys.executable))
+    except Exception:
+        pass
+    return out
+
+
 def _sc_alt_urls(artist: str, title: str, skip=None, cookies: str = "", limit: int = 3) -> list:
     """Upload SC alternatif sejudul yg FULL (lewati URL yg sudah dicoba)."""
 
     skip = set(skip or [])
     out = []
     try:
-        yt_dlp = shutil.which("yt-dlp") or shutil.which("yt-dlp.exe")
-        if not yt_dlp:
+        cmd0 = _yt_dlp_cmd()
+        if not cmd0:
             return out
         q = f"{(artist or '').strip()} - {(title or '').strip()}".strip(" -")[:200]
         if not q:
             return out
-        cmd = [yt_dlp, "--quiet", "--no-warnings", "--flat-playlist", "--dump-json", "scsearch8:" + q]
+        cmd = cmd0 + ["--quiet", "--no-warnings", "--flat-playlist", "--dump-json", "scsearch8:" + q]
         if cookies:
             cmd += ["--cookies", cookies]
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
@@ -237,16 +266,14 @@ def _spotify_try_premium(track: dict, out_path: Path, options: dict, download_id
         candidates_py = [
             Path.cwd() / "scripts" / "spotify-venv" / "Scripts" / "python.exe",
             Path.cwd() / "scripts" / "spotify-venv" / "bin" / "python",
-            Path("C:/Users/Nirmala/Desktop/music-dl/scripts/spotify-venv/Scripts/python.exe"),
         ]
         candidates_script = [
             Path.cwd() / "scripts" / "spotify_premium_download.py",
-            Path("C:/Users/Nirmala/Desktop/music-dl/scripts/spotify_premium_download.py"),
         ]
         venv_py = next((p for p in candidates_py if p.exists()), None)
         script = next((p for p in candidates_script if p.exists()), None)
         if not venv_py or not script:
-            return {"failed": True, "error": "spotify-venv belum disiapkan (jalankan setup Premium di music-dl atau copy venv)"}
+            return {"failed": True, "error": "spotify-venv belum disiapkan (taruh venv di scripts/spotify-venv)"}
         cred_path = Path.cwd() / ".spotify-premium" / "credentials.json"
         stored = str(cred_path if cred_path.exists() else "")
         user = (options.get("spotifyPremiumUser") or options.get("spotify_premium_user") or "").strip()
@@ -261,7 +288,7 @@ def _spotify_try_premium(track: dict, out_path: Path, options: dict, download_id
             cmd2 = [str(venv_py), str(script), "--track", sid, "--out", ogg_path, "--quality", "very_high"]
             if use_stored and stored and Path(stored).exists():
                 cmd2 += ["--stored-creds", str(stored)]
-                for didp in [Path.cwd() / ".spotify-premium" / "device_id.txt", Path("C:/Users/Nirmala/Desktop/music-dl/.spotify-premium/device_id.txt")]:
+                for didp in [Path.cwd() / ".spotify-premium" / "device_id.txt"]:
                     try:
                         if didp.exists():
                             did = didp.read_text(encoding="utf-8", errors="ignore").strip()[:64]
@@ -321,7 +348,7 @@ def _spotify_try_premium(track: dict, out_path: Path, options: dict, download_id
                 env.pop("SPOTIFY_PREMIUM_USER", None)
                 env.pop("SPOTIFY_PREMIUM_PASS", None)
                 cmd = [str(venv_py), str(script), "--track", sid, "--out", ogg_path, "--quality", "very_high", "--stored-creds", str(stored)]
-                for didp in [Path.cwd() / ".spotify-premium" / "device_id.txt", Path("C:/Users/Nirmala/Desktop/music-dl/.spotify-premium/device_id.txt")]:
+                for didp in [Path.cwd() / ".spotify-premium" / "device_id.txt"]:
                     try:
                         if didp.exists():
                             did = didp.read_text(encoding="utf-8", errors="ignore").strip()[:64]
@@ -521,16 +548,14 @@ def _deezer_try_full(track: dict, out_path: Path, options: dict, download_id: st
         candidates_py = [
             Path.cwd() / "scripts" / "deezer-venv" / "Scripts" / "python.exe",
             Path.cwd() / "scripts" / "deezer-venv" / "bin" / "python",
-            Path("C:/Users/Nirmala/Desktop/music-dl/scripts/deezer-venv/Scripts/python.exe"),
         ]
         candidates_dl = [
             Path.cwd() / "scripts" / "deezer_download.py",
-            Path("C:/Users/Nirmala/Desktop/music-dl/scripts/deezer_download.py"),
         ]
         venv_py = next((p for p in candidates_py if p.exists()), None)
         script = next((p for p in candidates_dl if p.exists()), None)
         if not venv_py or not script:
-            return {"failed": True, "error": "deezer-venv belum disiapkan (copy dari music-dl atau pip install deezer deemix pycryptodome)"}
+            return {"failed": True, "error": "deezer-venv belum disiapkan (taruh venv di scripts/deezer-venv)"}
 
         staging = tempfile.mkdtemp(prefix="dz-dl-")
         env = os.environ.copy()
@@ -1390,11 +1415,9 @@ async def deezer_arl(payload: dict):
     candidates_py = [
         Path.cwd() / "scripts" / "deezer-venv" / "Scripts" / "python.exe",
         Path.cwd() / "scripts" / "deezer-venv" / "bin" / "python",
-        Path("C:/Users/Nirmala/Desktop/music-dl/scripts/deezer-venv/Scripts/python.exe"),
     ]
     candidates_script = [
         Path.cwd() / "scripts" / "deezer_arl_test.py",
-        Path("C:/Users/Nirmala/Desktop/music-dl/scripts/deezer_arl_test.py"),
     ]
     venv_py = next((p for p in candidates_py if p.exists()), None)
     script = next((p for p in candidates_script if p.exists()), None)
@@ -1462,10 +1485,8 @@ async def spotify_premium(payload: dict):
         try:
             venv_py = Path.cwd() / "scripts" / "spotify-venv" / "Scripts" / "python.exe"
             if not venv_py.exists():
-                venv_py = Path("C:/Users/Nirmala/Desktop/music-dl/scripts/spotify-venv/Scripts/python.exe")
+                venv_py = Path.cwd() / "scripts" / "spotify-venv" / "bin" / "python"
             script = Path.cwd() / "scripts" / "spotify_premium_download.py"
-            if not script.exists():
-                script = Path("C:/Users/Nirmala/Desktop/music-dl/scripts/spotify_premium_download.py")
             if venv_py.exists() and script.exists():
                 if u and p:
                     cmd = [str(venv_py), str(script), "--test-login"]
@@ -1490,10 +1511,8 @@ async def spotify_premium(payload: dict):
         try:
             venv_py = Path.cwd() / "scripts" / "spotify-venv" / "Scripts" / "python.exe"
             if not venv_py.exists():
-                venv_py = Path("C:/Users/Nirmala/Desktop/music-dl/scripts/spotify-venv/Scripts/python.exe")
+                venv_py = Path.cwd() / "scripts" / "spotify-venv" / "bin" / "python"
             script = Path.cwd() / "scripts" / "spotify_premium_auth.py"
-            if not script.exists():
-                script = Path("C:/Users/Nirmala/Desktop/music-dl/scripts/spotify_premium_auth.py")
             if venv_py.exists() and script.exists():
 
                 sid = str(uuid.uuid4())[:8]

@@ -18,8 +18,9 @@ win_nowindow.hide_child_consoles()
 
 import vx_karaoke_sep as sep  # noqa: E402
 
-OUT = pathlib.Path(r"C:\Users\Nirmala\Desktop\vocalyx\benchmarks\cpu")
-CLIP = pathlib.Path(r"C:\Users\Nirmala\Desktop\vocalyx\tmp_cpu60.wav")
+ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
+OUT = ROOT / "benchmarks" / "cpu"
+CLIP = ROOT / "tmp_cpu60.wav"
 
 CANDIDATES = [
     ("standard_resurrection", "bs_roformer_instrumental_resurrection_unwa.ckpt"),

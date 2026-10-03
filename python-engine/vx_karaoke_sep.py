@@ -31,7 +31,10 @@ import numpy as np
 
 import vx_karaoke_dsp as dsp
 
-MODEL_DIR = Path(os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))) / "audio-separator-models"
+_MODELS_OVERRIDE = (os.environ.get("VOCALYX_MODELS_DIR") or "").strip()
+MODEL_DIR = Path(_MODELS_OVERRIDE) if _MODELS_OVERRIDE else (
+    Path(os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))) / "audio-separator-models"
+)
 PUBLIC_REPO = "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models"
 # Checkpoint RoFormer (.ckpt) tidak ada di PUBLIC_REPO (404); semuanya berikut
 # config yaml-nya ada di repo audio-separator sendiri. Daftar ini terverifikasi

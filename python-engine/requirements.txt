@@ -10,3 +10,9 @@ imageio-ffmpeg  # ffmpeg portable untuk convert m4a->wav (tanpa install sistem)
 numpy
 onnxruntime-gpu
 pymobiledevice3  # iPhone ATC protocol for music transfer
+yt-dlp  # unduh YouTube/SoundCloud; dipakai via `python -m yt_dlp` (bukan CLI PATH)
+soundfile  # I/O audio WAV/FLAC/OGG untuk stem & DSP karaoke
+librosa  # resample + decode container yang tidak bisa dibuka soundfile
+scipy  # filter DSP karaoke (high-pass, limiter)
+requests  # pustaka HTTP dipakai vx_search/vx_cover/vx_download
+ytmusicapi  # cari track resmi di YouTube Music

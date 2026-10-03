@@ -121,6 +121,9 @@ _LAST_SWEEP = 0.0
 
 
 def _model_dir() -> Path:
+    override = (os.environ.get("VOCALYX_MODELS_DIR") or "").strip()
+    if override:
+        return Path(override)
     return Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "audio-separator-models"
 
 

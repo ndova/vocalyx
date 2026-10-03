@@ -859,6 +859,36 @@ try {
   ok(pySep.includes('normalization_threshold=1.0') && pySep.includes('amplification_threshold=0.0'), 'py: separator dimatikan normalisasi 0.9 (bikin sisa vokal)');
   ok(pySep.includes('primary_stem_name'), 'py: primary stem model dibaca saat runtime');
   {
+    const pyDl = fs.readFileSync(path.join(root, 'python-engine/vx_download.py'), 'utf8');
+    const pyCore = fs.readFileSync(path.join(root, 'python-engine/vx_core.py'), 'utf8');
+    const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'utf8');
+    const pyReq = fs.readFileSync(path.join(root, 'python-engine/requirements.txt'), 'utf8');
+    const pyBench = fs.readFileSync(path.join(root, 'python-engine/scripts/bench_cpu.py'), 'utf8');
+
+    ok(!/Nirmala|music-dl\/scripts|Desktop[\\/]music-dl/.test(pyDl),
+      'py: vx_download tidak lagi punya path dev hardcoded');
+    ok(!/Nirmala|Desktop[\\/]music-dl/.test(pyBench), 'py: bench_cpu tidak lagi punya path dev hardcoded');
+    ok(/def _yt_dlp_cmd\(\)/.test(pyDl) && /-m",\s*"yt_dlp|"yt_dlp"/.test(pyDl),
+      'py: yt-dlp dipanggil sebagai modul, bukan CLI PATH');
+    ok(/yt-dlp/.test(pyReq), 'py: yt-dlp ada di requirements');
+    ['soundfile', 'librosa', 'scipy', 'requests', 'ytmusicapi'].forEach((m) => {
+      ok(new RegExp(`^${m}`, 'm').test(pyReq), `py: ${m} ada di requirements`);
+    });
+    ok(/VOCALYX_MODELS_DIR/.test(pySep) && /VOCALYX_MODELS_DIR/.test(pySepCache),
+      'py: VOCALYX_MODELS_DIR dipakai di kedua sumber model');
+
+    ok(/fn bundled_python\(\)/.test(rsEngine) && /runtime.*pythonw\.exe|"_up_\/runtime\/pythonw\.exe"/.test(rsEngine),
+      'rust: find_python mencari runtime bawaan (runtime/pythonw.exe)');
+    ok(/VOCALYX_PYTHON/.test(rsEngine), 'rust: escape hatch VOCALYX_PYTHON tetap ada');
+    ok(/fn apply_runtime_env\(/.test(rsEngine) && /PYTHONPATH/.test(rsEngine) && /PYTHONHOME/.test(rsEngine),
+      'rust: runtime bawaan set PYTHONPATH/PYTHONHOME');
+    ok(/VOCALYX_MODELS_DIR/.test(rsEngine), 'rust: model diarahkan ke folder data aplikasi');
+    ok(/fn find_python\(\)[\s\S]{0,900}bundled_python\(\)/.test(rsEngine),
+      'rust: runtime bawaan dicek sebelum Python sistem');
+    ok(!/^\s*\/\//m.test(rsEngine.replace(/^\s*\/\/![\s\S]*$/gm, '').replace(/^\s*\/\/\/.*$/gm, '')),
+      'rust: engine.rs tanpa komentar // baru');
+  }
+  {
     // REGRESSION: vx_karaoke_dsp.py dijalankan sebagai proses anak oleh
     // _run_script (pythonw.exe, tanpa console). Kalau script ini tidak memasang
     // shim win_nowindow, tiap subprocess.run(ffmpeg) mengalokasikan console
