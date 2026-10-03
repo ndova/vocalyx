@@ -41,3 +41,13 @@ Thumbs.db
 .DS_Store
 .vscode/
 .idea/
+
+# Hasil benchmark & audio contoh (dipakai lokal untuk verifikasi, bukan aset repo).
+benchmarks/
+sample/
+
+# Catatan kerja lokal.
+Kondisi saat ini.txt
+
+# Skrip pembanding loudness (dipakai manual saat verifikasi karaoke).
+python-engine/scripts/karaoke_loudness_compare.py
