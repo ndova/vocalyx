@@ -665,10 +665,16 @@ fn chosen_python(app: &AppHandle) -> Option<PathBuf> {
     let cfg = EngineChoice::snapshot(app);
     let device = cfg.as_ref().map(|c| c.device.clone()).unwrap_or_else(|| "auto".into());
     let gpu_python = cfg.as_ref().map(|c| c.gpu_python.clone()).unwrap_or_default();
-    // Cache dipakai; kalau belum pernah detect, `detect_cached` isi cache.
-    // Jalur ini hanya jalan di thread background (startup/restart), bukan UI.
-    let detected = gpu::detect_cached(false);
-    resolve_interpreter(&device, &gpu_python, &detected).ok()
+    let dev = device.to_ascii_lowercase();
+    // Deteksi hanya perlu kalau device benar-benar cuda/gpu. Untuk auto/cpu
+    // tidak ada yang perlu di-probe, jadi jangan bakar belasan detik impor torch
+    // di startup.
+    let detected = if dev == "cuda" || dev == "gpu" {
+        gpu::detect_cached(false)
+    } else {
+        Vec::new()
+    };
+    resolve_interpreter(&dev, &gpu_python, &detected).ok()
 }
 
 /// Urutan pilihan interpreter saat start:

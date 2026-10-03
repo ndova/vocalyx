@@ -1119,6 +1119,10 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
       'b1: deteksi Python di-cache (hanya 1 pass, bukan 2-3)');
     ok(!/pub fn start\(app: &AppHandle\)[\s\S]{0,900}gpu::detect\(/.test(rsEngine),
       'b1: start() tidak lagi mem-probe torch');
+    const cpBlock = (rsEngine.match(/fn chosen_python\([\s\S]*?\n}/) || [''])[0];
+    ok(/dev == "cuda" \|\| dev == "gpu"/.test(cpBlock) && /detect_cached\(false\)/.test(cpBlock)
+      && /else \{\s*\n\s*Vec::new\(\)\s*\n\s*\}/.test(cpBlock),
+      'b1: deteksi hanya jalan saat device cuda/gpu (bukan di startup auto/cpu)');
     ok(/detect_pythons_async', \{ force: !!force \}/.test(
       fs.readFileSync(path.join(root, 'src/js/gpu.js'), 'utf8')),
       'b1: tombol Deteksi mengirim force=true');
