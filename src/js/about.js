@@ -131,7 +131,7 @@ export function initAbout() {
     const ok = await openDownload(updateState && updateState.msi);
     if (!ok) showToast(t('ab.dlLinkMissing'), 3000);
   });
-  document.getElementById('aboutSupport')?.addEventListener('click', async (e) => {
+  document.getElementById('btnSupport')?.addEventListener('click', async (e) => {
     e.preventDefault();
     const ok = await openDownload(SUPPORT_URL);
     if (!ok) showToast(t('ab.openLinkFail'), 3000);

@@ -606,20 +606,31 @@ const iphoneNote = $('#aboutDesc');
 ok(/import from PC to iPhone/.test(iphoneNote?.textContent || ''), 'about: kalimat transfer iPhone import PC ke iPhone');
 ok(/export from iPhone to PC/.test(iphoneNote?.textContent || ''), 'about: kalimat transfer iPhone export ke PC');
 {
-  const sup = document.getElementById('aboutSupport');
+  const sup = document.getElementById('btnSupport');
   const supImg = sup?.querySelector('img');
-  ok(!!sup && /^https:\/\/www\.buymeacoffee\.com\/nny7jp2d2bh$/.test(sup.href), 'about: link dukungan buymeacoffee ada');
-  ok(!!supImg && /^https:\/\/img\.buymeacoffee\.com\/button-api\//.test(supImg.src), 'about: gambar tombol kopi dari img.buymeacoffee.com');
-  ok((supImg?.getAttribute('alt') || '').length > 0, 'about: tombol kopi punya alt text');
-  ok(sup?.getAttribute('rel')?.includes('noopener'), 'about: link kopi pakai rel noopener');
-  ok($('#aboutSupport')?.closest('#aboutModal') !== null, 'about: tombol kopi ada di dalam modal About');
+  ok(!!sup && /^https:\/\/www\.buymeacoffee\.com\/nny7jp2d2bh$/.test(sup.href), 'topbar: link dukungan buymeacoffee ada');
+  ok(!!supImg && /^https:\/\/img\.buymeacoffee\.com\/button-api\//.test(supImg.src), 'topbar: gambar tombol kopi dari img.buymeacoffee.com');
+  ok((supImg?.getAttribute('alt') || '').length > 0, 'topbar: tombol kopi punya alt text');
+  ok(sup?.getAttribute('rel')?.includes('noopener'), 'topbar: link kopi pakai rel noopener');
+  ok(!!sup?.closest('.topbar'), 'topbar: tombol kopi ada di header topbar');
+  ok(sup?.closest('.topbar-right') !== null, 'topbar: tombol kopi ada di topbar-right');
+  ok(sup?.closest('.topbar')?.querySelector('#btnAbout') !== null, 'topbar: tombol kopi ada di header');
+  const before = sup?.nextElementSibling;
+  ok(before?.id === 'btnAbout', 'topbar: tombol kopi berada sebelum tombol About');
+  ok(!document.getElementById('aboutSupport') && !$('#aboutModal')?.querySelector('a[href*="buymeacoffee"]'), 'about: tidak ada lagi tombol kopi di modal About');
   let supPrevented = null;
   sup?.addEventListener('click', (e) => { supPrevented = e.defaultPrevented; });
   let supErr = null;
   try { sup?.click(); } catch (e) { supErr = e; }
   await sleep(40);
-  ok(!supErr, 'about: klik tombol kopi tidak melempar error');
-  ok(supPrevented === true, 'about: klik tombol kopi dicegat (webview tidak navigasi)');
+  ok(!supErr, 'topbar: klik tombol kopi tidak melempar error');
+  ok(supPrevented === true, 'topbar: klik tombol kopi dicegat (webview tidak navigasi)');
+  ok(!document.getElementById('aboutModal')?.classList.contains('open'), 'topbar: klik kopi tidak membuka modal About');
+  const cssSup = fs.readFileSync(path.join(root, 'src/styles.css'), 'utf8');
+  const supCss = cssSup.split('\n').find((l) => l.includes('.topbar-support img')) || '';
+  ok(/height:\s*28px/.test(supCss), 'css: gambar kopi di topbar setinggi 28px');
+  ok(/-webkit-app-region:\s*no-drag/.test((cssSup.match(/\.topbar-support \{[^}]*\}/) || [''])[0]), 'css: tombol kopi bebas drag region');
+  ok(!/about-support/.test(cssSup), 'css: gaya about-support sudah dibuang');
 }
 
 document.querySelector('[data-nav="local"]')?.click();
