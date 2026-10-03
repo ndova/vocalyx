@@ -387,6 +387,28 @@ ok(Object.keys(i18nId).length > 100, `i18n: kamus ID punya entri (dapat ${Object
     });
   ok(/ENGINE_SRC\.iterdir\(\)/.test(bundler) && /ENGINE_ENTRY = "server\.py"/.test(bundler),
     'bundler: menyalin seluruh modul engine dari python-engine + entry server.py');
+  ok(/def write_pth\(/.test(bundler) && /def install_engine_into_runtime\(/.test(bundler),
+    'bundler: tulis ulang ._pth dan salin engine ke dalam runtime');
+  ok(/"engine",\s*"import site"/.test(bundler),
+    'bundler: ._pth mendaftarkan folder engine (python embeddable abaikan PYTHONPATH)');
+  const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'utf8');
+  ok(/runtime\/engine\/server\.py|runtime"\.join\("engine"\)|engine\/server\.py/.test(bundler + rsEngine),
+    'bundler/engine: lokasi runtime/engine/server.py dikenali');
+  ok(/fn bundled_runtime_root\(\)/.test(rsEngine), 'rust: deteksi folder runtime portable');
+  {
+    const pthFile = path.join(root, 'build/runtime/python311._pth');
+    if (fs.existsSync(pthFile)) {
+      const pth = fs.readFileSync(pthFile, 'utf8').split('\n').map((l) => l.trim()).filter(Boolean);
+      ok(pth.includes('import site'), 'runtime: ._pth mengaktifkan import site');
+      ok(pth.includes('engine'), 'runtime: ._pth memuat folder engine');
+      ok(new Set(pth).size === pth.length, `runtime: ._pth tanpa baris duplikat :: ${JSON.stringify(pth)}`);
+    } else {
+      ok(true, 'runtime: ._pth belum ada (jalankan build_runtime.py)');
+    }
+    const rtEngine = path.join(root, 'build/runtime/engine/server.py');
+    ok(!fs.existsSync(rtEngine) || fs.readFileSync(rtEngine, 'utf8').length > 0,
+      'runtime: engine tersalin ke dalam runtime');
+  }
   ok(/hashlib\.sha256/.test(bundler) && /\.sha256/.test(bundler), 'bundler: menulis sha256 untuk verifikasi unduhan');
   ok(/^build\/$/m.test(gitignore) && /^dist-runtime\/$/m.test(gitignore) && /^cig\*\.dll$/m.test(gitignore),
     'gitignore: build/, dist-runtime/, cig*.dll diabaikan');

@@ -92,6 +92,59 @@ def download(url: str, dest: Path, dry: bool = False) -> bool:
     return True
 
 
+def write_pth(py_dir: Path) -> None:
+    """Tulis ulang `python311._pth` agar runtime embeddable bisa pakai paket.
+
+    Penting: begitu file `._pth` ada, Python **mengabaikan `PYTHONPATH`** dan
+    hanya memakai path yang tertulis di sini. Makanya folder engine ikut
+    didaftarkan sebagai `engine` - kalau tidak, `server.py` tidak akan pernah
+    menemukan modul `vx_*` di sebelahnya.
+    """
+    pth = next(py_dir.glob("python*._pth"), None)
+    if not pth:
+        return
+    lines = pth.read_text(encoding="utf-8").splitlines()
+    seen: set[str] = set()
+    kept: list[str] = []
+    for ln in lines:
+        s = ln.strip()
+        if not s or s.startswith("#"):
+            continue
+        if s in ("Lib", "Lib\\site-packages", "engine", "import site") or "site-packages" in s:
+            continue
+        if s in seen:
+            continue
+        seen.add(s)
+        kept.append(s)
+    for s in ("Lib", "Lib\\site-packages", "engine", "import site"):
+        if s not in seen:
+            kept.append(s)
+            seen.add(s)
+    pth.write_text("\n".join(kept) + "\n", encoding="utf-8")
+    log(f"{pth.name}: {kept}")
+
+
+def install_engine_into_runtime() -> int:
+    """Salin engine bersih ke dalam runtime supaya ikut saat runtime dipaket."""
+    dst = RUNTIME_DIR / "engine"
+    if dst.exists():
+        shutil.rmtree(dst, ignore_errors=True)
+    dst.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    for p in sorted(STAGE_ENGINE.rglob("*")):
+        rel = p.relative_to(STAGE_ENGINE)
+        target = dst / rel
+        if p.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(p, target)
+        copied += 1
+    write_pth(RUNTIME_DIR)
+    log(f"engine -> {dst} ({copied} file)")
+    return copied
+
+
 def clean_engine_stage(dry: bool = False) -> int:
     """Salin hanya file engine yang benar-benar dibutuh runtime."""
     if not dry and STAGE_ENGINE.exists():
@@ -206,14 +259,6 @@ def prepare_python(dry: bool = False) -> Path | None:
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(zpath) as z:
         z.extractall(RUNTIME_DIR)
-    pth = next(RUNTIME_DIR.glob("python*._pth"), None)
-    if pth:
-        lines = pth.read_text(encoding="utf-8").splitlines()
-        kept = [ln for ln in lines if ln.strip() and not ln.strip().startswith("#")]
-        kept = [ln for ln in kept if "site-packages" not in ln]
-        kept += ["Lib", "Lib\\site-packages", "import site"]
-        pth.write_text("\n".join(kept) + "\n", encoding="utf-8")
-        log(f"{pth.name} ditulis ulang untuk site-packages")
     getpip = CACHE / "get-pip.py"
     if not download(GET_PIP_URL, getpip, dry):
         return None
@@ -248,6 +293,7 @@ def zip_runtime(version: str, dry: bool = False) -> Path | None:
 def main() -> int:
     ap = argparse.ArgumentParser(description="Rakit runtime portable VocaLyx")
     ap.add_argument("--staging-only", action="store_true", help="hanya staging source engine")
+    ap.add_argument("--repack", action="store_true", help="stage ulang engine + zip, tanpa unduh ulang")
     ap.add_argument("--dry-run", action="store_true", help="tampilkan rencana tanpa mengunduh")
     args = ap.parse_args()
 
@@ -256,6 +302,12 @@ def main() -> int:
 
     clean_engine_stage(args.dry_run)
     if args.staging_only:
+        return 0
+
+    if args.repack:
+        install_engine_into_runtime()
+        zip_runtime(version, args.dry_run)
+        log("repack selesai")
         return 0
 
     py = prepare_python(args.dry_run)

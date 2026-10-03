@@ -71,7 +71,7 @@ pub fn start(app: &AppHandle) {
         .arg(&script)
         .current_dir(&cwd)
         .stdin(Stdio::null());
-    apply_runtime_env(&mut cmd, &py, &cwd);
+    apply_runtime_env(&mut cmd, &py, &cwd, &script);
 
     match open_log() {
         Some((out, err)) => {
@@ -138,28 +138,48 @@ fn engine_alive() -> bool {
 
 /// Environment untuk child engine.
 ///
-/// Runtime bawaan (hasil `scripts/build_runtime.py`) memakai Python embeddable,
-/// jadi interpreter-nya tidak punya `site-packages` global: lokasi paket harus
-/// diberi lewat `PYTHONPATH`/`PYTHONHOME`. Model karaoke dipindah ke folder data
-/// aplikasi supaya tidak menabrak instalasi milik user lain.
-fn apply_runtime_env(cmd: &mut Command, py: &str, cwd: &Path) {
+/// Dua hal berbeda berlaku tergantung interpreter:
+///
+/// * Python embeddable dari runtime bawaan punya file `._pth`, dan begitu file
+///   itu ada Python **tidak lagi memakai `sys.path[0]`** (folder script). Tanpa
+///   itu, `server.py` tidak akan pernah menemukan modul `vx_*` di sebelahnya
+///   dan boot gagal dengan `ModuleNotFoundError`. Jadi folder engine ikut
+///   dimasukkan ke `PYTHONPATH`.
+/// * Python sistem biasa memakai `site-packages` global, jadi `PYTHONPATH`
+///   hanya berisi tambahan.
+///
+/// Model karaoke dipindah ke folder data aplikasi supaya tidak menabrak
+/// instalasi milik user lain.
+fn apply_runtime_env(cmd: &mut Command, py: &str, cwd: &Path, script: &Path) {
+    let mut paths: Vec<String> = Vec::new();
+    if let Some(dir) = script.parent() {
+        paths.push(dir.to_string_lossy().to_string());
+    }
     if let Some(rt) = bundled_runtime_dir(py) {
-        if let Ok(sp) = std::fs::read_dir(&rt) {
-            let mut dirs: Vec<String> = sp
+        let sp = rt.join("Lib").join("site-packages");
+        if sp.is_dir() {
+            paths.push(sp.to_string_lossy().to_string());
+        } else if let Ok(entries) = std::fs::read_dir(&rt) {
+            let mut dirs: Vec<String> = entries
                 .filter_map(|e| e.ok())
                 .map(|e| e.path().to_string_lossy().to_string())
-                .filter(|p| {
-                    Path::new(p).join("site-packages").is_dir() || Path::new(p).join("Lib").is_dir()
-                })
+                .filter(|p| Path::new(p).join("site-packages").is_dir() || Path::new(p).join("Lib").is_dir())
                 .collect();
             dirs.sort();
-            let joined = dirs.join(";");
-            if !joined.is_empty() {
-                cmd.env("PYTHONPATH", joined);
-            }
+            paths.extend(dirs);
         }
         cmd.env("PYTHONHOME", &rt);
         cmd.env("VOCALYX_RUNTIME_DIR", &rt);
+    }
+    let joined = paths.join(";");
+    if !joined.is_empty() {
+        let existing = std::env::var("PYTHONPATH").unwrap_or_default();
+        let value = if existing.is_empty() {
+            joined
+        } else {
+            format!("{joined};{existing}")
+        };
+        cmd.env("PYTHONPATH", value);
     }
     let models = app_data_dir().join("models");
     let _ = std::fs::create_dir_all(&models);
@@ -195,22 +215,15 @@ fn app_data_dir() -> PathBuf {
 
 /// Interpreter bawaan dari runtime yang dibundel, kalau ada.
 fn bundled_python() -> Option<PathBuf> {
-    let mut cands: Vec<PathBuf> = Vec::new();
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            cands.push(dir.join("runtime").join("pythonw.exe"));
-            cands.push(dir.join("runtime").join("python.exe"));
-            cands.push(dir.join("_up_/runtime/pythonw.exe"));
-            cands.push(dir.join("_up_/runtime/python.exe"));
-            cands.push(dir.join("../runtime/pythonw.exe"));
-            cands.push(dir.join("../runtime/python.exe"));
+    if let Some(rt) = bundled_runtime_root() {
+        for name in ["pythonw.exe", "python.exe"] {
+            let p = rt.join(name);
+            if p.is_file() {
+                return Some(p);
+            }
         }
     }
-    if let Ok(cwd) = std::env::current_dir() {
-        cands.push(cwd.join("runtime").join("pythonw.exe"));
-        cands.push(cwd.join("runtime").join("python.exe"));
-    }
-    cands.into_iter().find(|p| p.is_file())
+    None
 }
 
 /// Lokasi `server.py`: resource bundle dulu, lalu relatif ke exe.
@@ -221,18 +234,48 @@ fn find_engine_script(app: &AppHandle) -> Option<PathBuf> {
     if let Ok(p) = app.path().resolve("python-engine/server.py", BaseDirectory::Resource) {
         cands.push(p);
     }
+    // Runtime portable (Fase 2 bundler) membawa engine-nya sendiri di dalam
+    // runtime/engine, karena `._pth` membuat Python mengabaikan PYTHONPATH
+    // sehingga folder script tidak otomatis masuk sys.path.
+    if let Some(rt) = bundled_runtime_root() {
+        cands.push(rt.join("engine").join("server.py"));
+        cands.push(rt.join("engine").join("scripts").join("server.py"));
+    }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            cands.push(dir.join("python-engine/server.py"));
-            cands.push(dir.join("_up_/python-engine/server.py"));
-            cands.push(dir.join("../python-engine/server.py"));
-            cands.push(dir.join("../../python-engine/server.py"));
+            for base in ["", "_up_/", "../", "../../"] {
+                let b = dir.join(base);
+                cands.push(b.join("python-engine/server.py"));
+                cands.push(b.join("runtime/engine/server.py"));
+            }
         }
     }
     if let Ok(cwd) = std::env::current_dir() {
         cands.push(cwd.join("python-engine/server.py"));
+        cands.push(cwd.join("build/runtime/engine/server.py"));
     }
     cands.into_iter().find(|p| p.is_file())
+}
+
+/// Folder tempat runtime portable berada (ada python.exe), kalau terpasang.
+fn bundled_runtime_root() -> Option<PathBuf> {
+    let mut cands: Vec<PathBuf> = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            for base in ["", "_up_/", "../", "../../"] {
+                let b = dir.join(base);
+                cands.push(b.join("runtime"));
+                cands.push(b.join("runtime-cpu"));
+            }
+        }
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        cands.push(cwd.join("build/runtime"));
+        cands.push(cwd.join("runtime"));
+    }
+    cands
+        .into_iter()
+        .find(|d| d.join("python.exe").is_file() || d.join("pythonw.exe").is_file())
 }
 
 /// Working directory engine harus root project, bukan folder `python-engine`:
