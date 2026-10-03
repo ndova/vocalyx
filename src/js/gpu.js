@@ -55,7 +55,7 @@ async function detect(force) {
   if (!isTauri()) { setStatus(t('set.gpuPythonTauriOnly'), false); return lastDetected; }
   setStatus(t('set.gpuPythonDetecting'), null);
   try {
-    lastDetected = await invokeTauri('detect_pythons');
+    lastDetected = await invokeTauri('detect_pythons_async');
   } catch {
     lastDetected = [];
   }

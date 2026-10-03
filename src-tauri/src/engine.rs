@@ -432,7 +432,7 @@ pub mod gpu {
 
     fn run_probe(exe: &Path) -> Option<PythonInfo> {
         let out = Command::new(exe)
-            .args(["-I", "-c", PROBE])
+            .args(["-E", "-c", PROBE])
             .stdin(Stdio::null())
             .output()
             .ok()?;
@@ -467,9 +467,15 @@ pub mod gpu {
         for name in ["pythonw.exe", "python.exe", "python3.exe"] {
             if let Some(path) = std::env::var_os("PATH") {
                 for dir in std::env::split_paths(&path) {
+                    if dir.to_string_lossy().contains("WindowsApps") {
+                        continue;
+                    }
                     let p = dir.join(name);
+                    // Cukup yang pertama per nama: satu probe sudah memakan
+                    // beberapa detik karena torch diimpor.
                     if p.is_file() {
                         cands.push(p);
+                        break;
                     }
                 }
             }
@@ -717,6 +723,15 @@ pub fn write_log(args: std::fmt::Arguments<'_>) {
 #[tauri::command]
 pub fn detect_pythons() -> Vec<gpu::PythonInfo> {
     gpu::detect()
+}
+
+/// Versi async supaya probe (yang mengimpor torch, beberapa detik per interpreter)
+/// tidak membekukan UI.
+#[tauri::command]
+pub async fn detect_pythons_async() -> Vec<gpu::PythonInfo> {
+    tauri::async_runtime::spawn_blocking(gpu::detect)
+        .await
+        .unwrap_or_default()
 }
 
 #[tauri::command]
