@@ -210,24 +210,7 @@ export function insertLrcLineAfter(raw, idx, sec, text) {
   return serializeEditor(parsed, headers);
 }
 
-export function shiftLrcByOffset(raw, deltaMs) {
-  if (!deltaMs || !raw || !raw.trim()) return raw;
-  const parsed = parseLRC(raw);
-  if (!parsed.length || parsed.every(l => l.t === 0)) return raw;
-  const headers = [];
-  String(raw).replace(/\r/g, '').split('\n').forEach((line) => {
-    const tr = line.trim();
-    if (/^\[(ar|ti|al|by|length|re|ve):/i.test(tr)) headers.push(tr);
-  });
-  const shifted = parsed
-    .filter(l => typeof l.t === 'number' && Number.isFinite(l.t) && l.t < PLAIN_T)
-    .map(l => ({ t: Math.max(0, l.t + deltaMs / 1000), x: l.x }))
-    .sort((a, b) => a.t - b.t)
-    .map(l => `${formatLrcTime(l.t)}${l.x || '♪'}`);
-  return [...headers, ...shifted].join('\n');
-}
-
 export function applyOffsetToAllLines(raw, offsetMs) {
   if (!offsetMs) return raw;
-  return nudgeLrcFromIndex(raw, 0, offsetMs);
+  return nudgeLrcFromIndex(raw, 0, -offsetMs);
 }

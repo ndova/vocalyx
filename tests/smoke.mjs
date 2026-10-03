@@ -828,6 +828,24 @@ try {
   const pyBest = fs.readFileSync(path.join(root, 'python-engine/scripts/karaoke_best.py'), 'utf8');
   ok(pySep.includes('normalization_threshold=1.0') && pySep.includes('amplification_threshold=0.0'), 'py: separator dimatikan normalisasi 0.9 (bikin sisa vokal)');
   ok(pySep.includes('primary_stem_name'), 'py: primary stem model dibaca saat runtime');
+  {
+    // REGRESSION: vx_karaoke_dsp.py dijalankan sebagai proses anak oleh
+    // _run_script (pythonw.exe, tanpa console). Kalau script ini tidak memasang
+    // shim win_nowindow, tiap subprocess.run(ffmpeg) mengalokasikan console
+    // baru -> jendela ffmpeg.exe berkedip saat separasi.
+    ok(/import\s+win_nowindow/.test(pyDsp) && /win_nowindow\.hide_child_consoles\(\)/.test(pyDsp),
+      'py: vx_karaoke_dsp memasang shim win_nowindow (anti jendela ffmpeg)');
+    ok(/sys\.path\.insert\(\s*0\s*,\s*str\(Path\(__file__\)\.resolve\(\)\.parent\)\s*\)/.test(pyDsp),
+      'py: vx_karaoke_dsp menaruh folder script di sys.path sebelum import shim');
+    const pySpawner = fs.readFileSync(path.join(root, 'python-engine/vx_separate.py'), 'utf8');
+    const spawned = [...pySpawner.matchAll(/_run_script\(job_id,\s*([A-Za-z_][A-Za-z0-9_]*)\s*,/g)].map((m) => m[1]);
+    ok(spawned.length >= 2, `py: _run_script punya >= 2 pemanggilan (dapat ${spawned.join(',')})`);
+    const spawnedFiles = spawned.map((v) => (v === 'DSP_SCRIPT' ? 'python-engine/vx_karaoke_dsp.py' : null)).filter(Boolean);
+    ok(spawnedFiles.length >= 1 && spawnedFiles.every((f) => {
+      const src = fs.readFileSync(path.join(root, f), 'utf8');
+      return /hide_child_consoles\(\)/.test(src);
+    }), 'py: semua script DSP yang di-spawn punya shim hide_child_consoles');
+  }
 
   // --- REGRESSION: jalur karaoke tidak boleh memakai masking.
   // Dua mask multiplicatif berturut-turut (magnitude_subtract lalu
@@ -944,11 +962,40 @@ try {
   ok(plain.length === 2 && plain[1].t === 99999, 'parseLRC plain sentinel');
   ok(Array.isArray(lrc.defaultLyrics()) && lrc.defaultLyrics().length === 1, 'defaultLyrics');
   ok(lrc.formatLrcTime(65.5) === '[01:05.50]', 'formatLrcTime');
-  const shifted = lrc.shiftLrcByOffset('[00:10.00]hello\n[00:20.00]world', 500);
-  ok(shifted.includes('[00:10.50]hello') && shifted.includes('[00:20.50]world'), 'shiftLrcByOffset +500ms');
-  ok(lrc.shiftLrcByOffset('just text\nmore', 500).includes('just text'), 'shiftLrcByOffset skips plain');
-  const back = lrc.shiftLrcByOffset('[offset:+500]\n[00:10.00]hello', 0);
-  ok(back.includes('[offset:+500]'), 'shiftLrcByOffset no-op keeps tag');
+  const baked = lrc.applyOffsetToAllLines('[00:10.00]hello\n[00:20.00]world', 500);
+  ok(baked.includes('[00:09.50]hello') && baked.includes('[00:19.50]world'),
+    `applyOffsetToAllLines +500ms menggeser baris lebih AWAL (dapat ${JSON.stringify(baked)})`);
+  const bakedNeg = lrc.applyOffsetToAllLines('[00:10.00]hello\n[00:20.00]world', -500);
+  ok(bakedNeg.includes('[00:10.50]hello') && bakedNeg.includes('[00:20.50]world'),
+    'applyOffsetToAllLines -500ms menggeser baris lebih lambat');
+  ok(lrc.applyOffsetToAllLines('[00:10.00]hello', 0) === '[00:10.00]hello',
+    'applyOffsetToAllLines no-op (offset 0) tidak mengubah apa pun');
+  ok(lrc.applyOffsetToAllLines('[ar:Artis]\n[00:10.00]hello', 500).startsWith('[ar:Artis]'),
+    'applyOffsetToAllLines header LRC terjaga');
+  ok(!('shiftLrcByOffset' in lrc), 'shiftLrcByOffset yang tak terpakai sudah dihapus');
+  {
+    // Invarian WYSIWYG: baris yang disorot pada waktu tertentu harus sama
+    // sebelum bake (dengan offset) dan sesudah bake (offset 0).
+    const RAW = '[00:05.00]satu\n[00:10.00]dua\n[00:15.00]tiga';
+    const activeBefore = (cur, off) => {
+      const adj = cur + off / 1000;
+      let on = 0;
+      for (let i = 0; i < 3; i++) if (adj + 0.15 >= [5, 10, 15][i]) on = i;
+      return on;
+    };
+    const bakedLines = lrc.parseLRC(lrc.applyOffsetToAllLines(RAW, 800)).map((l) => l.t);
+    const activeAfter = (cur) => {
+      let on = 0;
+      for (let i = 0; i < 3; i++) if (cur + 0.15 >= bakedLines[i]) on = i;
+      return on;
+    };
+    const probes = [4.0, 5.0, 9.0, 10.0, 14.5, 15.0, 20.0];
+    const mismatches = probes.filter((c) => activeBefore(c, 800) !== activeAfter(c));
+    ok(mismatches.length === 0,
+      `invarian WYSIWYG offset: baris aktif identik sebelum/sesudah bake (dapat ${JSON.stringify(mismatches)})`);
+    ok(bakedLines[0] < 5 && Math.abs(bakedLines[0] - 4.2) < 0.01,
+      `bake offset +800ms menurunkan timestamp (dapat ${bakedLines[0]})`);
+  }
   ok(lrc.parseLRCForEdit('[00:30.00]c\n[00:10.00]a')[0].x === 'c', 'parseLRCForEdit tidak sort');
   ok(lrc.parseLRCForEdit('[00:30.00]c\n[00:10.00]a').length === 2, 'parseLRCForEdit jumlah baris');
   const wordy = lrc.parseLRC('[00:10.00]<00:10.00>Hai <00:10.50>dunia');
@@ -1133,6 +1180,38 @@ try {
     await sleep(10);
     ok(!ed2.isLyricEditorOpen(), 'editor: isLyricEditorOpen() false setelah ditutup');
     core2.applyLang('en');
+  }
+  {
+    const lyrM = await import('../src/js/lyrics.js');
+    const S3 = (await import('../src/js/state.js')).S;
+    const ed3 = await import('../src/js/lyrics-editor.js');
+    const lrcX = await import('../src/js/lrc.js');
+    S3.tracks = [{ path: 'C:\\Musik\\C - Offset.mp3', title: 'Offset', artist: 'C', name: 'C - Offset' }];
+    S3.idx = 0;
+    S3.lyricLines = lrcX.parseLRC('[00:10.00]satu\n[00:20.00]dua');
+    lyrM.setLyricOffset(0);
+    lyrM.loadLyricOffset();
+    lyrM.setLyricOffset(500);
+    await sleep(20);
+    ok(S3.lyricOffsetMs === 500, 'editor offset: offset 500ms tersimpan');
+    ed3.openLyricEditor();
+    await sleep(40);
+    const rowsOff = () => [...document.querySelectorAll('#lyrEditList .lyr-edit-row')];
+    const tsOff = (i) => rowsOff()[i].querySelector('.lyr-edit-ts').textContent;
+    ok(tsOff(0) === '00:10.00', `editor offset: awal 00:10.00 (dapat ${tsOff(0)})`);
+    ok(document.getElementById('lyrEditApplyOff').disabled === false,
+      'editor offset: tombol Apply to all aktif saat offset != 0');
+    ok(document.getElementById('lyrEditOffset').textContent === '+500ms',
+      `editor offset: badge offset menampilkan +500ms (dapat ${document.getElementById('lyrEditOffset').textContent})`);
+    document.getElementById('lyrEditApplyOff').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await sleep(40);
+    ok(tsOff(0) === '00:09.50', `editor offset: Apply to all menggeser baris lebih AWAL (dapat ${tsOff(0)})`);
+    ok(tsOff(1) === '00:19.50', `editor offset: baris kedua ikut bergeser (dapat ${tsOff(1)})`);
+    ok(S3.lyricOffsetMs === 0, 'editor offset: offset direset ke 0 setelah apply');
+    ok(Math.abs(S3.lyricLines[0].t - 9.5) < 0.01, `editor offset: kartu lirik ikut bergeser (dapat ${S3.lyricLines[0].t})`);
+    ed3.closeLyricEditor();
+    await sleep(10);
+    lyrM.setLyricOffset(0);
   }
 } catch (e) {
   ok(false, `editor fungsional :: ${e.message}`);

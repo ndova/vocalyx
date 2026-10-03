@@ -5,7 +5,7 @@ import { initI18n, lang, translateTree } from './js/i18n/core.js';
 export { presetLabel, presetList, migrateEqState } from './js/i18n/presets.js';
 import { migrateEqState } from './js/i18n/presets.js';
 import { fmt, coverHtml, hashStr, escAttr } from './js/format.js';
-import { parseLRC, defaultLyrics, shiftLrcByOffset, lyricLinesToLrc } from './js/lrc.js';
+import { parseLRC, defaultLyrics, lyricLinesToLrc } from './js/lrc.js';
 import { showModal, showPrompt, showConfirm, showAlert } from './js/modal.js';
 import { colWidths, searchColWidths, applyGridWidths, applySearchGridWidths, initResizableGrid } from './js/grid.js';
 import { setupMediaSession, clearMediaSession, setMediaSessionMeta, setMediaSessionState } from './js/media-session.js';
