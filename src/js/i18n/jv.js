@@ -273,6 +273,8 @@ export default {
   'set.gpuPythonNone': 'Ora ana interpreter Python sing bisa dipigai.',
   'set.gpuPythonTauriOnly': 'Deteksi Python mung ana ing aplikasi sing wis diinstall.',
   'set.gpuPythonSwitchFailed': 'Gagal ngentèné interpreter',
+  'set.gpuPythonApplying': 'Miwulang maneh engine karo Python iku…',
+  'set.gpuPythonIdle': 'Pencet Deteksi kanggo nggoleki Python karo CUDA ing PC iki (sawetara detik).',
   'set.gpuPythonActiveCuda': 'Engine mlaku karo interpreter CUDA.',
   'set.gpuPythonActiveCpu': 'Engine mlaku karo runtime CPU bawaan.',
   'set.deezerArl': 'Deezer ARL',

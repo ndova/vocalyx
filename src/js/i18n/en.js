@@ -273,6 +273,8 @@ export default {
   'set.gpuPythonNone': 'No usable Python interpreter found.',
   'set.gpuPythonTauriOnly': 'Python detection is only available in the installed app.',
   'set.gpuPythonSwitchFailed': 'Could not switch interpreter',
+  'set.gpuPythonApplying': 'Restarting the engine with that Python…',
+  'set.gpuPythonIdle': 'Press Detect to scan this PC for a CUDA-capable Python (takes a few seconds).',
   'set.gpuPythonActiveCuda': 'Engine is running with a CUDA interpreter.',
   'set.gpuPythonActiveCpu': 'Engine is running with the bundled CPU runtime.',
   'set.deezerArl': 'Deezer ARL',

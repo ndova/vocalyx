@@ -103,14 +103,11 @@ pub fn start(app: &AppHandle) {
     let cwd = project_root(&script);
     log_line!("start engine: {} -u {} (cwd {})", py, script.display(), cwd.display());
 
-    // Catat interpreter aktif + apakah dia punya CUDA, supaya UI bisa tahu
-    // device yang benar-benar terpakai tanpa harus menebak.
-    let active_cuda = gpu::detect()
-        .into_iter()
-        .find(|i| i.path.eq_ignore_ascii_case(&py))
-        .map(|i| i.cuda)
-        .unwrap_or(false);
-    EngineChoice::record_active(app, &py, active_cuda);
+    // Catat interpreter aktif saja. Tidak ada probe CUDA di sini: `start()`
+    // dipanggil dari `spawn_ensure_and_start` (spawn_blocking) maupun dari
+    // `restart` (async) — tapi probe = impor torch yang berat, dan `/health`
+    // sudah melaporkan cuda saat engine siap. Jadi Hematkan.
+    EngineChoice::record_active(app, &py, None);
 
     let mut cmd = Command::new(&py);
     cmd.arg("-u")
@@ -518,6 +515,34 @@ pub mod gpu {
         });
         out
     }
+
+    /// Cache hasil probe supaya tidak meng-import torch berulang kali.
+    ///
+    /// Setiap probe menjalankan `python -c "import torch..."` yang memakan
+    /// belasan detik. Tanpa cache, satu pergantian device memicu beberapa
+    /// pass penuh (pilih interpreter, cek active_cuda, catat saat start) dan
+    /// itu yang membuat UI membeku. TTL 60 detik cukup karena interpreter
+    /// tidak berubah sendiri di tengah sesi.
+    static CACHE: Mutex<Option<(std::time::Instant, Vec<PythonInfo>)>> = Mutex::new(None);
+    const CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+
+    /// Deteksi dengan cache. `force` dipakai tombol "Deteksi" di Settings.
+    pub fn detect_cached(force: bool) -> Vec<PythonInfo> {
+        if !force {
+            if let Ok(guard) = CACHE.lock() {
+                if let Some((at, list)) = guard.as_ref() {
+                    if at.elapsed() < CACHE_TTL {
+                        return list.clone();
+                    }
+                }
+            }
+        }
+        let fresh = detect();
+        if let Ok(mut guard) = CACHE.lock() {
+            *guard = Some((std::time::Instant::now(), fresh.clone()));
+        }
+        fresh
+    }
 }
 
 /// Device yang dipilih user untuk karaoke.
@@ -547,11 +572,13 @@ impl EngineChoice {
         Some(guard.clone())
     }
 
-    fn record_active(app: &AppHandle, python: &str, cuda: bool) {
+    fn record_active(app: &AppHandle, python: &str, cuda: Option<bool>) {
         if let Some(state) = app.try_state::<EngineChoice>() {
             if let Ok(mut guard) = state.0.lock() {
                 guard.active_python = python.to_string();
-                guard.active_cuda = cuda;
+                if let Some(c) = cuda {
+                    guard.active_cuda = c;
+                }
             }
         }
     }
@@ -570,10 +597,16 @@ impl EngineChoice {
 /// Interpreter untuk device tertentu. `cuda`/`gpu` wajib punya torch CUDA +
 /// dependensi engine; kalau tidak -> Err supaya UI bisa memberi tahu, bukan
 /// diam-diam jatuh ke CPU.
-fn resolve_interpreter(device: &str, gpu_python: &str) -> Result<PathBuf, String> {
+///
+/// `detected` dipakai untuk device cuda supaya deteksi cukup dijalankan sekali
+/// oleh pemanggil, bukan di sini juga.
+fn resolve_interpreter(
+    device: &str,
+    gpu_python: &str,
+    detected: &[gpu::PythonInfo],
+) -> Result<PathBuf, String> {
     let dev = device.to_ascii_lowercase();
     let chosen = if dev == "cuda" || dev == "gpu" {
-        let detected = gpu::detect();
         let usable = |i: &&gpu::PythonInfo| i.cuda && i.has_deps;
         // Kalau user memilih path spesifik, pakai itu (kalau memang CUDA+lengkap).
         let pick = if !gpu_python.trim().is_empty() {
@@ -632,7 +665,10 @@ fn chosen_python(app: &AppHandle) -> Option<PathBuf> {
     let cfg = EngineChoice::snapshot(app);
     let device = cfg.as_ref().map(|c| c.device.clone()).unwrap_or_else(|| "auto".into());
     let gpu_python = cfg.as_ref().map(|c| c.gpu_python.clone()).unwrap_or_default();
-    resolve_interpreter(&device, &gpu_python).ok()
+    // Cache dipakai; kalau belum pernah detect, `detect_cached` isi cache.
+    // Jalur ini hanya jalan di thread background (startup/restart), bukan UI.
+    let detected = gpu::detect_cached(false);
+    resolve_interpreter(&device, &gpu_python, &detected).ok()
 }
 
 /// Urutan pilihan interpreter saat start:
@@ -718,14 +754,16 @@ pub fn write_log(args: std::fmt::Arguments<'_>) {
 
 #[tauri::command]
 pub fn detect_pythons() -> Vec<gpu::PythonInfo> {
-    gpu::detect()
+    gpu::detect_cached(false)
 }
 
-/// Versi async supaya probe (yang mengimpor torch, beberapa detik per interpreter)
-/// tidak membekukan UI.
+/// Versi async supaya probe (yang meng-import torch, beberapa detik per
+/// interpreter) tidak membekukan UI. `force=true` untuk tombol "Deteksi"
+/// (cache dilewati); `false` memakai cache TTL.
 #[tauri::command]
-pub async fn detect_pythons_async() -> Vec<gpu::PythonInfo> {
-    tauri::async_runtime::spawn_blocking(gpu::detect)
+pub async fn detect_pythons_async(force: Option<bool>) -> Vec<gpu::PythonInfo> {
+    let force = force.unwrap_or(false);
+    tauri::async_runtime::spawn_blocking(move || gpu::detect_cached(force))
         .await
         .unwrap_or_default()
 }
@@ -742,17 +780,19 @@ pub fn get_engine_config(app: AppHandle) -> EngineConfig {
 
 /// Ganti device / Python CUDA lalu restart engine.
 ///
+/// Sengaja `async`: perintah Tauri yang sinkron dieksekusi di main thread, dan
+/// main thread itu juga yang menggambar jendela. Dulu perintah ini sinkron
+/// sekaligus memanggil `gpu::detect()` dua kali (tiap probe meng-import torch,
+/// belasan detik) lalu menunggu port 8001 sampai 6 detik — semuanya memblokir
+/// UI sehingga jendela "Not responding". Sekarang semua kerja berat dipindah ke
+/// `spawn_blocking`, jadi hanya awaited, tidak memblokir.
+///
 /// Kalau `cuda` dipilih tapi interpreter yang diminta tidak punya CUDA +
 /// dependensi lengkap, command ini mengembalikan Err **sebelum** menyimpan
 /// state dan sebelum menyentuh proses yang sedang jalan. Jadi user tetap di
 /// device sebelumnya; tidak ada keadaan setengah jalan.
-///
-/// Catatan: `restart` berjalan sinkron di thread perintah Tauri. Port 8001
-/// dilepas lalu engine baru naik; `active_cuda` di response sengaja dihitung
-/// dari probe interpreter, bukan dari `/health`, supaya UI tidak perlu
-/// menunggu engine selesai boot.
 #[tauri::command]
-pub fn set_engine_config(
+pub async fn set_engine_config(
     app: AppHandle,
     device: String,
     gpu_python: String,
@@ -762,27 +802,34 @@ pub fn set_engine_config(
         return Err("device tidak dikenal".into());
     }
     let gpu_py = gpu_python.trim().to_string();
-    let chosen = resolve_interpreter(&dev, &gpu_py)?;
-    let chosen_s = chosen.to_string_lossy().into_owned();
-    let active_cuda = gpu::detect()
-        .into_iter()
-        .find(|i| i.path.eq_ignore_ascii_case(&chosen_s))
-        .map(|i| i.cuda)
-        .unwrap_or(false);
-    if (dev == "cuda" || dev == "gpu") && !active_cuda {
-        return Err("interpreter yang dipilih tidak punya PyTorch CUDA".into());
-    }
+    tauri::async_runtime::spawn_blocking(move || {
+        // Satu-satunya pass deteksi. `resolve_interpreter` memakai daftar ini,
+        // jadi tidak ada probe kedua.
+        let detected = gpu::detect_cached(true);
+        let chosen = resolve_interpreter(&dev, &gpu_py, &detected)?;
+        let chosen_s = chosen.to_string_lossy().into_owned();
+        let active_cuda = detected
+            .iter()
+            .find(|i| i.path.eq_ignore_ascii_case(&chosen_s))
+            .map(|i| i.cuda)
+            .unwrap_or(false);
+        if (dev == "cuda" || dev == "gpu") && !active_cuda {
+            return Err("interpreter yang dipilih tidak punya PyTorch CUDA".into());
+        }
 
-    let next = EngineConfig {
-        device: dev.clone(),
-        gpu_python: gpu_py,
-        active_python: chosen_s.clone(),
-        active_cuda,
-    };
-    if !EngineChoice::store(&app, next.clone()) {
-        return Err("state engine tidak tersedia".into());
-    }
-    log_line!("device engine -> {dev} (python {chosen_s})");
-    restart(&app);
-    Ok(next)
+        let next = EngineConfig {
+            device: dev.clone(),
+            gpu_python: gpu_py,
+            active_python: chosen_s.clone(),
+            active_cuda,
+        };
+        if !EngineChoice::store(&app, next.clone()) {
+            return Err("state engine tidak tersedia".into());
+        }
+        log_line!("device engine -> {dev} (python {chosen_s})");
+        restart(&app);
+        Ok(next)
+    })
+    .await
+    .map_err(|e| format!("gagal menjalankan perintah: {e}"))?
 }

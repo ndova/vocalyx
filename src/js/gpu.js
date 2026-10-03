@@ -4,6 +4,7 @@ import { isTauri, invokeTauri } from './tauri.js';
 import { refreshCudaStatus, showToast } from './engine.js';
 
 let lastDetected = [];
+let cached = false;
 
 function el(id) { return document.getElementById(id); }
 
@@ -53,9 +54,11 @@ function fillSelect() {
 
 async function detect(force) {
   if (!isTauri()) { setStatus(t('set.gpuPythonTauriOnly'), false); return lastDetected; }
+  if (cached && !force) { return lastDetected; }
   setStatus(t('set.gpuPythonDetecting'), null);
   try {
-    lastDetected = await invokeTauri('detect_pythons_async');
+    lastDetected = await invokeTauri('detect_pythons_async', { force: !!force });
+    cached = true;
   } catch {
     lastDetected = [];
   }
@@ -72,16 +75,24 @@ async function detect(force) {
   return lastDetected;
 }
 
+let applying = false;
+
 async function applyDevice(device, gpuPython) {
   if (!isTauri()) return null;
+  if (applying) return null;
+  applying = true;
+  setStatus(t('set.gpuPythonApplying'), null);
   try {
     const cfg = await invokeTauri('set_engine_config', { device, gpuPython: gpuPython || '' });
     setStatus(cfg.active_cuda ? t('set.gpuPythonActiveCuda') : t('set.gpuPythonActiveCpu'), cfg.active_cuda);
     try { await refreshCudaStatus(); } catch {}
     return cfg;
   } catch (e) {
-    showToast(`${t('set.gpuPythonSwitchFailed')}: ${e?.message || String(e)}`, 7000);
+    setStatus(`${t('set.gpuPythonSwitchFailed')}: ${e?.message || String(e)}`, false);
+    try { showToast(`${t('set.gpuPythonSwitchFailed')}: ${e?.message || String(e)}`, 7000); } catch {}
     return null;
+  } finally {
+    applying = false;
   }
 }
 
@@ -97,6 +108,7 @@ export async function initGpuPython() {
   if (btn) {
     btn.addEventListener('click', async () => {
       btn.disabled = true;
+      cached = false;
       await detect(true);
       btn.disabled = false;
     });
@@ -110,14 +122,7 @@ export async function initGpuPython() {
       await applyDevice(currentDevice(), path);
     });
   }
-  await detect(false);
-  try {
-    const cfg = await invokeTauri('get_engine_config');
-    if (cfg && cfg.gpu_python && !currentGpuPython()) {
-      S.downloadOptions.gpuPython = cfg.gpu_python;
-      fillSelect();
-    }
-  } catch {}
+  setStatus(t('set.gpuPythonIdle'), null);
 }
 
 export async function setDeviceWithEngine(device, gpuPython) {

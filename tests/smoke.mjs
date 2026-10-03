@@ -1109,14 +1109,27 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
       'rust: deteksi interpreter memprobe torch.cuda.is_available()');
     ok(/pub fn restart\(app: &AppHandle\)/.test(rsEngine) && /fn wait_port_free/.test(rsEngine),
       'rust: ganti device me-restart engine dan menunggu port 8001 bebas');
-    ok(/pub fn detect_pythons\(\)/.test(rsEngine) && /pub fn set_engine_config\(/.test(rsEngine)
-      && /pub fn get_engine_config\(/.test(rsEngine),
+    ok(/pub fn detect_pythons\(/.test(rsEngine) && /pub async fn detect_pythons_async/.test(rsEngine)
+      && /pub async fn set_engine_config/.test(rsEngine) && /pub fn get_engine_config\(/.test(rsEngine),
       'rust: perintah detect/set/get engine config tersedia');
+    ok(/pub async fn set_engine_config\([\s\S]{0,400}spawn_blocking/.test(rsEngine),
+      'b1: set_engine_config async + spawn_blocking (tidak memblokir UI)');
+    ok(/pub fn detect_cached\(force: bool\)/.test(rsEngine)
+      && /static CACHE: Mutex<Option<\(std::time::Instant/.test(rsEngine),
+      'b1: deteksi Python di-cache (hanya 1 pass, bukan 2-3)');
+    ok(!/pub fn start\(app: &AppHandle\)[\s\S]{0,900}gpu::detect\(/.test(rsEngine),
+      'b1: start() tidak lagi mem-probe torch');
+    ok(/detect_pythons_async', \{ force: !!force \}/.test(
+      fs.readFileSync(path.join(root, 'src/js/gpu.js'), 'utf8')),
+      'b1: tombol Deteksi mengirim force=true');
+    ok(/setStatus\(t\('set\.gpuPythonIdle'\)/.test(
+      fs.readFileSync(path.join(root, 'src/js/gpu.js'), 'utf8')),
+      'b1: tidak auto-detect saat startup');
     ok(/engine::detect_pythons/.test(rsLib) && /engine::set_engine_config/.test(rsLib)
       && /engine::EngineChoice::new\(\)/.test(rsLib),
       'lib: perintah CUDA terdaftar + state EngineChoice di-manage');
-    ok(/resolve_interpreter\(&dev, &gpu_py\)\?/.test(rsEngine)
-      && /if \(dev == "cuda" \|\| dev == "gpu"\) && !active_cuda \{[\s\S]{0,120}return Err/.test(rsEngine),
+    ok(/resolve_interpreter\(&dev, &gpu_py, &detected\)\?/.test(rsEngine)
+      && /if \(dev == "cuda" \|\| dev == "gpu"\) && !active_cuda \{[\s\S]{0,160}return Err/.test(rsEngine),
       'rust: device cuda tanpa interpreter CUDA ditolak sebelum restart');
     ok(/VOCALYX_RUNTIME_DIR/.test(rsEngine) && /FFMPEG_BINARY/.test(rsEngine)
       && /cmd\.env\("PATH", value\)/.test(rsEngine),
@@ -1153,7 +1166,7 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
       const need2 = ['eng.cudaRequired', 'set.gpuPython', 'set.gpuPythonAuto', 'set.detectPythons',
         'set.gpuPythonFound', 'set.gpuPythonNoDeps', 'set.gpuPythonCpuOnly', 'set.gpuPythonActiveCuda',
         'set.gpuPythonActiveCpu', 'set.gpuPythonSwitchFailed', 'set.gpuPythonDetecting',
-        'set.gpuPythonNone', 'set.gpuPythonTauriOnly'];
+        'set.gpuPythonNone', 'set.gpuPythonTauriOnly', 'set.gpuPythonApplying', 'set.gpuPythonIdle'];
       const miss2 = need2.filter((k) => !txt.includes(`'${k}'`));
       ok(miss2.length === 0, `b1: i18n ${lang} punya key CUDA (${miss2.join(',') || 'lengkap'})`);
     }
