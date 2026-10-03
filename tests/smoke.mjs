@@ -961,7 +961,47 @@ try {
   {
     const pyDl = fs.readFileSync(path.join(root, 'python-engine/vx_download.py'), 'utf8');
     const pyCore = fs.readFileSync(path.join(root, 'python-engine/vx_core.py'), 'utf8');
-    const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'utf8');
+const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'utf8');
+  {
+    const tconf = JSON.parse(fs.readFileSync(path.join(root, 'src-tauri/tauri.conf.json'), 'utf8'));
+    const res = tconf.bundle.resources;
+    ok(res && !Array.isArray(res), '3a: tauri.conf bundle.resources memakai bentuk map');
+    ok(res['../build/engine'] === 'python-engine', '3a: engine staging bersih jadi resource python-engine');
+    ok(res['../build/runtime-bundle.zip'] === 'runtime-bundle.zip', '3a: runtime-bundle.zip jadi resource');
+    ok(res['../assets'] === 'assets', '3a: assets tetap jadi resource');
+    ok(!JSON.stringify(res).includes('../python-engine'),
+      '3a: resources tidak lagi menyalin folder python-engine mentah (junk ikut terbundel)');
+    const rsRt = fs.readFileSync(path.join(root, 'src-tauri/src/runtime.rs'), 'utf8');
+    const libRs2 = fs.readFileSync(path.join(root, 'src-tauri/src/lib.rs'), 'utf8');
+    ok(/fn bundled_zip\(/.test(rsRt) && /runtime-bundle\.zip/.test(rsRt),
+      '3a: Rust mencari zip runtime terbundul');
+    ok(/pub fn extract_bundled\(/.test(rsRt) && /pub fn spawn_ensure_and_start\(/.test(rsRt),
+      '3a: ekstrak runtime terbundul + start engine');
+    ok(/runtime::spawn_ensure_and_start\(/.test(libRs2) && !/engine::start\(app\.handle\(\)\)/.test(libRs2),
+      '3a: startup lewat runtime::spawn_ensure_and_start');
+    ok(/runtime::runtime_extract_bundled/.test(libRs2), '3a: command runtime_extract_bundled terdaftar');
+    ok(/pub fn write_log_note\(/.test(rsEngine), '3a: engine::write_log_note tersedia untuk runtime');
+    const bundleZip = path.join(root, 'build/runtime-bundle.zip');
+    if (fs.existsSync(bundleZip)) {
+      ok(fs.statSync(bundleZip).size > 100 * 1024 * 1024,
+        `3a: runtime-bundle.zip ada & berukuran wajar (${Math.round(fs.statSync(bundleZip).size / 1048576)} MB)`);
+    } else {
+      ok(true, '3a: runtime-bundle.zip belum dibuat (jalankan build_runtime.py --repack)');
+    }
+    const stagedRes = path.join(root, 'src-tauri/target/release/python-engine');
+    if (fs.existsSync(stagedRes)) {
+      const files = fs.readdirSync(stagedRes);
+      ok(files.includes('server.py') && files.length <= 20,
+        `3a: resource installer berisi staging engine bersih (${files.length} file)`);
+      ok(!files.some((f) => ['__pycache__', '.pytest_cache', 'tests', 'cig.dll', '.gain-cache.json'].includes(f)),
+        '3a: resource installer bebas junk dev');
+    } else {
+      ok(true, '3a: resource installer belum dibangun (jalankan tauri build)');
+    }
+    const staleUp = path.join(root, 'src-tauri/target/release/_up_');
+    ok(!fs.existsSync(staleUp) || !fs.existsSync(path.join(staleUp, 'python-engine/cig.dll')),
+      '3a: tidak ada resource basi berisi cig.dll');
+  }
     const pyReq = fs.readFileSync(path.join(root, 'python-engine/requirements.txt'), 'utf8');
     const pyBench = fs.readFileSync(path.join(root, 'python-engine/scripts/bench_cpu.py'), 'utf8');
 

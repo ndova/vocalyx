@@ -286,7 +286,10 @@ def zip_runtime(version: str, dry: bool = False) -> Path | None:
             h.update(chunk)
     sha = out.with_suffix(".sha256")
     sha.write_text(f"{h.hexdigest()}  {out.name}\n", encoding="ascii")
+    bundle = BUILD / "runtime-bundle.zip"
+    shutil.copy2(out, bundle)
     log(f"sha256: {h.hexdigest()[:16]}...")
+    log(f"bundel installer (nama stabil): {bundle.name} ({bundle.stat().st_size / 1e6:.0f} MB)")
     return out
 
 

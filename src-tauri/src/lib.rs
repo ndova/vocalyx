@@ -441,10 +441,11 @@ pub fn run() {
             smtc_set_playback,
             runtime::runtime_status,
             runtime::runtime_install,
-            runtime::runtime_remove
+            runtime::runtime_remove,
+            runtime::runtime_extract_bundled
         ])
         .setup(|app| {
-            engine::start(app.handle());
+            runtime::spawn_ensure_and_start(app.handle().clone());
             Ok(())
         })
         .build(tauri::generate_context!())

@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 pub const PROGRESS_EVENT: &str = "runtime://progress";
 const RUNTIME_DIRNAME: &str = "runtime";
@@ -199,4 +199,77 @@ pub fn runtime_remove() -> Result<(), String> {
         fs::remove_dir_all(&root).map_err(|e| format!("gagal hapus runtime: {e}"))?;
     }
     Ok(())
+}
+
+/// Lokasi zip runtime yang ikut dipaketkan installer Full.
+fn bundled_zip(app: &AppHandle) -> Option<PathBuf> {
+    let mut cands: Vec<PathBuf> = Vec::new();
+    if let Ok(p) = app.path().resolve("runtime-bundle.zip", tauri::path::BaseDirectory::Resource) {
+        cands.push(p);
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            for base in ["", "_up_/", "../", "../../"] {
+                cands.push(dir.join(base).join("runtime-bundle.zip"));
+            }
+        }
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        cands.push(cwd.join("build/runtime-bundle.zip"));
+    }
+    cands.into_iter().find(|p| p.is_file())
+}
+
+fn emit_progress(app: &AppHandle, stage: &str, received: u64, total: u64) {
+    let percent = if total > 0 {
+        (received as f64 * 100.0 / total as f64).clamp(0.0, 100.0)
+    } else {
+        0.0
+    };
+    let _ = app.emit(
+        PROGRESS_EVENT,
+        Progress { received, total, percent, stage: stage.to_string() },
+    );
+}
+
+/// Ekstrak runtime yang sudah dipaketkan. Dipakai installer Full supaya user
+/// tidak perlu mengunduh apa pun; installer Lite tidak punya file ini sehingga
+/// fungsi ini diam-diam dilewati dan banner unduh yang bekerja.
+pub fn extract_bundled(app: &AppHandle) -> Result<bool, String> {
+    let root = runtime_root();
+    if python_ok(&root) && site_packages_ok(&root) {
+        return Ok(false);
+    }
+    let Some(zip) = bundled_zip(app) else {
+        return Ok(false);
+    };
+    let total = fs::metadata(&zip).map(|m| m.len()).unwrap_or(0);
+    emit_progress(app, "extract", 0, total);
+    let _ = fs::remove_dir_all(&root);
+    extract_zip(&zip, &root)?;
+    emit_progress(app, "done", total, total);
+    if !python_ok(&root) || !site_packages_ok(&root) {
+        return Err("runtime ter-ekstrak tapi python/site-packages tidak ditemukan".to_string());
+    }
+    Ok(true)
+}
+
+/// Command untuk dipakai frontend (mis. tombol "Pasang sekarang").
+#[tauri::command]
+pub fn runtime_extract_bundled(app: AppHandle) -> Result<bool, String> {
+    extract_bundled(&app)
+}
+
+/// Dipanggil sekali saat start: ekstrak runtime terbundul bila ada, lalu start
+/// engine. Dijalankan di thread terpisah supaya jendela tetap responsif saat
+/// ekstrak ~1.9 GB pada installer Full.
+pub fn spawn_ensure_and_start(app: AppHandle) {
+    tauri::async_runtime::spawn_blocking(move || {
+        match extract_bundled(&app) {
+            Ok(true) => crate::engine::write_log_note("runtime terbundul diekstrak"),
+            Ok(false) => {}
+            Err(e) => crate::engine::write_log_note(&format!("runtime terbundul gagal: {e}")),
+        }
+        crate::engine::start(&app);
+    });
 }

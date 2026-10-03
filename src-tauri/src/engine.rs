@@ -399,6 +399,10 @@ fn open_log() -> Option<(File, File)> {
     Some((out, err))
 }
 
+pub fn write_log_note(msg: &str) {
+    log_line!("{}", msg);
+}
+
 pub fn write_log(args: std::fmt::Arguments<'_>) {
     let Some(p) = log_path() else { return };
     if let Some(dir) = p.parent() {
