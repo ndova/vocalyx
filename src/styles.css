@@ -1192,7 +1192,7 @@ input[type="range"].wfill.hfill::-moz-range-track { height: 6px; }
 .about-spacer { flex: 1; }
 .about-dl { display: inline-flex; gap: 8px; }
 .topbar-support {
-  display: inline-flex; align-items: center; height: 28px; padding: 0;
+  display: inline-flex; align-items: center; height: 34px; padding: 0;
   border-radius: 6px; line-height: 0; text-decoration: none;
   -webkit-app-region: no-drag; app-region: no-drag;
   transition: opacity .15s ease, transform .15s ease;
@@ -1200,7 +1200,7 @@ input[type="range"].wfill.hfill::-moz-range-track { height: 6px; }
 .topbar-support:hover { opacity: .88; }
 .topbar-support:active { transform: scale(.97); }
 .topbar-support:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.topbar-support img { display: block; height: 28px; width: 112px; border-radius: 6px; }
+.topbar-support img { display: block; height: 34px; width: 136px; border-radius: 6px; }
 [data-theme="dark"] .about-val.is-new { color: #6cb8ff; }
 [data-theme="dark"] .about-rows { background: #1c1c1f; border-color: rgba(255, 255, 255, 0.07); }
 

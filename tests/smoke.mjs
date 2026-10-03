@@ -642,7 +642,7 @@ ok(/export from iPhone to PC/.test(iphoneNote?.textContent || ''), 'about: kalim
   ok(!document.getElementById('aboutModal')?.classList.contains('open'), 'topbar: klik kopi tidak membuka modal About');
   const cssSup = fs.readFileSync(path.join(root, 'src/styles.css'), 'utf8');
   const supCss = cssSup.split('\n').find((l) => l.includes('.topbar-support img')) || '';
-  ok(/height:\s*28px/.test(supCss), 'css: gambar kopi di topbar setinggi 28px');
+  ok(/height:\s*34px/.test(supCss), 'css: gambar kopi di topbar setinggi 34px');
   ok(/-webkit-app-region:\s*no-drag/.test((cssSup.match(/\.topbar-support \{[^}]*\}/) || [''])[0]), 'css: tombol kopi bebas drag region');
   ok(!/about-support/.test(cssSup), 'css: gaya about-support sudah dibuang');
 }
