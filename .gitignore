@@ -16,6 +16,12 @@ scripts/*-venv/
 
 # Cython build leftovers.
 *.obj
+cig*.dll
+.pytest_cache/
+
+# Runtime portable hasil build_runtime.py (Fase 2 bundler).
+build/
+dist-runtime/
 
 # Immutables cache written next to the engine.
 import_attr.json

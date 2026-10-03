@@ -361,6 +361,50 @@ ok(Object.keys(i18nId).length > 100, `i18n: kamus ID punya entri (dapat ${Object
   const pySep = fs.readFileSync(path.join(root, 'python-engine/vx_separate.py'), 'utf8');
   ok(!/Post: high-pass 30Hz/.test(pySep), 'py: pesan job tidak mengklaim high-pass 30Hz');
 }
+{
+  const bundler = fs.readFileSync(path.join(root, 'scripts/build_runtime.py'), 'utf8');
+  const reqCpu = fs.readFileSync(path.join(root, 'python-engine/requirements-cpu.txt'), 'utf8');
+  const reqGpu = fs.readFileSync(path.join(root, 'python-engine/requirements.txt'), 'utf8');
+  const gitignore = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
+  const stagePath = path.join(root, 'build/engine');
+
+  ok(/python-3\.11\.9-embed-amd64|python-\{PY_VERSION\}-embed/.test(bundler), 'bundler: pakai Python embeddable');
+  ok(/download\.pytorch\.org\/whl\/cpu/.test(bundler) && /TORCH_PIN/.test(bundler),
+    'bundler: torch dari indeks CPU (bukan CUDA)');
+  ok(/audio-separator==/.test(reqCpu) && !/^audio-separator\[gpu\]/m.test(reqCpu),
+    'bundler: audio-separator CPU tanpa [gpu]');
+  const reqCpuLines = reqCpu.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+  ok(reqCpuLines.includes('onnxruntime') && !reqCpuLines.some((l) => l.startsWith('onnxruntime-gpu')),
+    'bundler: onnxruntime, bukan onnxruntime-gpu');
+  ok(!/^torch/m.test(reqCpu), 'bundler: torch tidak di requirements-cpu (dipasang terpisah)');
+  ['fastapi', 'uvicorn', 'mutagen', 'Pillow', 'imageio-ffmpeg', 'yt-dlp', 'ytmusicapi', 'pymobiledevice3']
+    .forEach((m) => {
+      ok(new RegExp(`^${m.replace(/[-]/g, '\\-')}`, 'm').test(reqCpu), `bundler: ${m} ada di requirements-cpu`);
+    });
+  ['"__pycache__"', '.pytest_cache', 'cig.dll', '.gain-cache.json', '"tests"']
+    .forEach((needle) => {
+      ok(bundler.includes(needle), `bundler: mengecualikan ${needle}`);
+    });
+  ok(/ENGINE_SRC\.iterdir\(\)/.test(bundler) && /ENGINE_ENTRY = "server\.py"/.test(bundler),
+    'bundler: menyalin seluruh modul engine dari python-engine + entry server.py');
+  ok(/hashlib\.sha256/.test(bundler) && /\.sha256/.test(bundler), 'bundler: menulis sha256 untuk verifikasi unduhan');
+  ok(/^build\/$/m.test(gitignore) && /^dist-runtime\/$/m.test(gitignore) && /^cig\*\.dll$/m.test(gitignore),
+    'gitignore: build/, dist-runtime/, cig*.dll diabaikan');
+  ok(!reqCpu.includes('soundfile') === false, 'bundler: soundfile ikut terpasang');
+  if (fs.existsSync(stagePath)) {
+    const staged = fs.readdirSync(stagePath);
+    ok(staged.includes('server.py') && staged.includes('vx_karaoke_dsp.py') && staged.includes('win_nowindow.py'),
+      `bundler: staging engine berisi entry+modul (${staged.length} file)`);
+    ok(!staged.some((f) => ['__pycache__', '.pytest_cache', 'tests', 'cig.dll', '.gain-cache.json'].includes(f)),
+      'bundler: staging engine bebas junk dev');
+    ok(fs.existsSync(path.join(stagePath, 'scripts/karaoke_best.py')), 'bundler: karaoke_best.py ikut di staging');
+    ok(fs.existsSync(path.join(stagePath, 'vx_download.py'))
+      && fs.readFileSync(path.join(stagePath, 'vx_download.py'), 'utf8').includes('def _yt_dlp_cmd()'),
+      'bundler: staging pakai source terbaru (bukan file lama)');
+  } else {
+    ok(true, 'bundler: staging belum dibuat (jalankan build_runtime.py --staging-only)');
+  }
+}
 const jvOrphan = Object.keys(i18nJv).filter((k) => i18nId[k] == null);
 ok(jvOrphan.length === 0, `i18n: setiap key Jawa punya pasangan Indonesia${jvOrphan.length ? ' :: ' + jvOrphan.join(',') : ''}`);
 const idOrphan = Object.keys(i18nId).filter((k) => i18nJv[k] == null);

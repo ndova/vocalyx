@@ -1,0 +1,28 @@
+# Dependensi engine untuk runtime portable CPU (installer "Full" / paket unduhan CPU).
+#
+# Dipakai `scripts/build_runtime.py`, bukan `pip install` manual di laptop.
+# Bedanya dari requirements.txt:
+#   - torch dipasang dari indeks CPU resmi (--index-url), bukan CUDA.
+#     Lihat bagian torch di build_runtime.py; wheel CUDA ~4 GB tidak muat di installer.
+#   - onnxruntime, bukan onnxruntime-gpu, supaya tidak menarik CUDA runtime.
+#   - audio-separator tanpa [gpu] (eksplisit) agar dependensinya tidak pilih GPU wheel.
+#
+# torch sengaja TIDAK ada di file ini: build_runtime.py memasangnya terpisah dari
+# https://download.pytorch.org/whl/cpu supaya hanya wheel CPU yang terambil.
+
+fastapi
+uvicorn[standard]
+python-multipart
+audio-separator==0.47.0
+onnxruntime
+numpy
+scipy
+soundfile
+librosa
+requests
+mutagen
+Pillow
+imageio-ffmpeg
+yt-dlp
+ytmusicapi
+pymobiledevice3
