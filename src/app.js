@@ -53,7 +53,7 @@ import { applyLocalSort, sortDownloadRows, sortIPhoneTracks } from './js/sorting
 import { ICON } from './js/icons.js';
 import { initAbout } from './js/about.js';
 import { hydrateIcons } from './js/icons-tabler.js';
-import { openLyricEditor, closeLyricEditor } from './js/lyrics-editor.js';
+export { openLyricEditor, closeLyricEditor, isLyricEditorOpen } from './js/lyrics-editor.js';
 import { startBackgroundCheck } from './js/updater.js';
 
 

@@ -1065,8 +1065,96 @@ try {
   ed.closeLyricEditor();
   await sleep(10);
   ok(document.getElementById('lyrEditModal').style.display === 'none', 'editor: modal tertutup');
+  {
+    const core = await import('../src/js/i18n/core.js');
+    const aud2 = document.getElementById('audio');
+    const addBtn = () => rows()[0]?.querySelector('[data-act="add"]');
+    const tipNow = () => rows()[0]?.querySelector('[data-act="now"]')?.getAttribute('title') || '';
+    core.applyLang('en');
+    ed.openLyricEditor();
+    await sleep(60);
+    ok(addBtn()?.textContent === '+ line', `editor EN: label tambah berbahasa Inggris :: "${addBtn()?.textContent}"`);
+    ok(/timestamp/i.test(tipNow()), `editor EN: tooltip now berbahasa Inggris :: "${tipNow()}"`);
+    ok(!/baris|Tidak ada|Memuat|Putar dari|Geser/i.test(document.getElementById('lyrEditList')?.textContent || ''), 'editor EN: tidak ada teks Indonesia di daftar');
+    ok(/Play from/.test(rows()[0]?.querySelector('.lyr-edit-ts')?.getAttribute('title') || ''), 'editor EN: title waktu berbahasa Inggris');
+    const playBtn = document.getElementById('lyrEditPlay');
+    const { ICON } = await import('../src/js/icons.js');
+    const nPath = (html) => (html.match(/<path/g) || []).length;
+    const playPaths = nPath(ICON.play);
+    const pausePaths = nPath(ICON.pause);
+    const curPaths = () => nPath(document.getElementById('lyrEditPlay').innerHTML);
+    ok(playPaths !== pausePaths, `editor: ICON.play (${playPaths} path) dan ICON.pause (${pausePaths} path) berbeda`);
+    let pausedState = true;
+    Object.defineProperty(aud2, 'paused', { get: () => pausedState, configurable: true });
+    Object.defineProperty(aud2, 'ended', { get: () => false, configurable: true });
+    pausedState = false;
+    aud2.dispatchEvent(new window.Event('play'));
+    await sleep(20);
+    ok(curPaths() === pausePaths, `editor: ikon tombol jadi pause saat audio main (dapat ${curPaths()})`);
+    pausedState = true;
+    aud2.dispatchEvent(new window.Event('pause'));
+    await sleep(20);
+    ok(curPaths() === playPaths, `editor: ikon tombol jadi play saat audio jeda (dapat ${curPaths()})`);
+    aud2.dispatchEvent(new window.Event('ended'));
+    await sleep(20);
+    ok(curPaths() === playPaths, `editor: ikon tombol balik ke play saat lagu selesai (dapat ${curPaths()})`);
+    ok(!playBtn.textContent.includes('▶'), 'editor: tombol play bukan glyph statis');
+    delete aud2.paused;
+    delete aud2.ended;
+    ed.closeLyricEditor();
+    await sleep(10);
+    core.applyLang('jv');
+    ed.openLyricEditor();
+    await sleep(60);
+    ok(addBtn()?.textContent === '+ baris', `editor JV: label ikut bahasa Jawa :: "${addBtn()?.textContent}"`);
+    ok(!/timestamp/i.test(tipNow()), 'editor JV: tooltip now bukan Inggris');
+    ed.closeLyricEditor();
+    await sleep(10);
+    core.applyLang('id');
+  }
+  {
+    const core2 = await import('../src/js/i18n/core.js');
+    const S2 = (await import('../src/js/state.js')).S;
+    const ed2 = await import('../src/js/lyrics-editor.js');
+    const lrcW = await import('../src/js/lrc.js');
+    const aud3 = document.getElementById('audio');
+    S2.lyricLines = lrcW.parseLRC('[00:05.00]satu\n[00:10.00]dua');
+    S2.tracks = [{ path: 'C:\\Musik\\A - One.mp3', title: 'One', artist: 'A', name: 'A - One' }, { path: 'C:\\Musik\\B - Two.mp3', title: 'Two', artist: 'B', name: 'B - Two' }];
+    S2.idx = 0;
+    Object.defineProperty(aud3, 'ended', { value: false, writable: true, configurable: true });
+    ed2.openLyricEditor();
+    await sleep(40);
+    ok(ed2.isLyricEditorOpen(), 'editor: isLyricEditorOpen() true saat terbuka');
+    const idxBefore = S2.idx;
+    aud3.onended();
+    await sleep(40);
+    ok(S2.idx === idxBefore, `ended: tidak autoplay lagu berikutnya saat edit lirik (idx ${idxBefore} -> ${S2.idx})`);
+    ed2.closeLyricEditor();
+    await sleep(10);
+    ok(!ed2.isLyricEditorOpen(), 'editor: isLyricEditorOpen() false setelah ditutup');
+    core2.applyLang('en');
+  }
 } catch (e) {
   ok(false, `editor fungsional :: ${e.message}`);
+}
+{
+  const edSrc = fs.readFileSync(path.join(root, 'src/js/lyrics-editor.js'), 'utf8');
+  const localSrc = fs.readFileSync(path.join(root, 'src/js/local.js'), 'utf8');
+  ok(!/const t = S\.tracks\[S\.idx\]/.test(edSrc), 'editor: tak ada lokal `t` yang menutupi fungsi t()');
+  ok(/finally\s*\{/.test(edSrc), 'editor: doSave dibungkus try/finally');
+  ok(/E\.saving = false;[\s\S]{0,400}finally/.test(edSrc), 'editor: saving direset di finally');
+  ok(/isLyricEditorOpen\(\)[\s\S]{0,80}return;/.test((localSrc.match(/audio\.onended = \(\) => \{[\s\S]{0,400}?\};/) || [''])[0]), 'local: onended mengecek isLyricEditorOpen');
+  ok(!/Tidak ada baris lirik|Memuat lirik|Putar dari|Geser baris|\+ baris|baris baru|Sisipkan baris baru/.test(edSrc), 'editor: tak ada teks Indonesia hardcoded');
+  const i18nFiles = { en: i18nEn, id: i18nId, jv: i18nJv };
+  const newKeys = ['le.tipNudgeBack05', 'le.tipNudgeBack02', 'le.tipNow', 'le.tipNudgeFwd02', 'le.tipNudgeFwd05', 'le.tipZero', 'le.tipTailBack', 'le.tipTailFwd', 'le.tipAdd', 'le.tipEdit', 'le.tipDel', 'le.seekFrom', 'le.noTimeYet', 'le.emptyEditor', 'le.loading', 'le.addLineBtn', 'le.newLine'];
+  Object.entries(i18nFiles).forEach(([lang, dict]) => {
+    const missing = newKeys.filter((k) => !dict[k]);
+    ok(missing.length === 0, `i18n ${lang}: semua key editor lirik ada${missing.length ? ' :: ' + missing.join(',') : ''}`);
+  });
+  ok(i18nEn['le.seekFrom'].includes('{ts}'), 'i18n EN: le.seekFrom pakai placeholder {ts}');
+  ok(/Play from/.test(i18nEn['le.seekFrom']), 'i18n EN: le.seekFromdoi');
+  const jvTool = i18nJv['le.tipNow'] || '';
+  ok(jvTool.length > 0 && jvTool !== i18nId['le.tipNow'], 'i18n JV: le.tipNow benar-benar Jawa');
 }
 try {
   const lrcZ = await import('../src/js/lrc.js');

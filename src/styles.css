@@ -1412,6 +1412,7 @@ input[type="range"].wfill.hfill::-moz-range-track { height: 6px; }
 .lyr-edit-btn.is-zero, .lyr-edit-btn.is-tail, .lyr-edit-btn.is-add { color: var(--muted); }
 .lyr-edit-btn.is-del:hover { border-color: #d9534f; color: #d9534f; }
 .lyr-edit-btn.is-play { font-size: 13px; padding: 5px 10px; color: var(--accent); border-color: var(--accent); }
+.lyr-edit-btn.is-play .ico { width: 15px; height: 15px; vertical-align: -0.15em; }
 .lyr-edit-foot {
   display: flex; align-items: center; gap: 8px;
   padding: 10px 14px; border-top: 1px solid var(--line); background: rgba(255,255,255,0.45);

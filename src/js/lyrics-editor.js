@@ -5,6 +5,8 @@ import { invokeTauri, isTauri, play, pause, showToast } from '../app.js';
 import { renderLyrics, setLyricOffset, seekLyric, capLimit } from './lyrics.js';
 import { paintRangeFill } from './eq.js';
 import { fmt } from './format.js';
+import { ICON } from './icons.js';
+import { onLangChange } from './i18n/core.js';
 import {
   parseLRCForEdit, lyricLinesToLrc, formatStamp, escHtml, isSynced,
   setLrcLineTime, nudgeLrcLine, nudgeLrcFromIndex, resetLrcLine,
@@ -33,8 +35,8 @@ async function readRaw(t) {
 }
 
 async function writeRaw(text) {
-  const t = S.tracks[S.idx];
-  if (!t) return '';
+  const tk = S.tracks[S.idx];
+  if (!tk) return '';
   if (E.path) {
     try {
       const p = await invokeTauri('write_lyric_to', { targetPath: E.path, lrcText: text });
@@ -42,7 +44,7 @@ async function writeRaw(text) {
     } catch {}
   }
   try {
-    const p = await invokeTauri('save_lyric', { trackPath: t.path, lrcText: text });
+    const p = await invokeTauri('save_lyric', { trackPath: tk.path, lrcText: text });
     if (typeof p === 'string' && p) return p;
   } catch {}
   return '';
@@ -55,17 +57,17 @@ function toolBtn(act, d, title, text, cls) {
 }
 
 function toolsHtml(i) {
-  return toolBtn('nudge', -500, 'Geser baris ini mundur 0,5 detik', '&minus;0.5')
-    + toolBtn('nudge', -200, 'Geser baris ini mundur 0,2 detik', '&minus;0.2')
-    + toolBtn('now', null, 'Isi waktu baris ini dengan posisi lagu sekarang', '&#9679; now', 'is-now')
-    + toolBtn('nudge', 200, 'Geser baris ini maju 0,2 detik', '+0.2')
-    + toolBtn('nudge', 500, 'Geser baris ini maju 0,5 detik', '+0.5')
-    + toolBtn('zero', null, 'Kembalikan baris ini ke 00:00', '00:00', 'is-zero')
-    + toolBtn('tail', -500, 'Geser baris ini dan semua baris setelahnya mundur 0,5 detik', '&laquo;0.5', 'is-tail')
-    + toolBtn('tail', 500, 'Geser baris ini dan semua baris setelahnya maju 0,5 detik', '0.5&raquo;', 'is-tail')
-    + toolBtn('add', null, 'Sisipkan baris baru setelah ini', '+ baris', 'is-add')
-    + toolBtn('edit', null, 'Ubah teks baris ini', '&#9998;', 'is-edit')
-    + toolBtn('del', null, 'Hapus baris ini', '&#128465;', 'is-del');
+  return toolBtn('nudge', -500, t('le.tipNudgeBack05'), '&minus;0.5')
+    + toolBtn('nudge', -200, t('le.tipNudgeBack02'), '&minus;0.2')
+    + toolBtn('now', null, t('le.tipNow'), '&#9679; now', 'is-now')
+    + toolBtn('nudge', 200, t('le.tipNudgeFwd02'), '+0.2')
+    + toolBtn('nudge', 500, t('le.tipNudgeFwd05'), '+0.5')
+    + toolBtn('zero', null, t('le.tipZero'), '00:00', 'is-zero')
+    + toolBtn('tail', -500, t('le.tipTailBack'), '&laquo;0.5', 'is-tail')
+    + toolBtn('tail', 500, t('le.tipTailFwd'), '0.5&raquo;', 'is-tail')
+    + toolBtn('add', null, t('le.tipAdd'), t('le.addLineBtn'), 'is-add')
+    + toolBtn('edit', null, t('le.tipEdit'), '&#9998;', 'is-edit')
+    + toolBtn('del', null, t('le.tipDel'), '&#128465;', 'is-del');
 }
 
 function rowHtml(l, i) {
@@ -75,8 +77,8 @@ function rowHtml(l, i) {
   const now = i === E.active ? ' is-now-line' : '';
   const unt = timed ? '' : ' is-untimed';
   const tsBtn = timed
-    ? `<button type="button" class="lyr-edit-ts" data-seek="${i}" title="Putar dari ${ts}">${ts}</button>`
-    : `<button type="button" class="lyr-edit-ts" disabled title="Baris ini belum punya waktu — tekan &#9679; now dulu">${ts}</button>`;
+    ? `<button type="button" class="lyr-edit-ts" data-seek="${i}" title="${escHtml(t('le.seekFrom', { ts }))}">${ts}</button>`
+    : `<button type="button" class="lyr-edit-ts" disabled title="${escHtml(t('le.noTimeYet'))}">${ts}</button>`;
   return `<div class="lyr-edit-row${sel}${now}${unt}" data-i="${i}">`
     + tsBtn
     + `<span class="lyr-edit-txt" data-txt="${i}">${escHtml(l.d != null ? l.d : l.x)}</span>`
@@ -89,7 +91,7 @@ function render() {
   if (!list) return;
   list.innerHTML = E.lines.length
     ? E.lines.map(rowHtml).join('')
-    : '<div class="lyr-edit-empty">Tidak ada baris lirik. Tambah baris untuk memulai.</div>';
+    : `<div class="lyr-edit-empty">${escHtml(t('le.emptyEditor'))}</div>`;
   markDirty();
 }
 
@@ -102,6 +104,13 @@ function markDirty() {
   if (o) o.textContent = (S.lyricOffsetMs > 0 ? '+' : '') + S.lyricOffsetMs + 'ms';
   const ob = el('lyrEditApplyOff');
   if (ob) ob.disabled = !S.lyricOffsetMs;
+}
+
+function paintPlayBtn() {
+  const b = el('lyrEditPlay');
+  if (!b) return;
+  const playing = !!(audio && !audio.paused && !audio.ended);
+  b.innerHTML = playing ? ICON.pause : ICON.play;
 }
 
 function paintSeek() {
@@ -278,8 +287,8 @@ function onListClick(ev) {
     else if (act === 'zero') { apply(r => resetLrcLine(r, i)); commitToPlayer(); }
     else if (act === 'tail') { apply(r => nudgeLrcFromIndex(r, i, d)); commitToPlayer(); }
     else if (act === 'add') {
-      const t = isTimed(E.lines[i]) ? E.lines[i].t + 2 : (audio ? Math.max(0, audio.currentTime || 0) + 2 : 0);
-      apply(r => insertLrcLineAfter(r, i, t, 'baris baru'));
+      const at = isTimed(E.lines[i]) ? E.lines[i].t + 2 : (audio ? Math.max(0, audio.currentTime || 0) + 2 : 0);
+      apply(r => insertLrcLineAfter(r, i, at, t('le.newLine')));
       commitToPlayer();
     } else if (act === 'edit') startEdit(i);
     else if (act === 'del') { apply(r => removeLrcLine(r, i)); E.sel = Math.max(0, i - 1); render(); commitToPlayer(); }
@@ -294,23 +303,33 @@ async function doSave() {
   if (E.saving || !E.dirty) return;
   E.saving = true;
   markDirty();
-  const t = S.tracks[S.idx];
-  if (!t || !isTauri() || !t.path) {
+  const btn = el('lyrEditSave');
+  if (btn) btn.disabled = true;
+  const tk = S.tracks[S.idx];
+  try {
+    if (!tk || !isTauri() || !tk.path) {
+      showToast(t('le.desktopOnly'), 3000);
+      return;
+    }
+    const p = await writeRaw(E.raw);
+    if (!p) { showToast(t('le.saveFail'), 3000); return; }
+    E.path = p;
+    tk.lyric_path = p;
+    E.dirty = false;
+    E.base = E.raw;
+    commitToPlayer();
+    showToast(t('le.savedTo', { n: p.split(/[\\/]/).pop() }), 2500);
+    render();
+  } catch {
     E.saving = false;
-    showToast(t('le.desktopOnly'), 3000);
+    showToast(t('le.saveFail'), 3000);
     markDirty();
-    return;
+  } finally {
+    E.saving = false;
+    const b = el('lyrEditSave');
+    if (b) b.disabled = false;
+    markDirty();
   }
-  const p = await writeRaw(E.raw);
-  E.saving = false;
-  if (!p) { showToast(t('le.saveFail'), 3000); markDirty(); return; }
-  E.path = p;
-  t.lyric_path = p;
-  E.dirty = false;
-  E.base = E.raw;
-  commitToPlayer();
-  showToast(t('le.savedTo', { n: p.split(/[\\/]/).pop() }), 2500);
-  render();
 }
 
 function revert() {
@@ -341,11 +360,12 @@ export function openLyricEditor() {
   el('lyrEditTrack').textContent = (tk.artist ? tk.artist + ' — ' : '') + (tk.title || tk.name || '');
   el('lyrEditTrack').title = tk.path || '';
   const list = el('lyrEditList');
-  if (list) list.innerHTML = '<div class="lyr-edit-empty">Memuat lirik…</div>';
+  if (list) list.innerHTML = `<div class="lyr-edit-empty">${escHtml(t('le.loading'))}</div>`;
   el('lyrEditModal').classList.add('is-open');
   el('lyrEditModal').setAttribute('aria-hidden', 'false');
   const m = el('lyrEditModal');
   m.style.display = 'flex';
+  paintPlayBtn();
   stopLoop();
   readRaw(tk).then(r => {
     if (!E.open) return;
@@ -360,6 +380,10 @@ export function openLyricEditor() {
     paintSeek();
     E.raf = requestAnimationFrame(loop);
   });
+}
+
+export function isLyricEditorOpen() {
+  return !!E.open;
 }
 
 export function closeLyricEditor() {
@@ -393,9 +417,15 @@ function init() {
   el('lyrEditSave')?.addEventListener('click', doSave);
   el('lyrEditRevert')?.addEventListener('click', revert);
   el('lyrEditApplyOff')?.addEventListener('click', applyOffsetAll);
-  el('lyrEditPlay')?.addEventListener('click', () => { if (audio && audio.paused) play(); else pause(); });
+  el('lyrEditPlay')?.addEventListener('click', () => { if (audio && audio.paused) play(); else pause(); paintPlayBtn(); });
   el('lyrEditList')?.addEventListener('click', onListClick);
   bindSeek();
+  if (audio) {
+    audio.addEventListener('play', paintPlayBtn);
+    audio.addEventListener('pause', paintPlayBtn);
+    audio.addEventListener('ended', paintPlayBtn);
+  }
+  onLangChange(() => { if (E.open) render(); });
   document.addEventListener('keydown', onKey);
 }
 

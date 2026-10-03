@@ -9,6 +9,7 @@ import { syncLyrics } from './lyrics.js';
 import { searchViewBox } from './theme.js';
 import { fmt } from './format.js';
 import { pushOsState, pushOsPosition, getNextIndex } from './os-media.js';
+import { isLyricEditorOpen } from './lyrics-editor.js';
 import { showToast, getMusicFolders, load, pause, play, refreshNpCoverIfCurrent, renderPlaylistDetail, renderPlaylistsOverview, renderSearchView, renderTracks, saveMusicFolder, savePlaylists, updatePlayIcon } from '../app.js';
 
 const btnAddFolder = $('#btnAddFolder');
@@ -295,6 +296,7 @@ audio.addEventListener('play', ()=>{ updatePlayIcon(true); });
 audio.addEventListener('pause', ()=>{ updatePlayIcon(false); });
 audio.onended = () => {
   if (!S.tracks.length) return;
+  if (isLyricEditorOpen()) return;
   if (S.repeatMode === 'one') { audio.currentTime = 0; play(); return; }
   const ni = getNextIndex();
   if (ni === -1) return;
