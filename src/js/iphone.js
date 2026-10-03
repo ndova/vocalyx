@@ -10,10 +10,50 @@ import { showConfirm } from './modal.js';
 import { invokeTauri } from './tauri.js';
 import { AUDIO_EXT_RE, closePortalMenu, handleLibraryDrop, openPortalMenu } from '../app.js';
 
+async function appleDriverStatus() {
+  try {
+    return await invokeTauri('apple_driver_status');
+  } catch {
+    return null;
+  }
+}
+
+function driverGuideHtml() {
+  return `<div class="driver-guide">
+    <div class="driver-guide-title">${t('iph.driverMissingTitle')}</div>
+    <ol class="driver-guide-steps">
+      <li>${t('iph.driverStep1')}</li>
+      <li>${t('iph.driverStep2')}</li>
+      <li>${t('iph.driverStep3')}</li>
+    </ol>
+    <div class="driver-guide-note">${t('iph.driverNote')}</div>
+  </div>`;
+}
+
+async function renderDriverGuide(listEl) {
+  if (!listEl) return;
+  const st = await appleDriverStatus();
+  listEl.innerHTML = driverGuideHtml();
+  const dot = document.getElementById('deviceConnDot');
+  if (dot) dot.style.background = 'var(--warn, #e0a33e)';
+  const statusEl = document.getElementById('deviceStatusText');
+  if (statusEl) statusEl.textContent = t('iph.driverMissingTitle');
+  const metaEl = document.getElementById('deviceMeta');
+  if (metaEl && st && !st.executable) metaEl.textContent = t('iph.driverNotInstalled');
+  return st;
+}
+
 async function checkIPhoneConnected() {
   try {
     const r = await fetch('http://127.0.0.1:8001/iphone/devices');
     const j = await r.json();
+    if (j.code === 'ERR_APPLE_DRIVER_MISSING') {
+      await renderDriverGuide(document.getElementById('iphoneTrackList'));
+      const statusEl = document.getElementById('deviceStatusText');
+      if (statusEl) statusEl.textContent = t('iph.driverMissingTitle');
+      S._prevIPhoneConnected = false;
+      return false;
+    }
     const connected = !!(j.ok && j.devices?.length);
     const statusEl = document.getElementById('deviceStatusText');
     const metaEl = document.getElementById('deviceMeta');
@@ -39,7 +79,7 @@ async function checkIPhoneConnected() {
       if (statusEl) statusEl.textContent = t('iph.notConnected');
       if (metaEl) metaEl.textContent = '';
       if (badge) badge.style.display = 'none';
-      if (listEl) listEl.innerHTML = `<div style="padding:12px; text-align:center; color:var(--muted); font-size:11px">Hubungkan iPhone via USB untuk lihat library</div>`;
+      if (listEl) listEl.innerHTML = `<div style="padding:12px; text-align:center; color:var(--muted); font-size:11px">${t('iph.notConnectedHint')}</div>`;
       if (countEl) countEl.textContent = '';
       S.iphoneTracks = [];
       S.iphoneSelected.clear();
@@ -58,11 +98,27 @@ async function checkIPhoneConnected() {
   }
 }
 export async function renderDeviceView(){
+  const listEl = document.getElementById('iphoneTrackList');
+  const st = await appleDriverStatus();
+  if (st && !st.ready) {
+    await renderDriverGuide(listEl);
+    const statusEl = document.getElementById('deviceStatusText');
+    if (statusEl) statusEl.textContent = t('iph.driverMissingTitle');
+    const metaEl = document.getElementById('deviceMeta');
+    if (metaEl) metaEl.textContent = st.executable ? t('iph.driverServiceStopped') : t('iph.driverNotInstalled');
+    const badge = document.getElementById('iphoneLibraryCount');
+    if (badge) badge.style.display = 'none';
+    const exp = document.getElementById('btnDeviceExportSelected');
+    const del = document.getElementById('btnDeviceDeleteSelected');
+    if (exp) exp.disabled = true;
+    if (del) del.disabled = true;
+    S._prevIPhoneConnected = false;
+    return;
+  }
   const connected = await checkIPhoneConnected();
   if (connected) loadIPhoneLibrary();
-  else {
-    const listEl = document.getElementById('iphoneTrackList');
-    if (listEl && !listEl.innerHTML) listEl.innerHTML = `<div style="padding:12px; text-align:center; color:var(--muted); font-size:11px">Hubungkan iPhone via USB untuk lihat library</div>`;
+  else if (listEl && !listEl.innerHTML) {
+    listEl.innerHTML = `<div style="padding:12px; text-align:center; color:var(--muted); font-size:11px">${t('iph.notConnectedHint')}</div>`;
   }
 }
 function setupIPhoneCoverLazy(root) {

@@ -148,10 +148,39 @@ def _sanitize_filename(name: str) -> str:
     return "".join(c for c in name if c.isalnum() or c in (" ", "-", "_")).strip() or "track"
 
 
+def usbmuxd_reachable(timeout: float = 0.6) -> bool:
+    """True kalau service Apple Mobile Device (usbmuxd) grudup di 127.0.0.1:27015.
+
+    pymobiledevice3 bicara lewat usbmux, jadi tanpa service itu iPhone yang
+    tertancap tetap tidak bisa dibaca. Cek ini murni socket dan tidak butuh
+    pymobiledevice3 terpasang, jadi aman dipakai untuk pesan prasyarat.
+    """
+    import socket
+    for _ in range(2):
+        try:
+            with socket.create_connection(("127.0.0.1", 27015), timeout=timeout):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _apple_driver_error() -> dict:
+    """Bentuk respons ketika driver Apple tidak ada."""
+    return {
+        "ok": False,
+        "code": "ERR_APPLE_DRIVER_MISSING",
+        "error": "Apple Mobile Device Support tidak terpasang (service usbmuxd tidak merespons)",
+        "devices": [],
+    }
+
+
 
 @router.get("/iphone/devices")
 async def iphone_devices():
     """List connected iPhones."""
+    if not usbmuxd_reachable():
+        return _apple_driver_error()
     lockdown = None
     try:
         from pymobiledevice3.lockdown import create_using_usbmux
@@ -171,6 +200,18 @@ async def iphone_devices():
                 await lockdown.close()
             except Exception:
                 pass
+
+
+@router.get("/iphone/driver")
+async def iphone_driver():
+    """Status prasyarat driver Apple (untuk UI menampilkan panduan)."""
+    ready = usbmuxd_reachable()
+    return {
+        "ok": True,
+        "ready": ready,
+        "code": "" if ready else "ERR_APPLE_DRIVER_MISSING",
+        "port": 27015,
+    }
 
 
 @router.get("/iphone/library")

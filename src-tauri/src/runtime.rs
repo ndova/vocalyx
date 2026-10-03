@@ -201,6 +201,61 @@ pub fn runtime_remove() -> Result<(), String> {
     Ok(())
 }
 
+/// Status prasyarat driver Apple untuk iPhone.
+///
+/// `pymobiledevice3` bicara lewat usbmux, dan di Windows service itu adalah
+/// "Apple Mobile Device Service" yang grudup di 127.0.0.1:27015. Driver-nya
+/// berasal dari paket resmi Apple Mobile Device Support / iTunes dan tidak
+/// boleh di-bundel ulang (batasan lisensi), jadi kita hanya mendeteksi dan
+/// menampilkan panduan, bukan memasangnya diam-diam.
+#[derive(Serialize)]
+pub struct AppleDriverStatus {
+    pub ready: bool,
+    pub service: bool,
+    pub executable: bool,
+    pub port: u16,
+    pub code: String,
+}
+
+#[cfg(windows)]
+fn apple_usbmux_listening() -> bool {
+    use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
+    let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 27015));
+    TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(600)).is_ok()
+}
+
+#[cfg(not(windows))]
+fn apple_usbmux_listening() -> bool {
+    false
+}
+
+fn apple_service_exe() -> PathBuf {
+    let base = std::env::var_os("ProgramFiles")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    base.join("Common Files")
+        .join("Apple")
+        .join("Mobile Device Support")
+        .join("AppleMobileDeviceService.exe")
+}
+
+#[tauri::command]
+pub fn apple_driver_status() -> AppleDriverStatus {
+    let listening = apple_usbmux_listening();
+    let executable = apple_service_exe().is_file();
+    AppleDriverStatus {
+        ready: listening,
+        service: listening,
+        executable,
+        port: 27015,
+        code: if listening {
+            String::new()
+        } else {
+            "ERR_APPLE_DRIVER_MISSING".to_string()
+        },
+    }
+}
+
 /// Lokasi zip runtime yang ikut dipaketkan installer Full.
 fn bundled_zip(app: &AppHandle) -> Option<PathBuf> {
     let mut cands: Vec<PathBuf> = Vec::new();

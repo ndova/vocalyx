@@ -988,19 +988,78 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
     } else {
       ok(true, '3a: runtime-bundle.zip belum dibuat (jalankan build_runtime.py --repack)');
     }
+    const stagedSrc = path.join(root, 'build/engine');
+    if (fs.existsSync(stagedSrc)) {
+      const junk = [];
+      (function walk(d) {
+        for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+          const full = path.join(d, e.name);
+          if (e.isDirectory()) {
+            if (['__pycache__', '.pytest_cache', 'tests'].includes(e.name)) junk.push(`${e.name}/`);
+            else walk(full);
+          } else if (['cig.dll', '.gain-cache.json'].includes(e.name)) junk.push(e.name);
+        }
+      })(stagedSrc);
+      ok(junk.length === 0, `4: sumber resource build/engine bebas junk (${junk.join(', ') || 'bersih'})`);
+    } else {
+      ok(true, '4: build/engine belum dibuat (jalankan build_runtime.py)');
+    }
     const stagedRes = path.join(root, 'src-tauri/target/release/python-engine');
     if (fs.existsSync(stagedRes)) {
       const files = fs.readdirSync(stagedRes);
       ok(files.includes('server.py') && files.length <= 20,
-        `3a: resource installer berisi staging engine bersih (${files.length} file)`);
-      ok(!files.some((f) => ['__pycache__', '.pytest_cache', 'tests', 'cig.dll', '.gain-cache.json'].includes(f)),
-        '3a: resource installer bebas junk dev');
+        `4: resource installer berisi staging engine (${files.length} file)`);
     } else {
-      ok(true, '3a: resource installer belum dibangun (jalankan tauri build)');
+      ok(true, '4: resource installer belum dibangun (jalankan tauri build)');
     }
     const staleUp = path.join(root, 'src-tauri/target/release/_up_');
     ok(!fs.existsSync(staleUp) || !fs.existsSync(path.join(staleUp, 'python-engine/cig.dll')),
       '3a: tidak ada resource basi berisi cig.dll');
+
+    const rtRs = fs.readFileSync(path.join(root, 'src-tauri/src/runtime.rs'), 'utf8');
+    const libRs = fs.readFileSync(path.join(root, 'src-tauri/src/lib.rs'), 'utf8');
+    const pyIph = fs.readFileSync(path.join(root, 'python-engine/vx_iphone.py'), 'utf8');
+    const jsIph = fs.readFileSync(path.join(root, 'src/js/iphone.js'), 'utf8');
+    const cssTxt = fs.readFileSync(path.join(root, 'src/styles.css'), 'utf8');
+
+    ok(/pub fn apple_driver_status\(\)/.test(rtRs) && /27015/.test(rtRs),
+      '4: Rust apple_driver_status() mengecek port usbmux 27015');
+    ok(/AppleMobileDeviceService|Apple Mobile Device Support/i.test(rtRs),
+      '4: Rust mengenali lokasi service Apple');
+    ok(/runtime::apple_driver_status/.test(libRs),
+      '4: perintah apple_driver_status terdaftar di lib.rs');
+    ok(!/msiexec|\.msi|start-process|Start-Process/i.test(rtRs),
+      '4: Rust tidak menjalankan installer msi apa pun');
+
+    ok(/def usbmuxd_reachable\(/.test(pyIph), '4: Python punya usbmuxd_reachable()');
+    ok(/27015/.test(pyIph), '4: Python mengecek port 27015');
+    ok(/ERR_APPLE_DRIVER_MISSING/.test(pyIph), '4: Python mengembalikan ERR_APPLE_DRIVER_MISSING');
+    ok(/@router\.get\("\/iphone\/driver"\)/.test(pyIph), '4: endpoint /iphone/driver tersedia');
+    ok(/if not usbmuxd_reachable\(\):\s*\n\s*return _apple_driver_error\(\)/.test(pyIph),
+      '4: /iphone/devices mengembalikan panduan driver saat service mati');
+    ok(!/AppleMobileDeviceSupport64\.msi/.test(pyIph),
+      '4: Python tidak menyebut path msi driver Apple');
+
+    ok(/j\.code === 'ERR_APPLE_DRIVER_MISSING'/.test(jsIph),
+      '4: frontend mengenali ERR_APPLE_DRIVER_MISSING');
+    ok(/driverGuideHtml\(\)/.test(jsIph) && /driver-guide-steps/.test(jsIph),
+      '4: frontend merender panduan langkah driver');
+    ok(/invokeTauri\('apple_driver_status'\)/.test(jsIph),
+      '4: frontend memakai perintah apple_driver_status');
+    ok(!/Hubungkan iPhone via USB untuk lihat library/.test(jsIph),
+      '4: teks hardcoded Indonesia diganti pakai i18n');
+    ok(/\.driver-guide\b/.test(cssTxt) && /\.driver-guide-steps/.test(cssTxt),
+      '4: ada styling untuk panduan driver');
+
+    const drvKeys = ['iph.driverMissingTitle', 'iph.driverStep1', 'iph.driverStep2', 'iph.driverStep3',
+      'iph.driverNote', 'iph.driverNotInstalled', 'iph.driverServiceStopped', 'iph.notConnectedHint'];
+    for (const lang of ['en', 'id', 'jv']) {
+      const txt = fs.readFileSync(path.join(root, `src/js/i18n/${lang}.js`), 'utf8');
+      const missing = drvKeys.filter((k) => !txt.includes(`'${k}'`));
+      ok(missing.length === 0, `4: i18n ${lang} punya semua key driver (${missing.length} hilang)`);
+    }
+    const unusedKeys = drvKeys.filter((k) => !jsIph.includes(`'${k}'`));
+    ok(unusedKeys.length === 0, `4: semua key driver dipakai di iphone.js (${unusedKeys.join(', ') || 'lengkap'})`);
   }
     const pyReq = fs.readFileSync(path.join(root, 'python-engine/requirements.txt'), 'utf8');
     const pyBench = fs.readFileSync(path.join(root, 'python-engine/scripts/bench_cpu.py'), 'utf8');

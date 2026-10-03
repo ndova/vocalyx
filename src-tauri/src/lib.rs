@@ -442,7 +442,8 @@ pub fn run() {
             runtime::runtime_status,
             runtime::runtime_install,
             runtime::runtime_remove,
-            runtime::runtime_extract_bundled
+            runtime::runtime_extract_bundled,
+            runtime::apple_driver_status
         ])
         .setup(|app| {
             runtime::spawn_ensure_and_start(app.handle().clone());
