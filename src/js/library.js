@@ -1,22 +1,18 @@
 import { S } from './state.js';
 
-function migrateStoreKey(newKey, ...oldKeys){
+const STORAGE_PREFIX = 'vocalyx_';
+const STORAGE_LEGACY_PREFIXES = ['netkara_', 'tunebox_'];
+function cleanupLegacyStoreKeys(){
   try {
-    if (localStorage.getItem(newKey) === null) {
-      for (const k of oldKeys) {
-        const v = localStorage.getItem(k);
-        if (v !== null) { localStorage.setItem(newKey, v); break; }
-      }
+    const drop = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && STORAGE_LEGACY_PREFIXES.some((p) => k.startsWith(p))) drop.push(k);
     }
-    oldKeys.forEach(k=>{ if (k !== newKey) localStorage.removeItem(k); });
+    drop.forEach((k) => localStorage.removeItem(k));
   } catch {}
 }
-migrateStoreKey('vocalyx_playlists_v1', 'netkara_playlists_v1', 'tunebox_playlists_v1');
-migrateStoreKey('vocalyx_downloadOptions', 'netkara_downloadOptions');
-migrateStoreKey('vocalyx_downloadFolder', 'netkara_downloadFolder');
-migrateStoreKey('vocalyx_downloads', 'netkara_downloads');
-migrateStoreKey('vocalyx_downloadPlayback_v1', 'netkara_downloadPlayback_v1');
-migrateStoreKey('vocalyx_enhanced_v1', 'netkara_enhanced_v1');
+cleanupLegacyStoreKeys();
 const MUSIC_FOLDERS_KEY = 'vocalyx_musicFolders_v1';
 export function getMusicFolders(){
   try { return JSON.parse(localStorage.getItem(MUSIC_FOLDERS_KEY) || '[]') || []; }
@@ -156,4 +152,4 @@ export function ensureTrackForPath(p){
   S.tracks.push({ title: base, artist: 'Unknown', album: '', dur: '--:--', duration: null, url: null, name: base, path: p, ext, size: 0, size_str: '--', lyric_path: null, cover: null, karaoke_path: null, file: null, fromDownloads: true });
   return S.tracks.length - 1;
 }
-export { migrateStoreKey, MUSIC_FOLDERS_KEY, parentFolderName, uid };
+export { MUSIC_FOLDERS_KEY, parentFolderName, uid };

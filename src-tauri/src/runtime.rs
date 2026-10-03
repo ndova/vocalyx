@@ -4,7 +4,7 @@
 //! Installer Lite hanya membawa shell aplikasi; saat pertama jalan engine tidak
 //! ada karena PC user belum punya Python + torch. Modul ini mengunduh paket
 //! runtime dari repo rilis, memverifikasi sha256, lalu mengekstraknya ke
-//! `%APPDATA%\NetKara\runtime` supaya `engine.rs` memakainya otomatis.
+//! `%APPDATA%\VocaLyx\runtime` supaya `engine.rs` memakainya otomatis.
 //!
 //! Alur: `runtime_status` -> (kalau belum ada) `runtime_install` -> event
 //! `runtime://progress` -> `runtime_status` lagi sampai `installed: true`.
@@ -58,11 +58,69 @@ pub struct Progress {
     pub stage: String,
 }
 
-fn app_data_dir() -> PathBuf {
-    let base = std::env::var_os("APPDATA")
+pub fn app_data_dir() -> PathBuf {
+    data_root().join(APP_DIRNAME)
+}
+
+/// `%APPDATA%` tempat folder data aplikasi hidup.
+fn data_root() -> PathBuf {
+    std::env::var_os("APPDATA")
         .map(PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir);
-    base.join("NetKara")
+        .unwrap_or_else(std::env::temp_dir)
+}
+
+/// Nama folder data aplikasi. Dulu `NetKara` (nama proyek sebelumnya), lalu
+/// diganti ke `VocaLyx` supaya tidak ada sisa nama proyek lama. Data lama
+/// dipindahkan sekali oleh `migrate_legacy_data_dir`.
+const APP_DIRNAME: &str = "VocaLyx";
+const LEGACY_APPNAME: &str = "NetKara";
+
+/// Pindahkan sisa data dari nama folder lama ke yang sekarang.
+///
+/// Dipakai `rename`, jadi untuk folder 1,9 GB di drive yang sama hanya_metadata
+/// yang berubah — tidak ada salinan file. Item yang sudah ada di tujuan tidak
+/// ditimpa supaya data terbaru tidak hilang.
+pub fn migrate_legacy_data_dir() {
+    let legacy = data_root().join(LEGACY_APPNAME);
+    if !legacy.is_dir() {
+        return;
+    }
+    let current = data_root().join(APP_DIRNAME);
+    let mut moved: Vec<String> = Vec::new();
+    for name in ["runtime", "models", "downloads"] {
+        let from = legacy.join(name);
+        let to = current.join(name);
+        if !from.exists() || to.exists() {
+            continue;
+        }
+        if let Some(parent) = to.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        if fs::rename(&from, &to).is_ok() {
+            moved.push(name.to_string());
+        }
+    }
+    // Log lama digabung ke log yang sekarang, bukan dibuang, lalu sumbernya
+    // dihapus supaya folder lama benar-benar habis dan tidak menyesatkan.
+    let old_log = legacy.join("engine.log");
+    if old_log.is_file() {
+        if let Ok(text) = fs::read_to_string(&old_log) {
+            let _ = fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(current.join("engine.log"))
+                .and_then(|mut f| f.write_all(text.as_bytes()));
+        }
+        let _ = fs::remove_file(&old_log);
+        moved.push("engine.log".to_string());
+    }
+    for name in moved {
+        crate::engine::write_log_note(&format!("migrasi {LEGACY_APPNAME}/{name} -> {APP_DIRNAME}/{name}"));
+    }
+    // Folder lama yang sudah kosong ikut dibuang supaya tidak menyesatkan.
+    if fs::read_dir(&legacy).map(|mut d| d.next().is_none()).unwrap_or(false) {
+        let _ = fs::remove_dir(&legacy);
+    }
 }
 
 pub fn runtime_root() -> PathBuf {
@@ -117,6 +175,7 @@ fn mark_failed(root: &Path) {
 /// ekstraksi selesai; instalasi lama yang sudah utuh dituliskan marker-nya di
 /// sini supaya tidak perlu ekstrak ulang.
 pub fn status_with(app: Option<&AppHandle>) -> RuntimeStatus {
+    migrate_legacy_data_dir();
     let root = runtime_root();
     let marker = root.join(READY_MARKER).is_file();
     let installed = marker || looks_complete(&root);
@@ -154,7 +213,7 @@ fn extract_zip(zip_path: &Path, dest: &Path) -> Result<u64, String> {
 
     // `build_runtime.py` menulis archive dengan satu folder teratas (`runtime/`)
     // supaya zip bisa dipakai seperti folder biasa. Karena kita ekstrak ke
-    // `%APPDATA%\NetKara/runtime`, prefix itu harus dilepas; kalau tidak,
+    // `%APPDATA%\VocaLyx/runtime`, prefix itu harus dilepas; kalau tidak,
     // interpreter mendarat di `runtime/runtime/python.exe` dan `runtime_status`
     // selalu melaporkan runtime belum terpasang.
     let strip = common_prefix_dir(&mut archive);
@@ -481,6 +540,7 @@ pub fn runtime_extract_bundled(app: AppHandle) -> Result<bool, String> {
 /// engine. Dijalankan di thread terpisah supaya jendela tetap responsif saat
 /// ekstrak ~1.9 GB pada installer Full.
 pub fn spawn_ensure_and_start(app: AppHandle) {
+    migrate_legacy_data_dir();
     // Ditandai sebelum thread dibuat: kalau tidak, frontend bisa membaca status
     // "tidak sedang apa-apa" tepat di sela sebelum ekstraksi berjalan, lalu
     // menampilkan "menyiapkan" tanpa progres atau tombol apa pun.

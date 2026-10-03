@@ -109,5 +109,5 @@ setInterval(()=>{ if(S.activeView==='device') checkIPhoneConnected(); }, 3000);
     try { if (await engineHealth()) return; } catch {}
     await new Promise(r => setTimeout(r, 2000));
   }
-  showToast('Engine offline — cek log di %APPDATA%\\NetKara\\engine.log', 9000);
+  showToast('Engine offline — cek log di %APPDATA%\\VocaLyx\\engine.log', 9000);
 })();

@@ -1180,6 +1180,35 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
     ok(/id="gpuPythonSelect"/.test(fs.readFileSync(path.join(root, 'src/index.html'), 'utf8'))
       && /id="btnDetectPythons"/.test(fs.readFileSync(path.join(root, 'src/index.html'), 'utf8')),
       'b1: UI Python CUDA ada di Settings');
+
+    const APPNAME = /%APPDATA%[\\/]VocaLyx/;
+    ok(/pub fn app_data_dir\(\) -> PathBuf \{\s*\n\s*data_root\(\)\.join\(APP_DIRNAME\)/.test(rsRt)
+      && /const APP_DIRNAME: &str = "VocaLyx"/.test(rsRt),
+      'data: folder data aplikasi bernama VocaLyx');
+    ok(/pub fn migrate_legacy_data_dir\(\)/.test(rsRt) && /const LEGACY_APPNAME: &str = "NetKara"/.test(rsRt),
+      'data: migrasi sekali dari folder nama lama ada');
+    ok(/migrate_legacy_data_dir\(\);/.test(rsRt.match(/pub fn status_with[\s\S]{0,220}/)[0])
+      && /migrate_legacy_data_dir\(\);/.test(rsRt.match(/pub fn spawn_ensure_and_start[\s\S]{0,220}/)[0]),
+      'data: migrasi dipanggil saat status & startup');
+    ok(/fs::rename\(&from, &to\)/.test(rsRt) && /to\.exists\(\) \{\s*\n\s*continue/.test(rsRt),
+      'data: migrasi pakai rename (cepat) dan tidak menimpa tujuan');
+    ok(/fn app_data_dir\(\) -> PathBuf \{\s*\n\s*crate::runtime::app_data_dir\(\)/.test(rsEngine)
+      && /Some\(app_data_dir\(\)\.join\("engine\.log"\)\)/.test(rsEngine),
+      'data: engine memakai folder data yang sama dengan runtime');
+    for (const f of ['src/app.js', 'src/js/library.js', 'README.md', 'src-tauri/Cargo.toml']) {
+      const txt = fs.readFileSync(path.join(root, f), 'utf8');
+      ok(!/NetKara/.test(txt), `data: ${f} tidak menyebut NetKara`);
+    }
+    ok(!/netkara_downloadOptions|netkara_playlists_v1/.test(
+      fs.readFileSync(path.join(root, 'src/js/library.js'), 'utf8')),
+      'data: migrasi localStorage NetKara/TuneBox dihapus');
+    ok(/cleanupLegacyStoreKeys/.test(fs.readFileSync(path.join(root, 'src/js/library.js'), 'utf8')),
+      'data: key localStorage legacy tetap dibersihkan');
+    const pyCoreTxt = fs.readFileSync(path.join(root, 'python-engine/vx_core.py'), 'utf8');
+    ok(/shutil\.move\(str\(f\), str\(dest\)\)/.test(pyCoreTxt) && /f\.unlink\(\)/.test(pyCoreTxt),
+      'data: cache legacy dipindah (bukan disalin) lalu sumbernya dihapus');
+    ok(APPNAME.test(fs.readFileSync(path.join(root, 'README.md'), 'utf8')),
+      'data: README menyebut %APPDATA%\\VocaLyx');
   }
   {
     // REGRESSION: vx_karaoke_dsp.py dijalankan sebagai proses anak oleh

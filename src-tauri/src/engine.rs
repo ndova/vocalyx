@@ -288,10 +288,7 @@ fn bundled_runtime_dir(py: &str) -> Option<PathBuf> {
 }
 
 fn app_data_dir() -> PathBuf {
-    let base = std::env::var_os("APPDATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir);
-    base.join("NetKara")
+    crate::runtime::app_data_dir()
 }
 
 /// Interpreter bawaan dari runtime yang dibundel, kalau ada.
@@ -642,7 +639,7 @@ fn chosen_python(app: &AppHandle) -> Option<PathBuf> {
 /// 1. `VOCALYX_PYTHON` (escape hatch manual)
 /// 2. Device tersimpan di Settings (cuda -> interpreter CUDA, cpu/auto -> bawaan)
 /// 3. Runtime bawaan installer
-/// 4. Runtime hasil ekstraksi `%APPDATA%\NetKara\runtime`
+/// 4. Runtime hasil ekstraksi `%APPDATA%\VocaLyx\runtime`
 /// 5. Python sistem, di skor kelengkapan dependensinya
 fn find_python(app: Option<&AppHandle>) -> Option<String> {
     if let Some(custom) = std::env::var_os("VOCALYX_PYTHON") {
@@ -684,8 +681,7 @@ fn python_score(exe: &Path) -> u8 {
 }
 
 fn log_path() -> Option<PathBuf> {
-    let base = std::env::var_os("APPDATA")?;
-    Some(PathBuf::from(base).join("NetKara").join("engine.log"))
+    Some(app_data_dir().join("engine.log"))
 }
 
 fn open_log() -> Option<(File, File)> {

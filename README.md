@@ -45,7 +45,7 @@ Installer dibangun dari `npm run tauri -- build`. Ada dua varian:
 | **Full** | ± 665 MB | Sudah membawa runtime Python + ffmpeg + model CPU. Tinggal install, jalan offline. |
 | **Lite** | ± 10 MB | Shell kecil, runtime diunduh saat pertama kali dijalankan. |
 
-Runtime diekstrak ke `%APPDATA%\NetKara\runtime` (± 1,9 GB). Installer Full mengekstraknya
+Runtime diekstrak ke `%APPDATA%\VocaLyx\runtime` (± 1,9 GB). Installer Full mengekstraknya
 otomatis saat aplikasi dibuka, jadi **tidak perlu Python atau ffmpeg terpasang**.
 Paket runtime untuk varian Lite di-hosting di repo `vocalyx-releases` dan bisa dibuat
 dengan `python scripts/build_runtime.py --repack`.
@@ -71,7 +71,7 @@ Deteksi dilakukan lewat service *Apple Mobile Device Service* di `127.0.0.1:2701
 2. Klik baris lagu untuk putar. Waveform + waktu jalan otomatis.
 3. EQ 10-band + Preset (Rock/Jazz/Pop) + VolumeGain real via Web Audio.
 4. Lirik sinkron otomatis dari `Lyrics/<nama>.lrc` atau download LRCLIB → simpan ke `Lyrics/`.
-5. **Karaoke mode / Vocal Off** → pakai file lokal `mdx_extra/*/no_vocals.flac|wav|mp3` jika ada, jika tidak generate otomatis. Hasil disimpan ke `mdx_extra/` untuk next time, cache di `%APPDATA%/NetKara/cache/`.
+5. **Karaoke mode / Vocal Off** → pakai file lokal `mdx_extra/*/no_vocals.flac|wav|mp3` jika ada, jika tidak generate otomatis. Hasil disimpan ke `mdx_extra/` untuk next time, cache di `%APPDATA%/VocaLyx/cache/`.
 
 ## Catatan RTX 3050 4GB
 

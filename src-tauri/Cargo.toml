@@ -23,7 +23,7 @@ lofty = "0.25.1"
 base64 = "0.23.1"
 tauri-plugin-opener = "2.5.5"
 # Runtime portable untuk installer Lite (Fase 3b): unduh runtime-cpu-<ver>.zip
-# dari vocalyx-releases, verifikasi sha256, lalu ekstrak ke %APPDATA%\NetKara\runtime.
+# dari vocalyx-releases, verifikasi sha256, lalu ekstrak ke %APPDATA%\VocaLyx\runtime.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
 tokio = { version = "1", features = ["fs", "io-util", "rt-multi-thread"] }
 futures-util = "0.3"

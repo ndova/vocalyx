@@ -23,15 +23,24 @@ AUDIO_JOB_LOCK = threading.Lock()
 
 APP_DIR = Path.home() / "AppData" / "Roaming" / "VocaLyx" / "cache"
 APP_DIR.mkdir(parents=True, exist_ok=True)
-for _old in (
+for _legacy in (
     Path.home() / "AppData" / "Roaming" / "NetKara" / "cache",
     Path.home() / "AppData" / "Roaming" / "TuneBox" / "cache",
 ):
     try:
-        if _old.exists() and not any(APP_DIR.iterdir()):
-            for f in _old.iterdir():
-                if f.is_file():
-                    shutil.copy2(f, APP_DIR / f.name)
+        if _legacy.exists():
+            for f in _legacy.iterdir():
+                if not f.is_file():
+                    continue
+                dest = APP_DIR / f.name
+                try:
+                    if dest.exists():
+                        f.unlink()
+                    else:
+                        shutil.move(str(f), str(dest))
+                except Exception:
+                    pass
+            _legacy.rmdir()
     except Exception:
         pass
 
