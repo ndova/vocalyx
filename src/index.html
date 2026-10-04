@@ -421,14 +421,13 @@
 
             <div class="settings-group">
               <div class="settings-group-title" data-t="set.karaoke">Karaoke</div>
-              <div class="settings-group-hint" data-t="set.karaokeHint">Dua preset: Best = MelBand RoFormer Karaoke (Aufr33/Viperx) untuk GPU, dan UVR-MDX-NET-Inst_HQ_4 untuk CPU (dipilih otomatis saat Device = CPU). Tanpa fallback otomatis. Klik Karaoke lagi untuk Batal.</div>
+              <div class="settings-group-hint" data-t="set.karaokeHint">Dua preset: Best = MelBand RoFormer Karaoke (Aufr33/Viperx) untuk GPU, dan UVR-MDX-NET-Inst_HQ_4 untuk CPU. Device default ke CPU; di PC tanpa CUDA preset CPU dipilih otomatis, dan memilih CUDA tanpa dukungan CUDA akan memakai CPU. Klik Karaoke lagi untuk Batal.</div>
 
               <div class="settings-row">
                 <label class="settings-select"><span data-t="set.device">Device</span>
                   <select id="karaokeDevice" class="modal-input">
-                    <option value="auto">Auto</option>
-                    <option value="cuda">CUDA</option>
-                    <option value="cpu">CPU</option>
+                    <option value="cpu" data-t="set.deviceCpu" selected>CPU</option>
+                    <option value="cuda" data-t="set.deviceCuda">CUDA</option>
                   </select>
                 </label>
                 <label class="settings-select"><span data-t="set.quality">Quality</span>

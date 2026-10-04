@@ -94,6 +94,7 @@ async function detect(force) {
   }
   fillSelect();
   const cudaReady = lastDetected.filter((i) => i.cuda && i.has_deps);
+  applyDeviceAvailability('ready', cudaReady.length > 0);
   if (!lastDetected.length) {
     setStatus(t('set.gpuPythonNone'), false);
   } else if (cudaReady.length) {
@@ -127,15 +128,16 @@ async function runApplyDevice(device, gpuPython) {
   setStatus(t('set.gpuPythonApplying'), null);
   try {
     const cfg = await invokeTauri('set_engine_config', { device, gpuPython: gpuPython || '' });
-    const wantCuda = device === 'cuda' || device === 'gpu';
+    const strict = device === 'cuda';
     let matched = false;
     let active = false;
     for (let i = 0; i < 90; i++) {
       const online = await waitEngineReady(1000);
       try { active = !!(await refreshCudaStatus(true)); } catch { active = false; }
-      if (online && active === wantCuda) { matched = true; break; }
+      if (online && (!strict || active === true)) { matched = true; break; }
     }
-    if (matched) setStatus(active ? t('set.gpuPythonActiveCuda') : t('set.gpuPythonActiveCpu'), active);
+    const cudaOn = !!cfg.active_cuda;
+    if (matched) setStatus(cudaOn ? t('set.gpuPythonActiveCuda') : t('set.gpuPythonActiveCpu'), cudaOn);
     else setStatus(`${t('set.gpuPythonSwitchFailed')}: engine tidak sesuai device ${device}`, false);
     return matched ? cfg : null;
   } catch (e) {
@@ -160,10 +162,54 @@ async function applyDevice(device, gpuPython) {
 }
 
 function currentDevice() {
-  return String((S.downloadOptions && S.downloadOptions.karaokeDevice) || 'auto').toLowerCase();
+  return String((S.downloadOptions && S.downloadOptions.karaokeDevice) || 'cpu').toLowerCase();
 }
 function currentGpuPython() {
   return String((S.downloadOptions && S.downloadOptions.gpuPython) || '');
+}
+
+function deviceCudaOption() {
+  const dev = el('karaokeDevice');
+  if (!dev) return null;
+  return [...dev.options].find((o) => o.value === 'cuda') || null;
+}
+
+function applyDeviceAvailability(state, cudaReady) {
+  const opt = deviceCudaOption();
+  if (!opt) return;
+  const base = t('set.deviceCuda');
+  if (state === 'checking') {
+    opt.disabled = false;
+    opt.textContent = `${base} (${t('set.deviceCudaChecking')})`;
+    return;
+  }
+  if (state !== 'ready') {
+    opt.disabled = false;
+    opt.textContent = base;
+    return;
+  }
+  opt.disabled = !cudaReady;
+  opt.textContent = cudaReady ? base : `${base} — ${t('set.deviceCudaUnsupported')}`;
+  if (!cudaReady) {
+    const dev = el('karaokeDevice');
+    if (dev && dev.value === 'cuda') {
+      dev.value = 'cpu';
+      S.downloadOptions.karaokeDevice = 'cpu';
+      try { localStorage.setItem('vocalyx_downloadOptions', JSON.stringify(S.downloadOptions)); } catch {}
+    }
+  }
+}
+
+async function loadCudaAvailabilityFromDisk() {
+  try {
+    const sum = await invokeTauri('gpu_probe_cached', { maxAgeSecs: 86400 });
+    if (!sum || !Array.isArray(sum.entries)) { applyDeviceAvailability('checking', false); return false; }
+    applyDeviceAvailability('ready', !!sum.cuda_ready);
+    return true;
+  } catch {
+    applyDeviceAvailability('unknown', false);
+    return false;
+  }
 }
 
 export async function syncEngineConfig() {
@@ -193,7 +239,12 @@ export async function syncEngineConfig() {
 
 export async function initGpuPython() {
   try { registerCudaRefresh(autoRefreshCudaStatus); } catch {}
+  applyDeviceAvailability('checking', false);
+  const fromDisk = await loadCudaAvailabilityFromDisk();
   await syncEngineConfig();
+  if (!fromDisk) {
+    try { detect(false).catch(() => {}); } catch {}
+  }
   const btn = el('btnDetectPythons');
   if (btn) {
     btn.addEventListener('click', async () => {
@@ -220,6 +271,8 @@ export async function setDeviceWithEngine(device, gpuPython) {
 }
 
 export function hasCudaInterpreter() {
+  const opt = deviceCudaOption();
+  if (opt) return !opt.disabled && !!cached;
   return lastDetected.some((i) => i.cuda && i.has_deps);
 }
 

@@ -131,11 +131,16 @@ def _worker(job_id: str, raw: bytes, suffix: str, mode: str, quality: str,
         with _JOBS_LOCK:
             _JOBS[job_id]["device_info"] = dinfo
         if device == "cuda" and not dinfo.get("cuda"):
+            # CUDA dipilih tapi PC ini tidak punya PyTorch CUDA. Dulu job langsung
+            # failed, jadi appikan blocked total di PC tanpa GPU. Sekarang turunkan
+            # ke CPU dan catat polyethylene peringatan supaya user tahu.
             with _JOBS_LOCK:
-                _JOBS[job_id].update(status="failed", at=time.time(),
-                    error="CUDA diminta tapi tidak terdeteksi (torch.cuda.is_available()=False). "
-                          "Pilih device=CPU di Settings, atau perbaiki driver/CUDA PyTorch.")
-            return
+                _JOBS[job_id]["warning"] = (
+                    "CUDA tidak tersedia (torch.cuda.is_available()=False). "
+                    "Karaoke dijalankan dengan CPU."
+                )
+            log.warning(_JOBS[job_id]["warning"])
+            device = "cpu"
         # Fail-fast VRAM rendah. Dulu hanya log.warning, sehingga job tetap jalan
         # lalu:OOM / fallback CPU diam-diam (user cuma lihat "process very lama").
         if dinfo.get("cuda"):
@@ -149,9 +154,11 @@ def _worker(job_id: str, raw: bytes, suffix: str, mode: str, quality: str,
         # Di CPU, preset default (karaoke_aufr33) terlalu berat (benchmark:
         # Resurrection ~6x realtime, aufr33 MelBand-Roformer juga berat).
         # Alihkan ke modul CPU terbaik dari benchmark: MDX Inst_HQ_4.
-        if device == "cpu" and quality == "karaoke_aufr33":
+        # Syaratnya perangkat nyata, bukan nilai device: device="cuda" yang
+        # fellback ke CPU di atas juga harus dapat preset yang ringan.
+        if not dinfo.get("cuda") and quality == "karaoke_aufr33":
             quality = "cpu_inst_hq"
-            log.info("device cpu: karaoke_aufr33 dialihkan ke cpu_inst_hq (UVR-MDX-NET-Inst_HQ_4, benchmark CPU tercepat)")
+            log.info("perangkat tanpa CUDA: karaoke_aufr33 dialihkan ke cpu_inst_hq (UVR-MDX-NET-Inst_HQ_4, benchmark CPU tercepat)")
         persist_base, stem = _resolve_persist(track_path)
         sig = _persist_signature(mode, quality, vocal_kill, centre_kill, match_level, {})
 

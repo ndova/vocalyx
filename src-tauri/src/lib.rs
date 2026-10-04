@@ -447,6 +447,7 @@ pub fn run() {
             runtime::apple_driver_status,
             engine::detect_pythons,
             engine::detect_pythons_async,
+            engine::gpu_probe_cached,
             engine::get_engine_config,
             engine::set_engine_config
         ])

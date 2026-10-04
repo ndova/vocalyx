@@ -66,7 +66,7 @@ export function plPathIndex(pl, path){
   return pl.trackPaths.findIndex(pp => normPath(pp) === np);
 }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
-if (!S.downloadOptions.karaokeDevice) S.downloadOptions.karaokeDevice = 'auto';
+if (!S.downloadOptions.karaokeDevice) S.downloadOptions.karaokeDevice = 'cpu';
 if (!['karaoke_aufr33','cpu_inst_hq'].includes(S.downloadOptions.karaokeQuality)) S.downloadOptions.karaokeQuality = 'karaoke_aufr33';
 if (!['flac','ogg','wav'].includes(S.downloadOptions.karaokeFormat)) S.downloadOptions.karaokeFormat = 'flac';
 if (!['karaoke_aufr33', 'cpu_inst_hq'].includes(S.downloadOptions.karaokeQuality)) S.downloadOptions.karaokeQuality = 'karaoke_aufr33';

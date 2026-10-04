@@ -505,7 +505,7 @@ fn project_root(script: &Path) -> PathBuf {
 pub mod gpu {
     use super::*;
 
-    #[derive(Serialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
     pub struct PythonInfo {
         pub path: String,
         pub version: String,
@@ -515,6 +515,51 @@ pub mod gpu {
         pub device: String,
         pub has_deps: bool,
         pub bundled: bool,
+    }
+
+    /// Ringkasan hasil deteksi yang disimpan ke disk. Tujuannya satu: opsi CUDA
+    /// di Settings bisa langsung tampil aktif/nonaktif sejak jendela pertama
+    /// dibuka, tanpa menunggu probe torch yang memakan belasan detik.
+    #[derive(Serialize, Deserialize, Clone)]
+    pub struct ProbeSummary {
+        pub at: u64,
+        pub cuda_ready: bool,
+        pub entries: Vec<PythonInfo>,
+    }
+
+    const PROBE_SUMMARY_FILE: &str = "gpu-probe.json";
+
+    fn summary_path() -> Option<PathBuf> {
+        Some(app_data_dir().join(PROBE_SUMMARY_FILE))
+    }
+
+    pub fn save_summary(entries: &[PythonInfo]) {
+        let Some(p) = summary_path() else { return };
+        if let Some(dir) = p.parent() {
+            let _ = fs::create_dir_all(dir);
+        }
+        let sum = ProbeSummary {
+            at: epoch_secs(),
+            cuda_ready: entries.iter().any(|i| i.cuda && i.has_deps),
+            entries: entries.to_vec(),
+        };
+        match serde_json::to_string_pretty(&sum) {
+            Ok(txt) => {
+                let _ = fs::write(p, txt);
+            }
+            Err(e) => log_line!("gagal tulis {PROBE_SUMMARY_FILE}: {e}"),
+        }
+    }
+
+    /// `max_age_secs` = 0 berarti tanpa batas umur.
+    pub fn load_summary(max_age_secs: u64) -> Option<ProbeSummary> {
+        let p = summary_path()?;
+        let txt = fs::read_to_string(p).ok()?;
+        let sum: ProbeSummary = serde_json::from_str(&txt).ok()?;
+        if max_age_secs > 0 && epoch_secs().saturating_sub(sum.at) > max_age_secs {
+            return None;
+        }
+        Some(sum)
     }
 
     const PROBE: &str = concat!(
@@ -650,8 +695,17 @@ pub mod gpu {
         if let Ok(mut guard) = CACHE.lock() {
             *guard = Some((std::time::Instant::now(), fresh.clone()));
         }
+        save_summary(&fresh);
         fresh
     }
+}
+
+/// Waktu unix dalam detik, untuk tanda umur cache.
+fn epoch_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 /// Device yang dipilih user untuk karaoke.
@@ -676,10 +730,21 @@ fn engine_config_path() -> Option<PathBuf> {
 
 fn default_config() -> EngineConfig {
     EngineConfig {
-        device: "auto".into(),
+        device: "cpu".into(),
         gpu_python: String::new(),
         active_python: String::new(),
         active_cuda: false,
+    }
+}
+
+/// Nilai device hanya `cpu` dan `cuda`. Versi lama sempat punya `auto` (yang
+/// faktanya sudah sama dengan CPU) dan `gpu` (tidak pernah bisa dipilih dari UI
+/// dan tidak punya cabang di Python), jadi keduanya dipetakan ke nilai yang
+/// sekarang supaya config lama tidak menggantung.
+fn normalize_device(dev: &str) -> String {
+    match dev.trim().to_ascii_lowercase().as_str() {
+        "cuda" | "gpu" => "cuda".to_string(),
+        _ => "cpu".to_string(),
     }
 }
 
@@ -691,7 +756,13 @@ fn load_config() -> EngineConfig {
         return default_config();
     };
     match serde_json::from_str::<EngineConfig>(&txt) {
-        Ok(cfg) => {
+        Ok(mut cfg) => {
+            let norm = normalize_device(&cfg.device);
+            if norm != cfg.device {
+                log_line!("device {:?} dinormalkan menjadi {norm}", cfg.device);
+                cfg.device = norm.clone();
+                save_config(&cfg);
+            }
             log_line!("muat pilihan engine: device={} python={}", cfg.device, cfg.active_python);
             cfg
         }
@@ -766,7 +837,7 @@ fn resolve_interpreter(
     detected: &[gpu::PythonInfo],
 ) -> Result<PathBuf, String> {
     let dev = device.to_ascii_lowercase();
-    let chosen = if dev == "cuda" || dev == "gpu" {
+    let chosen = if dev == "cuda" {
         let usable = |i: &&gpu::PythonInfo| i.cuda && i.has_deps;
         // Kalau user memilih path spesifik, pakai itu (kalau memang CUDA+lengkap).
         let pick = if !gpu_python.trim().is_empty() {
@@ -785,12 +856,12 @@ fn resolve_interpreter(
                 return Err(if any_cuda {
                     "Python CUDA terdeteksi tapi dependensi engine belum lengkap di sana".into()
                 } else {
-                    "Tidak ada Python dengan PyTorch CUDA + dependensi engine. Set di Settings > Karaoke.".into()
+                    "Tidak ada Python dengan PyTorch CUDA + dependensi engine di PC ini".into()
                 });
             }
         }
     } else {
-        // cpu / auto: pakai runtime bawaan kalau ada.
+        // cpu: runtime bawaan (PyTorch CPU) selalu bisa dipakai.
         bundled_python()
             .or_else(|| system_python())
             .ok_or_else(|| "interpreter python tidak ditemukan".to_string())?
@@ -832,7 +903,7 @@ fn chosen_python(app: &AppHandle) -> Option<PathBuf> {
     // Fast path: interpreter CUDA sudah pernah dipakai dan file-nya masih ada.
     // Pakai langsung tanpa probe torch supaya app yang dibuka ulang dengan
     // device cuda tidak menunggu probe ulang sebelum engine start.
-    if dev == "cuda" || dev == "gpu" {
+    if dev == "cuda" {
         if let Some(c) = cfg.as_ref() {
             let p = PathBuf::from(&c.active_python);
             if !c.active_python.is_empty() && p.is_file() {
@@ -842,10 +913,9 @@ fn chosen_python(app: &AppHandle) -> Option<PathBuf> {
         }
     }
 
-    // Deteksi hanya perlu kalau device benar-benar cuda/gpu. Untuk auto/cpu
-    // tidak ada yang perlu di-probe, jadi jangan bakar belasan detik impor torch
-    // di startup.
-    let detected = if dev == "cuda" || dev == "gpu" {
+    // Deteksi hanya perlu kalau device cuda. Untuk cpu tidak ada yang perlu
+    // di-probe, jadi jangan bakar belasan detik impor torch di startup.
+    let detected = if dev == "cuda" {
         gpu::detect_cached(false)
     } else {
         Vec::new()
@@ -855,7 +925,7 @@ fn chosen_python(app: &AppHandle) -> Option<PathBuf> {
 
 /// Urutan pilihan interpreter saat start:
 /// 1. `VOCALYX_PYTHON` (escape hatch manual)
-/// 2. Device tersimpan di Settings (cuda -> interpreter CUDA, cpu/auto -> bawaan)
+/// 2. Device tersimpan di Settings (cuda -> interpreter CUDA, cpu -> bawaan)
 /// 3. Runtime bawaan installer
 /// 4. Runtime hasil ekstraksi `%APPDATA%\VocaLyx\runtime`
 /// 5. Python sistem, di skor kelengkapan dependensinya
@@ -870,6 +940,20 @@ fn find_python(app: Option<&AppHandle>) -> Option<String> {
         if let Some(p) = chosen_python(app) {
             log_line!("pakai interpreter untuk device: {}", p.display());
             return Some(p.to_string_lossy().into_owned());
+        }
+        // Device tersimpan `cuda` tapi tidak ada interpreter CUDA yang bisa
+        // dipakai (Python di-uninstall/upgrade, driver hilang, dll). Kalau tidak
+        // dikoreksi, app tersangkut: dropdown bilang CUDA, engine jalan CPU,
+        // dan status merah permanen. Turunkan ke cpu supaya konsisten.
+        let wants_cuda = EngineChoice::snapshot(app)
+            .map(|c| normalize_device(&c.device) == "cuda")
+            .unwrap_or(false);
+        if wants_cuda {
+            log_line!("device cuda tersimpan tapi interpreter CUDA tidak ada, dikembalikan ke cpu");
+            let mut healed = EngineChoice::snapshot(app).unwrap_or_else(default_config);
+            healed.device = "cpu".into();
+            healed.active_cuda = false;
+            EngineChoice::store(app, healed);
         }
     }
     if let Some(bundled) = bundled_python() {
@@ -950,14 +1034,18 @@ pub async fn detect_pythons_async(force: Option<bool>) -> Vec<gpu::PythonInfo> {
         .unwrap_or_default()
 }
 
+/// Ringkasan deteksi CUDA terakhir yang tersimpan di disk. Dipakai frontend
+/// agar opsi CUDA di Settings bisa langsung tampil aktif/nonaktif sejak jendela
+/// pertama dibuka — memanggil `detect_pythons_async` akan membekukan UI karena
+/// tiap probe meng-import torch. `max_age_secs` = 0 berarti tanpa batas umur.
+#[tauri::command]
+pub fn gpu_probe_cached(max_age_secs: Option<u64>) -> Option<gpu::ProbeSummary> {
+    gpu::load_summary(max_age_secs.unwrap_or(86_400))
+}
+
 #[tauri::command]
 pub fn get_engine_config(app: AppHandle) -> EngineConfig {
-    EngineChoice::snapshot(&app).unwrap_or_else(|| EngineConfig {
-        device: "auto".into(),
-        gpu_python: String::new(),
-        active_python: String::new(),
-        active_cuda: false,
-    })
+    EngineChoice::snapshot(&app).unwrap_or_else(default_config)
 }
 
 /// Ganti device / Python CUDA lalu restart engine.
@@ -979,15 +1067,12 @@ pub async fn set_engine_config(
     device: String,
     gpu_python: String,
 ) -> Result<EngineConfig, String> {
-    let dev = device.trim().to_ascii_lowercase();
-    if !matches!(dev.as_str(), "auto" | "cpu" | "cuda" | "gpu") {
-        return Err("device tidak dikenal".into());
-    }
+    let dev = normalize_device(&device);
     let gpu_py = gpu_python.trim().to_string();
     tauri::async_runtime::spawn_blocking(move || {
         // Pakai cache (TTL 60 detik), bukan deteksi paksa: probe meng-import
         // torch di tiap interpreter sehingga satu pergantian device bisa memakan
-        // 30-90 detik, dan klik berikutnya ikut menumpuk di.antrean. Tombol
+        // 30-90 detik, dan klik berikutnya ikut menumpuk di antrean. Tombol
         // "Deteksi" tetap memakai force=true bila memang perlu data segar.
         let detected = gpu::detect_cached(false);
         let chosen = resolve_interpreter(&dev, &gpu_py, &detected)?;
@@ -997,7 +1082,7 @@ pub async fn set_engine_config(
             .find(|i| i.path.eq_ignore_ascii_case(&chosen_s))
             .map(|i| i.cuda)
             .unwrap_or(false);
-        if (dev == "cuda" || dev == "gpu") && !active_cuda {
+        if dev == "cuda" && !active_cuda {
             return Err("interpreter yang dipilih tidak punya PyTorch CUDA".into());
         }
 

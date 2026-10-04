@@ -124,7 +124,7 @@ function loadSettingsUI(){
   const vgFolder = document.getElementById('vgFolder');
   if (vgFolder) vgFolder.value = localStorage.getItem('vocalyx_gainFolder') || S.downloadFolder || 'Default: ./downloads';
   const kDev = document.getElementById('karaokeDevice');
-  if (kDev) kDev.value = S.downloadOptions.karaokeDevice || 'auto';
+  if (kDev) kDev.value = S.downloadOptions.karaokeDevice || 'cpu';
   const kQ = document.getElementById('karaokeQuality');
   if (kQ) kQ.value = S.downloadOptions.karaokeQuality || 'karaoke_aufr33';
   const kF = document.getElementById('karaokeFormat');

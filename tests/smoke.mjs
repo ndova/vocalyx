@@ -1101,7 +1101,7 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
     ok(/fn apply_runtime_env\(/.test(rsEngine) && /PYTHONPATH/.test(rsEngine) && /PYTHONHOME/.test(rsEngine),
       'rust: runtime bawaan set PYTHONPATH/PYTHONHOME');
     ok(/VOCALYX_MODELS_DIR/.test(rsEngine), 'rust: model diarahkan ke folder data aplikasi');
-    ok(/fn find_python\(app: Option<&AppHandle>\)[\s\S]{0,700}bundled_python\(\)/.test(rsEngine),
+    ok(/fn find_python\(app: Option<&AppHandle>\)[\s\S]{0,1400}bundled_python\(\)/.test(rsEngine),
       'rust: runtime bawaan dicek sebelum Python sistem');
     ok(/fn resolve_interpreter\(/.test(rsEngine) && /bundled_python\(\)[\s\S]{0,200}system_python\(\)/.test(rsEngine),
       'rust: device cpu/auto memakai runtime bawaan lalu python sistem');
@@ -1120,9 +1120,10 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
     ok(!/pub fn start\(app: &AppHandle\)[\s\S]{0,900}gpu::detect\(/.test(rsEngine),
       'b1: start() tidak lagi mem-probe torch');
     const cpBlock = (rsEngine.match(/fn chosen_python\([\s\S]*?\n}/) || [''])[0];
-    ok(/dev == "cuda" \|\| dev == "gpu"/.test(cpBlock) && /detect_cached\(false\)/.test(cpBlock)
+    ok(/dev == "cuda"/.test(cpBlock) && /detect_cached\(false\)/.test(cpBlock)
+      && !/dev == "gpu"/.test(cpBlock)
       && /else \{\s*\n\s*Vec::new\(\)\s*\n\s*\}/.test(cpBlock),
-      'b1: deteksi hanya jalan saat device cuda/gpu (bukan di startup auto/cpu)');
+      'b1: deteksi hanya jalan saat device cuda (bukan saat startup dengan cpu)');
     ok(/detect_pythons_async', \{ force: !!force \}/.test(
       fs.readFileSync(path.join(root, 'src/js/gpu.js'), 'utf8')),
       'b1: tombol Deteksi mengirim force=true');
@@ -1163,7 +1164,7 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
       && /engine::EngineChoice::new\(\)/.test(rsLib),
       'lib: perintah CUDA terdaftar + state EngineChoice di-manage');
     ok(/resolve_interpreter\(&dev, &gpu_py, &detected\)\?/.test(rsEngine)
-      && /if \(dev == "cuda" \|\| dev == "gpu"\) && !active_cuda \{[\s\S]{0,160}return Err/.test(rsEngine),
+      && /if dev == "cuda" && !active_cuda \{[\s\S]{0,160}return Err/.test(rsEngine),
       'rust: device cuda tanpa interpreter CUDA ditolak sebelum restart');
     ok(/VOCALYX_RUNTIME_DIR/.test(rsEngine) && /FFMPEG_BINARY/.test(rsEngine)
       && /cmd\.env\("PATH", value\)/.test(rsEngine),
@@ -1201,7 +1202,7 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
       'persist: store() langsung menyimpan ke disk');
     ok(/#\[derive\(Serialize, Deserialize, Clone, PartialEq\)\]\s*pub struct EngineConfig/.test(rsEngine),
       'persist: EngineConfig bisa dibaca ulang dari engine.json');
-    ok(/if dev == "cuda" \|\| dev == "gpu" \{?\s*if let Some\(c\) = cfg\.as_ref\(\) \{[\s\S]{0,320}p\.is_file\(\)/.test(rsEngine),
+    ok(/if dev == "cuda" \{?\s*if let Some\(c\) = cfg\.as_ref\(\) \{[\s\S]{0,320}p\.is_file\(\)/.test(rsEngine),
       'persist: app yang dibuka ulang pakai interpreter tersimpan tanpa probe torch');
     ok(/export async function syncEngineConfig\(\)/.test(jsGpuQ)
       && /invokeTauri\('get_engine_config'\)/.test(jsGpuQ)
@@ -1213,12 +1214,80 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
       && /pub fn restart\(app: &AppHandle\)/.test(rsEngine)
       && !/fn wait_engine_cuda/.test(rsEngine),
       'persist: revert device tetap ada dan restart() tanpa Result (ganti CPU tidak bisa error)');
-    ok(/const prev = \(S\.downloadOptions && S\.downloadOptions\.karaokeDevice\) \|\| 'auto';[\s\S]{0,420}if \(!ok && S\.downloadOptions\.karaokeDevice === dev\) \{[\s\S]{0,220}e\.target\.value = prev;/.test(jsThemeQ),
+    ok(/const prev = \(S\.downloadOptions && S\.downloadOptions\.karaokeDevice\) \|\| 'cpu';[\s\S]{0,420}if \(!ok && S\.downloadOptions\.karaokeDevice === dev\) \{[\s\S]{0,220}e\.target\.value = prev;/.test(jsThemeQ),
       'theme: device sebelumnya ditangkap dulu, jadi dropdown bisa kembali');
     ok(/if \(!ok && S\.downloadOptions\.karaokeDevice === dev\) \{[\s\S]{0,240}saveDownloadOptions\(\{ karaokeDevice: prev \}\)/.test(jsThemeQ),
       'theme: localStorage kembali ke device lama, dan request lama tidak menimpa request baru');
     ok(/pub fn restart\(app: &AppHandle\)/.test(rsEngine),
       'rust: restart() tetap tanpa Result (perganti CPU tidak bisa error)');
+
+    const jsHtmlD = fs.readFileSync(path.join(root, 'src/index.html'), 'utf8');
+    const jsLibD = fs.readFileSync(path.join(root, 'src/js/library.js'), 'utf8');
+    const jsStateD = fs.readFileSync(path.join(root, 'src/js/state.js'), 'utf8');
+    const jsPlayerD = fs.readFileSync(path.join(root, 'src/js/player.js'), 'utf8');
+    const pySepD = fs.readFileSync(path.join(root, 'python-engine/vx_separate.py'), 'utf8');
+
+    ok(/<select id="karaokeDevice"[\s\S]{0,200}<option value="cpu"[^>]*selected>[\s\S]{0,120}<option value="cuda"/.test(jsHtmlD)
+      && !/<option value="auto"[^>]*>Auto</.test(jsHtmlD),
+      'device: dropdown hanya CPU (default) dan CUDA, opsi Auto dihapus');
+    ok(/fn normalize_device\(dev: &str\) -> String \{[\s\S]{0,320}"cuda" \| "gpu" => "cuda"\.to_string\(\)/.test(rsEngine)
+      && /"auto" \| "gpu" => "cuda"\.to_string\(\)|_ => "cpu"\.to_string\(\)/.test(rsEngine)
+      && /let norm = normalize_device\(&cfg\.device\);/.test(rsEngine),
+      'device: nilai lama auto/gpu dinormalkan saat engine.json dimuat');
+    ok(/fn default_config\(\) -> EngineConfig \{\s*EngineConfig \{\s*device: "cpu"\.into\(\)/.test(rsEngine)
+      && /EngineChoice::snapshot\(&app\)\.unwrap_or_else\(default_config\)/.test(rsEngine),
+      'device: default adalah cpu di seluruh tempat');
+    ok(/karaokeDevice:'cpu'/.test(jsStateD)
+      && /karaokeDevice = 'cpu'/.test(jsLibD)
+      && /kDev\.value = S\.downloadOptions\.karaokeDevice \|\| 'cpu'/.test(jsPlayerD)
+      && /'auto'[^\n]*ytCookies/.test(jsLibD),
+      'device: fallback frontend memakai cpu, nilai auto lain (cookies) tetap utuh');
+    ok(/pub struct ProbeSummary \{[\s\S]{0,160}pub cuda_ready: bool/.test(rsEngine)
+      && /const PROBE_SUMMARY_FILE: &str = "gpu-probe\.json";/.test(rsEngine)
+      && /pub fn save_summary\(entries: &\[PythonInfo\]\)/.test(rsEngine)
+      && /pub fn load_summary\(max_age_secs: u64\)/.test(rsEngine),
+      'cuda: ringkasan deteksi disimpan ke gpu-probe.json');
+    ok(/save_summary\(&fresh\);/.test(rsEngine),
+      'cuda: setiap deteksi baru menulis ulang ringkasan ke disk');
+    ok(/pub fn gpu_probe_cached\(max_age_secs: Option<u64>\) -> Option<gpu::ProbeSummary>/.test(rsEngine)
+      && /engine::gpu_probe_cached,/.test(rsLib),
+      'cuda: perintah gpu_probe_cached terdaftar untuk dibaca frontend');
+    ok(/function applyDeviceAvailability\(state, cudaReady\)/.test(jsGpuQ)
+      && /opt\.disabled = !cudaReady;/.test(jsGpuQ)
+      && /set\.deviceCudaUnsupported/.test(jsGpuQ),
+      'cuda: opsi CUDA dinonaktifkan + dilabeli bila PC tidak mendukung');
+    ok(/opt\.disabled = false;\s*opt\.textContent = `\$\{base\} \(\$\{t\('set\.deviceCudaChecking'\)\}\)`/.test(jsGpuQ)
+      && /applyDeviceAvailability\('unknown', false\)/.test(jsGpuQ),
+      'cuda: saat pemeriksaan/gagal, opsi tetap enabled agar tidak terkunci permanen');
+    ok(/if \(dev && dev\.value === 'cuda'\) \{[\s\S]{0,200}dev\.value = 'cpu'/.test(jsGpuQ),
+      'cuda: device cuda yang tidak didukung dikembalikan ke cpu');
+    ok(/invokeTauri\('gpu_probe_cached', \{ maxAgeSecs: 86400 \}\)/.test(jsGpuQ)
+      && /applyDeviceAvailability\('checking', false\);[\s\S]{0,200}loadCudaAvailabilityFromDisk\(\)/.test(jsGpuQ),
+      'cuda: status dropdown dibaca dari cache disk sebelum jendela tampil');
+    ok(/const strict = device === 'cuda';/.test(jsGpuQ)
+      && /if \(online && \(!strict \|\| active === true\)\)/.test(jsGpuQ),
+      'device: hanya cuda yang menuntut CUDA aktif, cpu tidak lagi revert ke gpu');
+    ok(/const cudaOn = !!cfg\.active_cuda;/.test(jsGpuQ),
+      'device: label status diambil dari config Rust, bukan nilai balik refresh');
+    ok(/if \(caps0 && !caps0\.cuda && selDev0 === 'cuda'\) \{[\s\S]{0,200}eng\.cudaFallbackCpu/.test(jsEngineS)
+      && !/eng\.cudaRequired[\s\S]{0,120}return;/.test(jsEngineS),
+      'karaoke: cuda tanpa dukungan tidak lagi memblokir, ada notif fallback');
+    ok(/if not dinfo\.get\("cuda"\) and quality == "karaoke_aufr33":/.test(pySepD),
+      'python: preset CPU cepat dipakai berdasarkan perangkat nyata');
+    ok(/if device == "cuda" and not dinfo\.get\("cuda"\):[\s\S]{0,700}device = "cpu"/.test(pySepD)
+      && !/if device == "cuda" and not dinfo\.get\("cuda"\):[\s\S]{0,400}status="failed"/.test(pySepD),
+      'python: device cuda tanpa CUDA jatuh ke CPU, bukan gagal');
+    for (const lang of ['en', 'id', 'jv']) {
+      const it = fs.readFileSync(path.join(root, `src/js/i18n/${lang}.js`), 'utf8');
+      ok(new RegExp(`'set\\.deviceCpu'`).test(it) && new RegExp(`'set\\.deviceCudaUnsupported'`).test(it)
+        && new RegExp(`'eng\\.cudaFallbackCpu'`).test(it),
+        `i18n ${lang}: kunci device + fallback cuda tersedia`);
+      ok(!/Device to Auto\/CPU|ke Auto\/CPU|menyang Auto\/CPU/.test(it),
+        `i18n ${lang}: tidak lagi menyebut Device Auto`);
+    }
+    ok(/log_line!\("device cuda tersimpan tapi interpreter CUDA tidak ada, dikembalikan ke cpu"\);/.test(rsEngine)
+      && /healed\.device = "cpu"\.into\(\);/.test(rsEngine),
+      'device: state cuda yang tidak bisa dipenuhi dikembalikan ke cpu (self-heal)');
 
     ok(/async function karaokeCaps\(selected, force\)/.test(jsEngineS)
       && /if \(!force && S\._karaokeCapsCache/.test(jsEngineS),
@@ -1227,7 +1296,7 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
       && /await karaokeCaps\(sel, force\)/.test(jsEngineS),
       'status: refreshCudaStatus meneruskan force ke cache');
     ok(/for \(let i = 0; i < 90; i\+\+\) \{[\s\S]{0,220}await refreshCudaStatus\(true\)/.test(jsGpuQ)
-      && /if \(online && active === wantCuda\) \{ matched = true; break; \}/.test(jsGpuQ),
+      && /if \(online && \(!strict \|\| active === true\)\) \{ matched = true; break; \}/.test(jsGpuQ),
       'status: gpu.js menunggu engine hidup + benar-benar sesuai device (baca tanpa cache)');
     ok(/return matched \? cfg : null;/.test(jsGpuQ),
       'status: gagal sesuai device dikembalikan sebagai null agar dropdown dikembalikan');

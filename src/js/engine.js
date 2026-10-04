@@ -77,7 +77,7 @@ async function engineInfo() { // /health versi lengkap; engineHealth() cuma retu
   return null;
 }
 async function karaokeCaps(selected, force) {
-  const dev = String(selected || (S.downloadOptions && S.downloadOptions.karaokeDevice) || 'auto').toLowerCase();
+  const dev = String(selected || (S.downloadOptions && S.downloadOptions.karaokeDevice) || 'cpu').toLowerCase();
   if (!force && S._karaokeCapsCache && S._karaokeCapsKey === dev && Date.now() - S._karaokeCapsAt < 60000) return S._karaokeCapsCache;
   for (const u of [ENG_BASE + '/karaoke', '/api/karaoke']) {
     try {
@@ -102,7 +102,7 @@ async function refreshCudaStatus(force) {
   const el = document.getElementById('karaokeCudaStatus');
   if (!el && !dot) return false;
   if (el) el.textContent = t('eng.cudaChecking');
-  const sel = String((S.downloadOptions && S.downloadOptions.karaokeDevice) || 'auto').toLowerCase();
+  const sel = String((S.downloadOptions && S.downloadOptions.karaokeDevice) || 'cpu').toLowerCase();
   let caps = null;
   try { caps = await karaokeCaps(sel, force); } catch { caps = null; }
   S._lastCudaRefreshAt = Date.now();
@@ -394,14 +394,11 @@ async function separate(mode) {
   const kb = $('#btnKaraoke'); if (kb) kb.disabled = true;
   S.karaokeCancelled = false;
 const caps0 = await karaokeCaps().catch(() => null);
-    const selDev0 = String((S.downloadOptions && S.downloadOptions.karaokeDevice) || 'auto').toLowerCase();
+    const selDev0 = String((S.downloadOptions && S.downloadOptions.karaokeDevice) || 'cpu').toLowerCase();
     if (caps0 && !caps0.cuda && selDev0 === 'cuda') {
-      const kb1 = $('#btnKaraoke'); if (kb1) kb1.disabled = false;
-      showSep(t('eng.cudaRequired'), 9000);
-      showToast(t('eng.cudaRequired'), 9000);
-      return;
+      showSep(t('eng.cudaFallbackCpu'), 6000);
+      showToast(t('eng.cudaFallbackCpu'), 6000);
     }
-    if (caps0 && !caps0.cuda && selDev0 !== 'cpu') showToast(t('eng.notDetected'), 6000);
     const needVram = Number(caps0 && caps0.min_free_vram_gb) || 0;
     const freeVram = caps0 ? Number(caps0.vram_free_gb) : NaN;
     if (caps0 && caps0.cuda && selDev0 !== 'cpu' && needVram > 0 && Number.isFinite(freeVram) && freeVram < needVram) {
@@ -413,7 +410,7 @@ const caps0 = await karaokeCaps().catch(() => null);
     try { refreshCudaStatus().catch(() => {}); } catch {}
   try {
     const quality = ['karaoke_aufr33','cpu_inst_hq'].includes(S.downloadOptions.karaokeQuality) ? S.downloadOptions.karaokeQuality : 'karaoke_aufr33';
-    const kDevice = S.downloadOptions.karaokeDevice || 'auto';
+    const kDevice = S.downloadOptions.karaokeDevice || 'cpu';
     const kFormat = S.downloadOptions.karaokeFormat || 'flac';
     const t0 = Date.now();
     try { showSep(''); } catch {}

@@ -284,7 +284,7 @@ document.getElementById('vgBulk')?.addEventListener('click', async ()=>{
 });
 document.getElementById('karaokeDevice')?.addEventListener('change', async (e)=>{
   const dev = e.target.value;
-  const prev = (S.downloadOptions && S.downloadOptions.karaokeDevice) || 'auto';
+  const prev = (S.downloadOptions && S.downloadOptions.karaokeDevice) || 'cpu';
   saveDownloadOptions({ karaokeDevice: dev });
   try { refreshCudaStatus(); } catch {}
   const gpu = (S.downloadOptions && S.downloadOptions.gpuPython) || '';
