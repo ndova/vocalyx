@@ -1180,6 +1180,24 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
       'fixE: device sebelumnya ditangkap dulu lalu dropdown + localStorage dikembalikan saat gagal');
     ok(/if \(!ok\) \{[\s\S]{0,220}saveDownloadOptions\(\{ karaokeDevice: prev \}\)/.test(jsTheme),
       'fixE: localStorage ikut dikembalikan ke device sebelumnya');
+
+    ok(/pub fn new\(\) -> Self \{\s*EngineChoice\(Mutex::new\(load_config\(\)\)\)/.test(rsEngine),
+      'fixF: EngineChoice::new() memuat device tersimpan dari disk');
+    ok(/fn engine_config_path\(\)[\s\S]{0,200}join\("engine\.json"\)/.test(rsEngine)
+      && /fn save_config\(cfg: &EngineConfig\)/.test(rsEngine),
+      'fixF: pilihan engine disimpan ke engine.json');
+    ok(/\*guard = cfg;\s*let cfg = guard\.clone\(\);\s*drop\(guard\);\s*save_config\(&cfg\);/.test(rsEngine),
+      'fixF: store() write-through ke disk');
+    ok(/#\[derive\(Serialize, Deserialize, Clone, PartialEq\)\]\s*pub struct EngineConfig/.test(rsEngine),
+      'fixF: EngineConfig bisa di-deserialize dari engine.json');
+    ok(/if dev == "cuda" \|\| dev == "gpu" \{?\s*if let Some\(c\) = cfg\.as_ref\(\) \{[\s\S]{0,320}p\.is_file\(\)/.test(rsEngine),
+      'fixF: startup pakai interpreter tersimpan tanpa probe torch ulang');
+    const jsGpuF = fs.readFileSync(path.join(root, 'src/js/gpu.js'), 'utf8');
+    ok(/export async function syncEngineConfig\(\)/.test(jsGpuF)
+      && /invokeTauri\('get_engine_config'\)/.test(jsGpuF),
+      'fixF: frontend menyinkronkan device dari get_engine_config');
+    ok(/S\.downloadOptions\.karaokeDevice !== cfg\.device[\s\S]{0,400}S\.downloadOptions\.karaokeDevice = cfg\.device/.test(jsGpuF),
+      'fixF: localStorage device mengikuti nilai Rust (tidak bisa desync)');
     ok(/engine::detect_pythons/.test(rsLib) && /engine::set_engine_config/.test(rsLib)
       && /engine::EngineChoice::new\(\)/.test(rsLib),
       'lib: perintah CUDA terdaftar + state EngineChoice di-manage');

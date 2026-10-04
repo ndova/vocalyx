@@ -13,7 +13,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -499,7 +499,6 @@ fn project_root(script: &Path) -> PathBuf {
 /// `torch.cuda.is_available()` benar-benar True.
 pub mod gpu {
     use super::*;
-    use serde::Serialize;
 
     #[derive(Serialize, Clone)]
     pub struct PythonInfo {
@@ -651,7 +650,7 @@ pub mod gpu {
 }
 
 /// Device yang dipilih user untuk karaoke.
-#[derive(Serialize, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct EngineConfig {
     pub device: String,
     pub gpu_python: String,
@@ -661,14 +660,58 @@ pub struct EngineConfig {
 
 pub struct EngineChoice(pub Mutex<EngineConfig>);
 
+/// Device + interpreter CUDA harus bertahan lintas restart app. Dulu state ini
+/// hanya in-memory, jadi setiap app baru kembali ke `auto` (CPU) sementara
+/// dropdown di frontend masih menampilkan CUDA dari localStorage — user
+/// merasa CUDA tidak bekerja padahal hanya lupa setting-nya.
+fn engine_config_path() -> Option<PathBuf> {
+    Some(app_data_dir().join("engine.json"))
+}
+
+fn default_config() -> EngineConfig {
+    EngineConfig {
+        device: "auto".into(),
+        gpu_python: String::new(),
+        active_python: String::new(),
+        active_cuda: false,
+    }
+}
+
+fn load_config() -> EngineConfig {
+    let Some(p) = engine_config_path() else {
+        return default_config();
+    };
+    let Ok(txt) = fs::read_to_string(p) else {
+        return default_config();
+    };
+    match serde_json::from_str::<EngineConfig>(&txt) {
+        Ok(cfg) => {
+            log_line!("muat pilihan engine: device={} python={}", cfg.device, cfg.active_python);
+            cfg
+        }
+        Err(e) => {
+            log_line!("gagal baca engine.json: {e}");
+            default_config()
+        }
+    }
+}
+
+fn save_config(cfg: &EngineConfig) {
+    let Some(p) = engine_config_path() else { return };
+    if let Some(dir) = p.parent() {
+        let _ = fs::create_dir_all(dir);
+    }
+    match serde_json::to_string_pretty(cfg) {
+        Ok(txt) => {
+            let _ = fs::write(p, txt);
+        }
+        Err(e) => log_line!("gagal tulis engine.json: {e}"),
+    }
+}
+
 impl EngineChoice {
     pub fn new() -> Self {
-        EngineChoice(Mutex::new(EngineConfig {
-            device: "auto".into(),
-            gpu_python: String::new(),
-            active_python: String::new(),
-            active_cuda: false,
-        }))
+        EngineChoice(Mutex::new(load_config()))
     }
 
     fn snapshot(app: &AppHandle) -> Option<EngineConfig> {
@@ -684,6 +727,9 @@ impl EngineChoice {
                 if let Some(c) = cuda {
                     guard.active_cuda = c;
                 }
+                let cfg = guard.clone();
+                drop(guard);
+                save_config(&cfg);
             }
         }
     }
@@ -692,6 +738,9 @@ impl EngineChoice {
         if let Some(state) = app.try_state::<EngineChoice>() {
             if let Ok(mut guard) = state.0.lock() {
                 *guard = cfg;
+                let cfg = guard.clone();
+                drop(guard);
+                save_config(&cfg);
                 return true;
             }
         }
@@ -771,6 +820,21 @@ fn chosen_python(app: &AppHandle) -> Option<PathBuf> {
     let device = cfg.as_ref().map(|c| c.device.clone()).unwrap_or_else(|| "auto".into());
     let gpu_python = cfg.as_ref().map(|c| c.gpu_python.clone()).unwrap_or_default();
     let dev = device.to_ascii_lowercase();
+
+    // Fast path: interpreter CUDA sudah pernah dipakai dan file-nya masih ada.
+    // Pakai langsung tanpa probe torch — probe itu memakan belasan detik dan
+    // sudah dilakukan waktu user memilih. Runtime bawaan tidak boleh dipakai
+    // di sini karena device cuda berarti user memang minta GPU.
+    if dev == "cuda" || dev == "gpu" {
+        if let Some(c) = cfg.as_ref() {
+            let p = PathBuf::from(&c.active_python);
+            if !c.active_python.is_empty() && p.is_file() {
+                log_line!("pakai interpreter tersimpan: {}", p.display());
+                return Some(p);
+            }
+        }
+    }
+
     // Deteksi hanya perlu kalau device benar-benar cuda/gpu. Untuk auto/cpu
     // tidak ada yang perlu di-probe, jadi jangan bakar belasan detik impor torch
     // di startup.
