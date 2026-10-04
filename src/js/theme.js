@@ -284,12 +284,17 @@ document.getElementById('vgBulk')?.addEventListener('click', async ()=>{
 });
 document.getElementById('karaokeDevice')?.addEventListener('change', async (e)=>{
   const dev = e.target.value;
+  const prev = (S.downloadOptions && S.downloadOptions.karaokeDevice) || 'auto';
   saveDownloadOptions({ karaokeDevice: dev });
   try { refreshCudaStatus(); } catch {}
   const gpu = (S.downloadOptions && S.downloadOptions.gpuPython) || '';
   const gpuMod = await import('./gpu.js');
   const ok = await gpuMod.setDeviceWithEngine(dev, gpu);
-  if (!ok) e.target.value = (S.downloadOptions && S.downloadOptions.karaokeDevice) || 'auto';
+  if (!ok && S.downloadOptions.karaokeDevice === dev) {
+    e.target.value = prev;
+    saveDownloadOptions({ karaokeDevice: prev });
+    try { refreshCudaStatus(); } catch {}
+  }
 });
 document.getElementById('karaokeQuality')?.addEventListener('change', (e)=>{
   saveDownloadOptions({ karaokeQuality: e.target.value });

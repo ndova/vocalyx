@@ -1168,6 +1168,21 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
     ok(/VOCALYX_RUNTIME_DIR/.test(rsEngine) && /FFMPEG_BINARY/.test(rsEngine)
       && /cmd\.env\("PATH", value\)/.test(rsEngine),
       'rust: python sistem tetap dapat ffmpeg runtime lewat env');
+
+    const jsGpuQ = fs.readFileSync(path.join(root, 'src/js/gpu.js'), 'utf8');
+    const jsThemeQ = fs.readFileSync(path.join(root, 'src/js/theme.js'), 'utf8');
+    ok(!/if \(applying\) return null;/.test(jsGpuQ),
+      'gpu: pergantian device tidak lagi dibuang diam-diam saat sedang busy');
+    ok(/let deviceQueue = Promise\.resolve\(\);/.test(jsGpuQ)
+      && /const p = deviceQueue\.then\(\(\) => runApplyDevice\(device, gpuPython\)\);/.test(jsGpuQ)
+      && /deviceQueue = p\.then\(\(\) => \{\}, \(\) => \{\}\);/.test(jsGpuQ),
+      'gpu: pergantian device diantrikan, tidak hilang');
+    ok(/const prev = \(S\.downloadOptions && S\.downloadOptions\.karaokeDevice\) \|\| 'auto';[\s\S]{0,420}if \(!ok && S\.downloadOptions\.karaokeDevice === dev\) \{[\s\S]{0,220}e\.target\.value = prev;/.test(jsThemeQ),
+      'theme: device sebelumnya ditangkap dulu, jadi dropdown bisa kembali');
+    ok(/if \(!ok && S\.downloadOptions\.karaokeDevice === dev\) \{[\s\S]{0,240}saveDownloadOptions\(\{ karaokeDevice: prev \}\)/.test(jsThemeQ),
+      'theme: localStorage kembali ke device lama, dan request lama tidak menimpa request baru');
+    ok(/pub fn restart\(app: &AppHandle\)/.test(rsEngine),
+      'rust: restart() tetap tanpa Result (perganti CPU tidak bisa error)');
     ok(!/^\s*\/\//m.test(rsEngine.replace(/^\s*\/\/![\s\S]*$/gm, '').replace(/^\s*\/\/\/.*$/gm, '')),
       'rust: engine.rs tanpa komentar // baru');
 

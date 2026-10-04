@@ -105,6 +105,7 @@ async function detect(force) {
 }
 
 let applying = false;
+let deviceQueue = Promise.resolve();
 
 async function waitEngineReady(timeoutMs) {
   const limit = Date.now() + (timeoutMs || 90000);
@@ -118,9 +119,7 @@ async function waitEngineReady(timeoutMs) {
   return false;
 }
 
-async function applyDevice(device, gpuPython) {
-  if (!isTauri()) return null;
-  if (applying) return null;
+async function runApplyDevice(device, gpuPython) {
   applying = true;
   markCudaRestarting();
   setStatus(t('set.gpuPythonApplying'), null);
@@ -137,6 +136,13 @@ async function applyDevice(device, gpuPython) {
   } finally {
     applying = false;
   }
+}
+
+async function applyDevice(device, gpuPython) {
+  if (!isTauri()) return null;
+  const p = deviceQueue.then(() => runApplyDevice(device, gpuPython));
+  deviceQueue = p.then(() => {}, () => {});
+  return p;
 }
 
 function currentDevice() {
