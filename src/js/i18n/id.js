@@ -274,6 +274,7 @@ export default {
   'set.gpuPythonFound': 'Ditemukan {n} Python dengan CUDA + dependensi engine lengkap.',
   'set.gpuPythonNoDeps': 'PyTorch CUDA ditemukan, tapi dependensi engine di sana belum lengkap.',
   'set.gpuPythonCpuOnly': 'Tidak ada Python dengan PyTorch CUDA di PC ini.',
+  'set.gpuPythonNoDepsShort': 'tanpa dependensi engine',
   'set.gpuPythonNone': 'Tidak ada interpreter Python yang bisa dipakai.',
   'set.gpuPythonTauriOnly': 'Deteksi Python hanya tersedia di aplikasi terpasang.',
   'set.gpuPythonSwitchFailed': 'Gagal mengganti interpreter',

@@ -92,6 +92,7 @@ export async function playDownloaded(d){
   load(ti, true);
 }
 function loadSettingsUI(){
+  import('./gpu.js').then((m) => m.ensureGpuPythonProbed()).catch(() => {});
   const fmtBtns = document.querySelectorAll('.dl-format');
   fmtBtns.forEach(b=> b.classList.toggle('active', b.dataset.format===S.downloadOptions.format));
   document.querySelectorAll('[data-strict-src]').forEach(el=>{

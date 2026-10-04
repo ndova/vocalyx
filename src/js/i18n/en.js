@@ -274,6 +274,7 @@ export default {
   'set.gpuPythonFound': '{n} Python with CUDA + full engine dependencies found.',
   'set.gpuPythonNoDeps': 'A CUDA PyTorch was found, but the engine dependencies are not complete there.',
   'set.gpuPythonCpuOnly': 'No Python with CUDA PyTorch was found on this PC.',
+  'set.gpuPythonNoDepsShort': 'no engine dependencies',
   'set.gpuPythonNone': 'No usable Python interpreter found.',
   'set.gpuPythonTauriOnly': 'Python detection is only available in the installed app.',
   'set.gpuPythonSwitchFailed': 'Could not switch interpreter',

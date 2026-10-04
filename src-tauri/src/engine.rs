@@ -602,25 +602,80 @@ pub mod gpu {
         })
     }
 
-    /// Semua interpreter yang bisa dipakai, hasil probe. Tidak error kalau tidak
-    /// ada yang bisa dipakai; pemanggil yang memutuskan.
-    pub fn detect() -> Vec<PythonInfo> {
-        let mut cands: Vec<PathBuf> = Vec::new();
-        if let Ok(custom) = std::env::var("VOCALYX_PYTHON") {
-            cands.push(PathBuf::from(custom));
+/// Kandidat interpreter yang sudah dipangkas satu per folder instalasi.
+///
+/// `python.exe` dan `pythonw.exe` di folder yang sama memakai `site-packages`
+/// yang identik, jadi hasil probe-nya selalu sama. Setelah keduanya di-probe,
+/// dropdown menampilkan Python311 dua kali dan Python314 tiga kali padahal
+/// hanya ada dua instalasi. Cukup satu per folder, dengan `pythonw.exe` diutamakan
+/// karena itulah yang dipakai engine (windowless, tanpa jendela konsol).
+fn one_exe_per_dir(cands: Vec<PathBuf>) -> Vec<PathBuf> {
+    const PREF: [&str; 3] = ["pythonw.exe", "python.exe", "python3.exe"];
+    fn rank(p: &Path) -> usize {
+        p.file_name()
+            .and_then(|f| PREF.iter().position(|n| f.to_string_lossy().eq_ignore_ascii_case(n)))
+            .unwrap_or(usize::MAX)
+    }
+    let mut out: Vec<PathBuf> = Vec::new();
+    for c in cands {
+        let Some(dir) = c.parent().map(|d| d.to_string_lossy().to_ascii_lowercase()) else {
+            out.push(c);
+            continue;
+        };
+        match out
+            .iter()
+            .position(|p| p.parent().map(|d| d.to_string_lossy().to_ascii_lowercase()) == Some(dir.clone()))
+        {
+            Some(i) => {
+                if rank(&c) < rank(&out[i]) {
+                    out[i] = c;
+                }
+            }
+            None => out.push(c),
         }
-        if let Some(b) = super::bundled_python() {
-            cands.push(b);
+    }
+    out
+}
+
+/// Semua interpreter yang bisa dipakai, hasil probe. Tidak error kalau tidak
+/// ada yang bisa dipakai; pemanggil yang memutuskan.
+pub fn detect() -> Vec<PythonInfo> {
+    let mut cands: Vec<PathBuf> = Vec::new();
+    if let Ok(custom) = std::env::var("VOCALYX_PYTHON") {
+        cands.push(PathBuf::from(custom));
+    }
+    if let Some(b) = super::bundled_python() {
+        cands.push(b);
+    }
+    for name in ["pythonw.exe", "python.exe", "python3.exe"] {
+        if let Some(path) = std::env::var_os("PATH") {
+            for dir in std::env::split_paths(&path) {
+                if dir.to_string_lossy().contains("WindowsApps") {
+                    continue;
+                }
+                let p = dir.join(name);
+                // Cukup yang pertama per nama: satu probe sudah memakan
+                // beberapa detik karena torch diimpor.
+                if p.is_file() {
+                    cands.push(p);
+                    break;
+                }
+            }
         }
-        for name in ["pythonw.exe", "python.exe", "python3.exe"] {
-            if let Some(path) = std::env::var_os("PATH") {
-                for dir in std::env::split_paths(&path) {
-                    if dir.to_string_lossy().contains("WindowsApps") {
-                        continue;
-                    }
-                    let p = dir.join(name);
-                    // Cukup yang pertama per nama: satu probe sudah memakan
-                    // beberapa detik karena torch diimpor.
+    }
+    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+        let base = PathBuf::from(local).join("Programs").join("Python");
+        if let Ok(entries) = std::fs::read_dir(&base) {
+            let mut dirs: Vec<PathBuf> = entries
+                .filter_map(|e| e.ok())
+                .map(|e| e.path())
+                .filter(|p| p.is_dir())
+                .collect();
+            dirs.sort();
+            dirs.reverse();
+            for d in dirs.into_iter().take(4) {
+                for exe in ["pythonw.exe", "python.exe", "python3.exe"] {
+                    let p = d.join(exe);
                     if p.is_file() {
                         cands.push(p);
                         break;
@@ -628,39 +683,21 @@ pub mod gpu {
                 }
             }
         }
-        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
-            let base = PathBuf::from(local).join("Programs").join("Python");
-            if let Ok(entries) = std::fs::read_dir(&base) {
-                let mut dirs: Vec<PathBuf> = entries
-                    .filter_map(|e| e.ok())
-                    .map(|e| e.path())
-                    .filter(|p| p.is_dir())
-                    .collect();
-                dirs.sort();
-                dirs.reverse();
-                for d in dirs.into_iter().take(4) {
-                    for exe in ["python.exe", "pythonw.exe"] {
-                        let p = d.join(exe);
-                        if p.is_file() {
-                            cands.push(p);
-                        }
-                    }
-                }
-            }
-        }
+    }
 
-        let mut out: Vec<PythonInfo> = Vec::new();
-        let mut seen: Vec<String> = Vec::new();
-        for c in cands {
-            let key = c.to_string_lossy().to_ascii_lowercase();
-            if seen.contains(&key) {
-                continue;
-            }
-            seen.push(key);
-            if let Some(info) = run_probe(&c) {
-                out.push(info);
-            }
+    let cands = one_exe_per_dir(cands);
+    let mut out: Vec<PythonInfo> = Vec::new();
+    let mut seen: Vec<String> = Vec::new();
+    for c in cands {
+        let key = c.to_string_lossy().to_ascii_lowercase();
+        if seen.contains(&key) {
+            continue;
         }
+        seen.push(key);
+        if let Some(info) = run_probe(&c) {
+            out.push(info);
+        }
+    }
         // CUDA lebih dulu, lalu yang punya dependensi lengkap.
         out.sort_by(|a, b| {
             b.cuda.cmp(&a.cuda)

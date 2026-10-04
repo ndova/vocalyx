@@ -1289,6 +1289,31 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
       && /healed\.device = "cpu"\.into\(\);/.test(rsEngine),
       'device: state cuda yang tidak bisa dipenuhi dikembalikan ke cpu (self-heal)');
 
+    const jsPlayerD2 = fs.readFileSync(path.join(root, 'src/js/player.js'), 'utf8');
+    ok(/fn one_exe_per_dir\(cands: Vec<PathBuf>\) -> Vec<PathBuf>/.test(rsEngine)
+      && /const PREF: \[&str; 3\] = \["pythonw\.exe", "python\.exe", "python3\.exe"\];/.test(rsEngine)
+      && /let cands = one_exe_per_dir\(cands\);/.test(rsEngine),
+      'deteksi: satu executable per folder instalasi (pythonw diutamakan)');
+    ok(/for exe in \["pythonw\.exe", "python\.exe", "python3\.exe"\] \{\s*let p = d\.join\(exe\);\s*if p\.is_file\(\) \{\s*cands\.push\(p\);\s*break;/.test(rsEngine),
+      'deteksi: scan Programs\\Python juga ambil satu executable per folder');
+    ok(/export async function ensureGpuPythonProbed\(\) \{[\s\S]{0,220}await detect\(false\)/.test(jsGpuQ),
+      'deteksi: fungsi lazy ensureGpuPythonProbed() ada');
+    const initBlock = (jsGpuQ.match(/export async function initGpuPython\(\)[\s\S]*?\n}/) || [''])[0];
+    ok(!/detect\(false\)/.test(initBlock) && /loadCudaAvailabilityFromDisk\(\)/.test(initBlock),
+      'deteksi: TIDAK probe di background saat app start (regresi boot 86 detik)');
+    ok(/function loadSettingsUI\(\)\{\s*import\('\.\/gpu\.js'\)\.then\(\(m\) => m\.ensureGpuPythonProbed\(\)\)/.test(jsPlayerD2),
+      'deteksi: deteksi baru jalan saat halaman Settings dibuka');
+    ok(/const deps = info\.has_deps \? '' : ` • \$\{t\('set\.gpuPythonNoDepsShort'\)\}`;/.test(jsGpuQ),
+      'label: interpreter tanpa dependensi engine ditandai jelas');
+    ok(/if \(!info\.has_deps\) o\.disabled = true;/.test(jsGpuQ),
+      'label: opsi tanpa dependensi engine tidak bisa dipilih');
+    ok(/export function hasCudaInterpreter\(\) \{\s*return lastDetected\.some\(\(i\) => i\.cuda && i\.has_deps\);/.test(jsGpuQ),
+      'label: hasCudaInterpreter() kembali ke bentuk sederhana');
+    for (const lang of ['en', 'id', 'jv']) {
+      const it2 = fs.readFileSync(path.join(root, `src/js/i18n/${lang}.js`), 'utf8');
+      ok(new RegExp(`'set\\.gpuPythonNoDepsShort'`).test(it2), `i18n ${lang}: kunci gpuPythonNoDepsShort ada`);
+    }
+
     ok(/async function karaokeCaps\(selected, force\)/.test(jsEngineS)
       && /if \(!force && S\._karaokeCapsCache/.test(jsEngineS),
       'status: cache /karaoke bisa dilewati agar tidak menampilkan data engine lama');

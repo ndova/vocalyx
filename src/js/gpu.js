@@ -49,9 +49,11 @@ function labelFor(info) {
   if (info.cuda) {
     const build = info.cuda_build ? ` ${info.cuda_build}` : '';
     const dev = info.device ? ` • ${info.device}` : '';
-    return `${name} — CUDA${build}${dev}`;
+    const deps = info.has_deps ? '' : ` • ${t('set.gpuPythonNoDepsShort')}`;
+    return `${name} — CUDA${build}${dev}${deps}`;
   }
-  return `${name} — CPU`;
+  const deps = info.has_deps ? '' : ` • ${t('set.gpuPythonNoDepsShort')}`;
+  return `${name} — CPU${deps}`;
 }
 
 function setStatus(text, ok) {
@@ -74,11 +76,12 @@ function fillSelect() {
     const o = document.createElement('option');
     o.value = info.path;
     o.textContent = labelFor(info);
+    if (!info.has_deps) o.disabled = true;
     if (info.path === current) o.selected = true;
     sel.appendChild(o);
   }
   if (!lastDetected.some((i) => i.path === current)) {
-    sel.value = current ? '' : '';
+    sel.value = '';
   }
 }
 
@@ -237,14 +240,19 @@ export async function syncEngineConfig() {
   } catch { return null; }
 }
 
+let gpuProbeRequested = false;
+
+export async function ensureGpuPythonProbed() {
+  if (gpuProbeRequested || cached) return;
+  gpuProbeRequested = true;
+  try { await detect(false); } catch {}
+}
+
 export async function initGpuPython() {
   try { registerCudaRefresh(autoRefreshCudaStatus); } catch {}
   applyDeviceAvailability('checking', false);
-  const fromDisk = await loadCudaAvailabilityFromDisk();
+  await loadCudaAvailabilityFromDisk();
   await syncEngineConfig();
-  if (!fromDisk) {
-    try { detect(false).catch(() => {}); } catch {}
-  }
   const btn = el('btnDetectPythons');
   if (btn) {
     btn.addEventListener('click', async () => {
@@ -271,8 +279,6 @@ export async function setDeviceWithEngine(device, gpuPython) {
 }
 
 export function hasCudaInterpreter() {
-  const opt = deviceCudaOption();
-  if (opt) return !opt.disabled && !!cached;
   return lastDetected.some((i) => i.cuda && i.has_deps);
 }
 
