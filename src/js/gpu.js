@@ -5,6 +5,7 @@ import { refreshCudaStatus, registerCudaRefresh, showToast } from './engine.js';
 
 export function markCudaRestarting() {
   S._cudaRestartingAt = Date.now();
+  S._deviceSwitching = true;
   const e = el('karaokeCudaStatus');
   if (e) { e.textContent = t('eng.restarting'); e.style.color = 'var(--muted)'; }
 }
@@ -27,7 +28,7 @@ function autoRefreshCudaStatus(engineOnline) {
   if (engineOnline === S._lastCudaOffline) return;
   S._lastCudaOffline = !engineOnline;
   if (engineOnline) {
-    S._cudaRestartingAt = false;
+    if (!S._deviceSwitching) S._cudaRestartingAt = false;
     try { refreshCudaStatus(); } catch {}
   }
 }
@@ -130,9 +131,9 @@ async function runApplyDevice(device, gpuPython) {
     let matched = false;
     let active = false;
     for (let i = 0; i < 90; i++) {
-      await waitEngineReady(1000);
+      const online = await waitEngineReady(1000);
       try { active = !!(await refreshCudaStatus(true)); } catch { active = false; }
-      if (active === wantCuda) { matched = true; break; }
+      if (online && active === wantCuda) { matched = true; break; }
     }
     if (matched) setStatus(active ? t('set.gpuPythonActiveCuda') : t('set.gpuPythonActiveCpu'), active);
     else setStatus(`${t('set.gpuPythonSwitchFailed')}: engine tidak sesuai device ${device}`, false);
@@ -143,6 +144,7 @@ async function runApplyDevice(device, gpuPython) {
     return null;
   } finally {
     applying = false;
+    S._deviceSwitching = false;
   }
 }
 

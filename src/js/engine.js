@@ -109,12 +109,12 @@ async function refreshCudaStatus(force) {
   if (!caps) {
     S._lastCudaOffline = true;
     if (dot) dot.style.background = 'var(--muted)';
-    if (el) { el.textContent = S._cudaRestartingAt ? t('eng.restarting') : t('eng.offlineRun'); el.style.color = '#e5484d'; }
+    if (el) { el.textContent = (S._cudaRestartingAt || S._deviceSwitching) ? t('eng.restarting') : t('eng.offlineRun'); el.style.color = '#e5484d'; }
     S._prevCudaActive = false;
     return false;
   }
   S._lastCudaOffline = false;
-  if (S._cudaRestartingAt) S._cudaRestartingAt = false;
+  if (S._cudaRestartingAt && !S._deviceSwitching) S._cudaRestartingAt = false;
   if (sel === 'cpu') {
     const nm = (caps && caps.cpu_name) || '';
     const th = (caps && caps.cpu_threads) || 0;

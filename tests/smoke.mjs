@@ -1182,6 +1182,15 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
       'gpu: permintaan device lama dibuang, hanya pilihan terakhir yang dijalankan');
     ok(/let detected = gpu::detect_cached\(false\);/.test(rsEngine),
       'engine: pergantian device memakai cache deteksi, tidak probe ulang semua interpreter');
+
+    const jsEngineS = fs.readFileSync(path.join(root, 'src/js/engine.js'), 'utf8');
+    ok(/S\._deviceSwitching = true;/.test(jsGpuQ)
+      && /S\._deviceSwitching = false;/.test(jsGpuQ),
+      'status: ada penanda pergantian device yang bertahan sampai proses selesai');
+    ok(/S\._cudaRestartingAt && !S\._deviceSwitching\) S\._cudaRestartingAt = false;/.test(jsEngineS),
+      'status: flag restarting tidak dihapus di tengah pergantian device');
+    ok(/\(S\._cudaRestartingAt \|\| S\._deviceSwitching\) \? t\('eng\.restarting'\) : t\('eng\.offlineRun'\)/.test(jsEngineS),
+      'status: selama restart ditampilkan "memulai ulang", bukan "Engine offline"');
     ok(/const prev = \(S\.downloadOptions && S\.downloadOptions\.karaokeDevice\) \|\| 'auto';[\s\S]{0,420}if \(!ok && S\.downloadOptions\.karaokeDevice === dev\) \{[\s\S]{0,220}e\.target\.value = prev;/.test(jsThemeQ),
       'theme: device sebelumnya ditangkap dulu, jadi dropdown bisa kembali');
     ok(/if \(!ok && S\.downloadOptions\.karaokeDevice === dev\) \{[\s\S]{0,240}saveDownloadOptions\(\{ karaokeDevice: prev \}\)/.test(jsThemeQ),
@@ -1189,7 +1198,6 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
     ok(/pub fn restart\(app: &AppHandle\)/.test(rsEngine),
       'rust: restart() tetap tanpa Result (perganti CPU tidak bisa error)');
 
-    const jsEngineS = fs.readFileSync(path.join(root, 'src/js/engine.js'), 'utf8');
     ok(/async function karaokeCaps\(selected, force\)/.test(jsEngineS)
       && /if \(!force && S\._karaokeCapsCache/.test(jsEngineS),
       'status: cache /karaoke bisa dilewati agar tidak menampilkan data engine lama');
@@ -1197,8 +1205,8 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
       && /await karaokeCaps\(sel, force\)/.test(jsEngineS),
       'status: refreshCudaStatus meneruskan force ke cache');
     ok(/for \(let i = 0; i < 90; i\+\+\) \{[\s\S]{0,220}await refreshCudaStatus\(true\)/.test(jsGpuQ)
-      && /if \(active === wantCuda\) \{ matched = true; break; \}/.test(jsGpuQ),
-      'status: gpu.js menunggu engine benar-benar sesuai device (baca tanpa cache)');
+      && /if \(online && active === wantCuda\) \{ matched = true; break; \}/.test(jsGpuQ),
+      'status: gpu.js menunggu engine hidup + benar-benar sesuai device (baca tanpa cache)');
     ok(/return matched \? cfg : null;/.test(jsGpuQ),
       'status: gagal sesuai device dikembalikan sebagai null agar dropdown dikembalikan');
 
