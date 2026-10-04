@@ -1208,7 +1208,7 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
       && /invokeTauri\('get_engine_config'\)/.test(jsGpuQ)
       && /await syncEngineConfig\(\);/.test(jsGpuQ),
       'persist: dropdown device mengikuti state Rust saat app start');
-    ok(/if \(dev && dev\.value !== cfg\.device\) dev\.value = cfg\.device;/.test(jsGpuQ),
+    ok(/if \(dev && dev\.value !== device\) dev\.value = device;/.test(jsGpuQ),
       'persist: elemen select diperbaiki agar tidak berbeda dari engine');
     ok(/!ok && S\.downloadOptions\.karaokeDevice === dev[\s\S]{0,80}saveDownloadOptions\(\{ karaokeDevice: prev \}\)/.test(jsThemeQ)
       && /pub fn restart\(app: &AppHandle\)/.test(rsEngine)
@@ -1307,8 +1307,29 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
       'label: interpreter tanpa dependensi engine ditandai jelas');
     ok(/if \(!info\.has_deps\) o\.disabled = true;/.test(jsGpuQ),
       'label: opsi tanpa dependensi engine tidak bisa dipilih');
-    ok(/export function hasCudaInterpreter\(\) \{\s*return lastDetected\.some\(\(i\) => i\.cuda && i\.has_deps\);/.test(jsGpuQ),
-      'label: hasCudaInterpreter() kembali ke bentuk sederhana');
+    ok(/export function hasCudaInterpreter\(\)/.test(jsGpuQ) === false
+      && !/hasCudaInterpreter/.test(jsGpuQ),
+      'label: hasCudaInterpreter() yang tidak terpakai sudah dihapus');
+
+    const hookBlock = (jsGpuQ.match(/function autoRefreshCudaStatus\(engineOnline\)[\s\S]*?\n}/) || [''])[0];
+    ok(hookBlock.length > 0 && !/lastDetected/.test(hookBlock),
+      'status: hook autoRefreshCudaStatus tidak lagi berhenti saat lastDetected kosong');
+    ok(!/S\._lastCudaOffline === undefined\) \{ S\._lastCudaOffline = !engineOnline; return; \}/.test(hookBlock)
+      && /const wasOnline = S\._lastCudaOffline === false;/.test(hookBlock),
+      'status: transisi online pertama tidak lagi ditelan');
+    ok(/if \(engineOnline\) \{[\s\S]{0,200}refreshCudaStatus\(\);[\s\S]{0,160}return;/.test(hookBlock)
+      && /if \(wasOnline\) \{[\s\S]{0,160}refreshCudaStatus\(\);/.test(hookBlock),
+      'status: refresh jalan saat engine online dan saat online -> offline');
+
+    const jsAppA = fs.readFileSync(path.join(root, 'src/app.js'), 'utf8');
+    ok(/import \{[^}]*refreshCudaStatus[^}]*\} from '\.\/js\/engine\.js'/.test(jsAppA)
+      && (jsAppA.match(/refreshCudaStatus \} from '\.\/js\/engine\.js'/g) || []).length === 1,
+      'status: app.js mengimpor refreshCudaStatus tepat sekali');
+    ok(/if \(await engineHealth\(\)\) \{ try \{ refreshCudaStatus\(\); \} catch \{\} return; \}/.test(jsAppA),
+      'status: status langsung di-refresh begitu engine hidup (tidak tunggu tick 15 detik)');
+    ok(/let device = cfg\.device;[\s\S]{0,200}if \(device === 'cuda' && cudaOpt && cudaOpt\.disabled\) device = 'cpu';/.test(jsGpuQ)
+      && /if \(dev && dev\.value !== device\) dev\.value = device;/.test(jsGpuQ),
+      'device: syncEngineConfig tidak menulis cuda yang sedang dinonaktifkan');
     for (const lang of ['en', 'id', 'jv']) {
       const it2 = fs.readFileSync(path.join(root, `src/js/i18n/${lang}.js`), 'utf8');
       ok(new RegExp(`'set\\.gpuPythonNoDepsShort'`).test(it2), `i18n ${lang}: kunci gpuPythonNoDepsShort ada`);

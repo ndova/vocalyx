@@ -107,7 +107,9 @@ setInterval(engineHealth, 15000);
 setInterval(()=>{ if(S.activeView==='device') checkIPhoneConnected(); }, 3000);
 (async ()=>{ // engine di-spawn otomatis oleh Tauri; import torch lambat, jadi tunggu banyak sebelum menyerah
   for (let i = 0; i < 60; i++){
-    try { if (await engineHealth()) return; } catch {}
+    try {
+      if (await engineHealth()) { try { refreshCudaStatus(); } catch {} return; }
+    } catch {}
     await new Promise(r => setTimeout(r, 2000));
   }
   showToast('Engine offline — cek log di %APPDATA%\\VocaLyx\\engine.log', 9000);

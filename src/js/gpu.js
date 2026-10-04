@@ -23,12 +23,15 @@ export function karaokeCudaLabel(caps) {
 }
 
 function autoRefreshCudaStatus(engineOnline) {
-  if (!lastDetected.length) return;
-  if (S._lastCudaOffline === undefined) { S._lastCudaOffline = !engineOnline; return; }
-  if (engineOnline === S._lastCudaOffline) return;
+  const wasOnline = S._lastCudaOffline === false;
   S._lastCudaOffline = !engineOnline;
   if (engineOnline) {
     if (!S._deviceSwitching) S._cudaRestartingAt = false;
+    try { refreshCudaStatus(); } catch {}
+    return;
+  }
+  if (wasOnline) {
+    S._prevCudaActive = false;
     try { refreshCudaStatus(); } catch {}
   }
 }
@@ -224,8 +227,11 @@ export async function syncEngineConfig() {
     const persist = () => {
       try { localStorage.setItem('vocalyx_downloadOptions', JSON.stringify(S.downloadOptions)); } catch {}
     };
-    if (S.downloadOptions.karaokeDevice !== cfg.device) {
-      S.downloadOptions.karaokeDevice = cfg.device;
+    let device = cfg.device;
+    const cudaOpt = deviceCudaOption();
+    if (device === 'cuda' && cudaOpt && cudaOpt.disabled) device = 'cpu';
+    if (S.downloadOptions.karaokeDevice !== device) {
+      S.downloadOptions.karaokeDevice = device;
       persist();
     }
     if (cfg.gpu_python && S.downloadOptions.gpuPython !== cfg.gpu_python) {
@@ -233,7 +239,7 @@ export async function syncEngineConfig() {
       persist();
     }
     const dev = el('karaokeDevice');
-    if (dev && dev.value !== cfg.device) dev.value = cfg.device;
+    if (dev && dev.value !== device) dev.value = device;
     const sel = el('gpuPythonSelect');
     if (sel && cfg.gpu_python && sel.value !== cfg.gpu_python) sel.value = cfg.gpu_python;
     return cfg;
@@ -276,10 +282,6 @@ export async function initGpuPython() {
 
 export async function setDeviceWithEngine(device, gpuPython) {
   return applyDevice(device, gpuPython);
-}
-
-export function hasCudaInterpreter() {
-  return lastDetected.some((i) => i.cuda && i.has_deps);
 }
 
 export { detect as detectPythons };
