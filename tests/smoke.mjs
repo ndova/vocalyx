@@ -1191,6 +1191,28 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
       'status: flag restarting tidak dihapus di tengah pergantian device');
     ok(/\(S\._cudaRestartingAt \|\| S\._deviceSwitching\) \? t\('eng\.restarting'\) : t\('eng\.offlineRun'\)/.test(jsEngineS),
       'status: selama restart ditampilkan "memulai ulang", bukan "Engine offline"');
+
+    ok(/pub fn new\(\) -> Self \{\s*EngineChoice\(Mutex::new\(load_config\(\)\)\)/.test(rsEngine),
+      'persist: pilihan device dimuat dari disk saat app start');
+    ok(/fn engine_config_path\(\)[\s\S]{0,220}join\("engine\.json"\)/.test(rsEngine)
+      && /fn save_config\(cfg: &EngineConfig\)/.test(rsEngine),
+      'persist: pilihan device ditulis ke engine.json');
+    ok(/\*guard = cfg;\s*let cfg = guard\.clone\(\);\s*drop\(guard\);\s*save_config\(&cfg\);/.test(rsEngine),
+      'persist: store() langsung menyimpan ke disk');
+    ok(/#\[derive\(Serialize, Deserialize, Clone, PartialEq\)\]\s*pub struct EngineConfig/.test(rsEngine),
+      'persist: EngineConfig bisa dibaca ulang dari engine.json');
+    ok(/if dev == "cuda" \|\| dev == "gpu" \{?\s*if let Some\(c\) = cfg\.as_ref\(\) \{[\s\S]{0,320}p\.is_file\(\)/.test(rsEngine),
+      'persist: app yang dibuka ulang pakai interpreter tersimpan tanpa probe torch');
+    ok(/export async function syncEngineConfig\(\)/.test(jsGpuQ)
+      && /invokeTauri\('get_engine_config'\)/.test(jsGpuQ)
+      && /await syncEngineConfig\(\);/.test(jsGpuQ),
+      'persist: dropdown device mengikuti state Rust saat app start');
+    ok(/if \(dev && dev\.value !== cfg\.device\) dev\.value = cfg\.device;/.test(jsGpuQ),
+      'persist: elemen select diperbaiki agar tidak berbeda dari engine');
+    ok(/!ok && S\.downloadOptions\.karaokeDevice === dev[\s\S]{0,80}saveDownloadOptions\(\{ karaokeDevice: prev \}\)/.test(jsThemeQ)
+      && /pub fn restart\(app: &AppHandle\)/.test(rsEngine)
+      && !/fn wait_engine_cuda/.test(rsEngine),
+      'persist: revert device tetap ada dan restart() tanpa Result (ganti CPU tidak bisa error)');
     ok(/const prev = \(S\.downloadOptions && S\.downloadOptions\.karaokeDevice\) \|\| 'auto';[\s\S]{0,420}if \(!ok && S\.downloadOptions\.karaokeDevice === dev\) \{[\s\S]{0,220}e\.target\.value = prev;/.test(jsThemeQ),
       'theme: device sebelumnya ditangkap dulu, jadi dropdown bisa kembali');
     ok(/if \(!ok && S\.downloadOptions\.karaokeDevice === dev\) \{[\s\S]{0,240}saveDownloadOptions\(\{ karaokeDevice: prev \}\)/.test(jsThemeQ),

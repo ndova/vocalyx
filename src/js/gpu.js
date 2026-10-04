@@ -166,8 +166,34 @@ function currentGpuPython() {
   return String((S.downloadOptions && S.downloadOptions.gpuPython) || '');
 }
 
+export async function syncEngineConfig() {
+  if (!isTauri()) return null;
+  try {
+    const cfg = await invokeTauri('get_engine_config');
+    if (!cfg || !cfg.device) return null;
+    if (!S.downloadOptions) S.downloadOptions = {};
+    const persist = () => {
+      try { localStorage.setItem('vocalyx_downloadOptions', JSON.stringify(S.downloadOptions)); } catch {}
+    };
+    if (S.downloadOptions.karaokeDevice !== cfg.device) {
+      S.downloadOptions.karaokeDevice = cfg.device;
+      persist();
+    }
+    if (cfg.gpu_python && S.downloadOptions.gpuPython !== cfg.gpu_python) {
+      S.downloadOptions.gpuPython = cfg.gpu_python;
+      persist();
+    }
+    const dev = el('karaokeDevice');
+    if (dev && dev.value !== cfg.device) dev.value = cfg.device;
+    const sel = el('gpuPythonSelect');
+    if (sel && cfg.gpu_python && sel.value !== cfg.gpu_python) sel.value = cfg.gpu_python;
+    return cfg;
+  } catch { return null; }
+}
+
 export async function initGpuPython() {
   try { registerCudaRefresh(autoRefreshCudaStatus); } catch {}
+  await syncEngineConfig();
   const btn = el('btnDetectPythons');
   if (btn) {
     btn.addEventListener('click', async () => {
