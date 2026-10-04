@@ -556,24 +556,36 @@ ok(document.documentElement.lang === 'en', 'i18n: html[lang] ikut en');
       'theme: perubahan tema Windows diterapkan live saat preferensi system');
     ok(/themePreference\(\) === 'system'\) applyTheme\(e\.matches \? 'dark' : 'light'\)/.test(themeSrc),
       'theme: fallback matchMedia hanya berlaku saat preferensi system');
-    ok(/document\.getElementById\('setTheme'\)\?\.addEventListener\('change', \(e\) => \{\s*setThemePreference\(e\.target\.value\);/.test(themeSrc)
-      && /function syncThemeSelect\(\)/.test(themeSrc),
-      'theme: dropdown Settings tersambung ke setThemePreference');
-    ok(/function loadSettingsUI\(\)\{\s*import\('\.\/gpu\.js'\)\.then\(\(m\) => m\.ensureGpuPythonProbed\(\)\)\.catch\(\(\) => \{\}\);\s*import\('\.\/theme\.js'\)\.then\(\(m\) => m\.syncThemeSelect\(\)\)/.test(
+    ok(/document\.getElementById\('btnTheme'\)\?\.addEventListener\('click', \(\) => \{\s*setThemePreference\(themeCycle\(\)\);/.test(themeSrc),
+      'theme: tombol visualizer memakai siklus 3 status');
+    ok(/function themeCycle\(\) \{[\s\S]{0,200}if \(p === 'system'\) return 'dark';[\s\S]{0,80}if \(p === 'dark'\) return 'light';[\s\S]{0,60}return 'system';/.test(themeSrc),
+      'theme: siklus system -> dark -> light -> system (sesuai assertion klik ganda)');
+    ok(!/id="setTheme"/.test(fs.readFileSync(path.join(root, 'src/index.html'), 'utf8'))
+      && !/set\.appearance/.test(fs.readFileSync(path.join(root, 'src/index.html'), 'utf8'))
+      && !/syncThemeSelect/.test(themeSrc)
+      && !/getElementById\('setTheme'\)/.test(themeSrc),
+      'theme: dropdown Appearance dihapus, tombol jadi satu-satunya kontrol');
+    ok(/function paintThemeButton\(pref, shown\)[\s\S]{0,700}b\.innerHTML = ICON_HALF;/.test(themeSrc)
+      && /b\.innerHTML = pref === 'dark' \? ICON_SUN : ICON_MOON;/.test(themeSrc),
+      'theme: ikon tombol menyesuaikan preferensi (half / sun / moon)');
+    ok(/b\.title = t\('th\.themeFollowsWin', \{ state: t\(shown === 'dark' \? 'th\.stateDark' : 'th\.stateLight'\) \}\);/.test(themeSrc)
+      && /b\.title = pref === 'dark' \? t\('th\.lightMode'\) : t\('th\.darkMode'\);/.test(themeSrc),
+      'theme: tooltip tombol benar untuk mode system maupun override');
+    ok(!/function loadSettingsUI\(\)\{[\s\S]{0,200}syncThemeSelect/.test(
         fs.readFileSync(path.join(root, 'src/js/player.js'), 'utf8')),
-      'theme: dropdown Settings disinkronkan ulang saat halaman Settings dibuka');
-    const htmlTheme = fs.readFileSync(path.join(root, 'src/index.html'), 'utf8');
-    ok(/id="setTheme"/.test(htmlTheme)
-      && /<option value="system"/.test(htmlTheme)
-      && /<option value="light"/.test(htmlTheme)
-      && /<option value="dark"/.test(htmlTheme),
-      'theme: dropdown Settings punya 3 opsi system/light/dark');
+      'theme: player.js tidak lagi menyinkronkan dropdown tema');
+    ok(/'circle-half': '<circle cx="12" cy="12" r="9" \/> <path d="M12 3a9 9 0 0 1 0 18" fill="currentColor" stroke="none" \/>',/.test(
+        fs.readFileSync(path.join(root, 'src/icons/tabler/index.js'), 'utf8'))
+      && fs.existsSync(path.join(root, 'src/icons/tabler/circle-half.svg')),
+      'theme: ikon circle-half terdaftar di TABLER dan file svg-nya ada');
     for (const tl of ['en', 'id', 'jv']) {
       const ti = fs.readFileSync(path.join(root, `src/js/i18n/${tl}.js`), 'utf8');
-      ok(new RegExp(`'set\\.appearance'`).test(ti) && new RegExp(`'set\\.appearanceHint'`).test(ti)
-        && new RegExp(`'th\\.themeSystem'`).test(ti) && new RegExp(`'th\\.themeLight'`).test(ti)
-        && new RegExp(`'th\\.themeDark'`).test(ti),
-        `theme i18n ${tl}: kunci appearance + themeSystem/Light/Dark ada`);
+      ok(new RegExp(`'th\\.themeFollowsWin'`).test(ti) && new RegExp(`'th\\.stateDark'`).test(ti)
+        && new RegExp(`'th\\.stateLight'`).test(ti),
+        `theme i18n ${tl}: kunci themeFollowsWin + stateDark/stateLight ada`);
+      ok(!new RegExp(`'set\\.appearance'`).test(ti) && !new RegExp(`'th\\.themeSystem'`).test(ti)
+        && !new RegExp(`'th\\.themeLight'`).test(ti) && !new RegExp(`'th\\.themeDark'`).test(ti),
+        `theme i18n ${tl}: kunci dropdown Appearance sudah dibuang`);
     }
     localStorage.setItem('vocalyx_lang_v1', 'jv');
     const bootLang = i18nCore.initI18n();

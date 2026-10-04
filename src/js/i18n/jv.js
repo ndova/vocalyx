@@ -143,8 +143,6 @@ export default {
   'set.quality': 'Kuality',
   'set.format': 'Format',
   'set.language': 'Basa',
-  'set.appearance': 'Tampilan',
-  'set.appearanceHint': 'Tema nuturake Windows otomatis. Pilih Terang utawa Gelap kanggo nèkèni dhewe.',
   'set.languageHint': 'Milih basa sing digunakake',
   'set.presetAufr33': 'Paling apik - MelBand RoFormer Karaoke (Aufr33/Viperx)',
   'set.presetCpu': 'UVR-MDX-NET-Inst_HQ_4',
@@ -374,9 +372,9 @@ export default {
   'me.delCoverQ': 'Busak sampul "{n}"?',
 
   'th.lightMode': 'Mode terang',
-  'th.themeSystem': 'Nuturake Windows',
-  'th.themeLight': 'Terang',
-  'th.themeDark': 'Gelap',
+  'th.themeFollowsWin': 'Tema: nuturake Windows ({state})',
+  'th.stateDark': 'gelap',
+  'th.stateLight': 'terang',
   'th.darkMode': 'Mode gelap',
   'gain.start': 'Miwah',
 

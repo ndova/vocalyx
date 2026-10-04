@@ -11,6 +11,7 @@ export const TABLER = {
   'checkbox': '<path d="M9 11l3 3l8 -8" /> <path d="M20 12v6a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-12a2 2 0 0 1 2 -2h9" />',
   'chevron-down': '<path d="M6 9l6 6l6 -6" />',
   'chevron-right': '<path d="M9 6l6 6l-6 6" />',
+  'circle-half': '<circle cx="12" cy="12" r="9" /> <path d="M12 3a9 9 0 0 1 0 18" fill="currentColor" stroke="none" />',
   'circle-x': '<path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0" /> <path d="M10 10l4 4m0 -4l-4 4" />',
   'clock': '<path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0" /> <path d="M12 7v5l3 3" />',
   'device-mobile': '<path d="M6 5a2 2 0 0 1 2 -2h8a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-8a2 2 0 0 1 -2 -2v-14" /> <path d="M11 4h2" /> <path d="M12 17v.01" />',
