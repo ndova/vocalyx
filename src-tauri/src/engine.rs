@@ -72,7 +72,13 @@ fn port_listening() -> bool {
 /// Restart engine dengan pilihan device baru. Dipakai saat user mengganti
 /// Device / Python CUDA di Settings: interpreter yang hidup harus diganti,
 /// karena `torch.cuda` ditentukan saat proses Python start.
-pub fn restart(app: &AppHandle) {
+///
+/// Mengembalikan `Err` kalau engine tidak benar-benar bisa diganti. Ini penting:
+/// kalau port 8001 masih dipegang engine milik instance VocaLyx yang lain
+/// (mis. sisa dari `tauri dev` sebelumnya), `start()` akan melakukan "skip spawn"
+/// sehingga engine yang hidup tetap interpreter lama. Tanpa error, UI sempat
+/// menampilkan "Engine is running with a CUDA interpreter" padahal tidak.
+pub fn restart(app: &AppHandle) -> Result<(), String> {
     if let Some(state) = app.try_state::<Engine>() {
         let child = { state.0.lock().ok().and_then(|mut g| g.take()) };
         if let Some(mut child) = child {
@@ -82,7 +88,90 @@ pub fn restart(app: &AppHandle) {
         }
     }
     wait_port_free(6000);
+    if port_listening() {
+        let stale = stale_engine_pid();
+        let extra = match stale {
+            Some(pid) if !pid_alive(pid) => format!(" (tercatat pid {pid}, sudah mati)"),
+            _ => String::new(),
+        };
+        return Err(format!(
+            "Port {ENGINE_PORT} masih dipakai engine lain{extra}. Tutup instance VocaLyx yang lain, lalu coba lagi."
+        ));
+    }
     start(app);
+    Ok(())
+}
+
+/// Baca `/health` engine sebagai JSON. Dipakai untuk verifikasi nyata setelah
+/// restart, bukan mempercayai hasil probe.
+fn health_json(timeout: Duration) -> Option<serde_json::Value> {
+    let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, ENGINE_PORT));
+    let mut s = TcpStream::connect_timeout(&addr, timeout).ok()?;
+    s.set_read_timeout(Some(timeout)).ok()?;
+    s.write_all(
+        format!(
+            "GET /health HTTP/1.1\r\nHost: 127.0.0.1:{ENGINE_PORT}\r\nConnection: close\r\n\r\n"
+        )
+        .as_bytes(),
+    )
+    .ok()?;
+    let mut buf = Vec::with_capacity(1024);
+    let mut chunk = [0u8; 1024];
+    loop {
+        match s.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                buf.extend_from_slice(&chunk[..n]);
+                if buf.len() >= 16 * 1024 {
+                    break;
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    let text = String::from_utf8_lossy(&buf).into_owned();
+    let body = text.split_once("\r\n\r\n")?.1;
+    serde_json::from_str(body.trim()).ok()
+}
+
+/// Tunggu engine sampai `/health` melaporkan cuda sama dengan yang diharapkan.
+/// `Err` kalau engine tidak pernah melaporkan nilai itu dalam batas waktu.
+fn wait_engine_cuda(expect_cuda: bool, max_ms: u64) -> Result<(), String> {
+    let step = Duration::from_millis(500);
+    let mut waited: u64 = 0;
+    while waited <= max_ms {
+        if let Some(j) = health_json(Duration::from_secs(3)) {
+            let cuda = j.get("cuda").and_then(|v| v.as_bool()).unwrap_or(false);
+            if cuda == expect_cuda {
+                return Ok(());
+            }
+        }
+        std::thread::sleep(step);
+        waited += step.as_millis() as u64;
+    }
+    Err(format!(
+        "Engine tidak melaporkan CUDA={expect_cuda} setelah restart (mungkin gagal boot atau masih pakai runtime CPU)."
+    ))
+}
+
+fn stale_engine_pid() -> Option<u32> {
+    let txt = fs::read_to_string(app_data_dir().join("engine.pid")).ok()?;
+    txt.trim().parse::<u32>().ok()
+}
+
+#[cfg(windows)]
+fn pid_alive(pid: u32) -> bool {
+    Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+        .stdin(Stdio::null())
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
+        .unwrap_or(false)
+}
+
+#[cfg(not(windows))]
+fn pid_alive(_pid: u32) -> bool {
+    false
 }
 
 pub fn start(app: &AppHandle) {
@@ -106,7 +195,7 @@ pub fn start(app: &AppHandle) {
     // Catat interpreter aktif saja. Tidak ada probe CUDA di sini: `start()`
     // dipanggil dari `spawn_ensure_and_start` (spawn_blocking) maupun dari
     // `restart` (async) — tapi probe = impor torch yang berat, dan `/health`
-    // sudah melaporkan cuda saat engine siap. Jadi Hematkan.
+    // sudah melaporkan cuda saat engine siap.
     EngineChoice::record_active(app, &py, None);
 
     let mut cmd = Command::new(&py);
@@ -133,6 +222,10 @@ pub fn start(app: &AppHandle) {
             if let Ok(mut slot) = app.state::<Engine>().0.lock() {
                 *slot = Some(child);
             }
+            // Catat PID engine yang kita spawn agar `restart` bisa membedakan
+            // "engine milik instance lain yang masih hidup" dari "sisa engine
+            // yang sudah mati" (mis. dari `tauri dev` sebelumnya).
+            let _ = fs::write(app_data_dir().join("engine.pid"), pid.to_string());
             log_line!("engine berjalan (pid {})", pid);
         }
         Err(e) => log_line!("GAGAL spawn: {}", e),
@@ -826,26 +919,41 @@ pub async fn set_engine_config(
         let detected = gpu::detect_cached(true);
         let chosen = resolve_interpreter(&dev, &gpu_py, &detected)?;
         let chosen_s = chosen.to_string_lossy().into_owned();
-        let active_cuda = detected
+        let probe_cuda = detected
             .iter()
             .find(|i| i.path.eq_ignore_ascii_case(&chosen_s))
             .map(|i| i.cuda)
             .unwrap_or(false);
-        if (dev == "cuda" || dev == "gpu") && !active_cuda {
+        if (dev == "cuda" || dev == "gpu") && !probe_cuda {
             return Err("interpreter yang dipilih tidak punya PyTorch CUDA".into());
         }
 
+        let want_cuda = dev == "cuda" || dev == "gpu";
+        let previous = EngineChoice::snapshot(&app);
         let next = EngineConfig {
             device: dev.clone(),
             gpu_python: gpu_py,
             active_python: chosen_s.clone(),
-            active_cuda,
+            active_cuda: probe_cuda,
         };
         if !EngineChoice::store(&app, next.clone()) {
             return Err("state engine tidak tersedia".into());
         }
         log_line!("device engine -> {dev} (python {chosen_s})");
-        restart(&app);
+
+        // Verifikasi NYATA lewat /health. Tanpa ini, `restart` bisa gagal diam-diam
+        // (port 8001 dipegang engine milik instance lain -> start() skip spawn)
+        // sementara UI tetap menampilkan "Engine is running with a CUDA
+        // interpreter" padahal engine-nya masih CPU.
+        if let Err(e) = restart(&app).and_then(|()| wait_engine_cuda(want_cuda, 90_000)) {
+            // Kembalikan state & interpreter sebelumnya supaya tidak ada
+            // keadaan setengah jalan.
+            if let Some(prev) = previous {
+                EngineChoice::store(&app, prev);
+                let _ = restart(&app);
+            }
+            return Err(e);
+        }
         Ok(next)
     })
     .await
