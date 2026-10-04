@@ -1,7 +1,36 @@
 import { t } from './i18n/core.js';
 import { S } from './state.js';
 import { isTauri, invokeTauri } from './tauri.js';
-import { refreshCudaStatus, showToast } from './engine.js';
+import { refreshCudaStatus, registerCudaRefresh, showToast } from './engine.js';
+
+export function markCudaRestarting() {
+  S._cudaRestartingAt = Date.now();
+  const e = el('karaokeCudaStatus');
+  if (e) { e.textContent = t('eng.restarting'); e.style.color = 'var(--muted)'; }
+}
+
+export function karaokeCudaLabel(caps) {
+  if (!caps) return t('eng.offlineCuda');
+  if (caps.cuda) {
+    const vram = (caps.vram_free_gb != null && caps.vram_total_gb != null)
+      ? ` • VRAM bebas ${caps.vram_free_gb}/${caps.vram_total_gb} GB` : '';
+    const kim = caps.kim_cached ? ` • model Kim ${caps.kim_mb || '?'} MB (cached)` : ' • model Kim belum terdownload';
+    return `CUDA terdeteksi: ${caps.device || 'GPU'}${vram}${kim}`;
+  }
+  const prov = (caps.providers && caps.providers.length) ? caps.providers.join(',') : 'tanpa provider GPU';
+  return `CUDA tidak aktif — runtime bawaan memakai PyTorch CPU (${prov}). Untuk memakai GPU, atur "Python CUDA" di Settings › Karaoke.`;
+}
+
+function autoRefreshCudaStatus(engineOnline) {
+  if (!lastDetected.length) return;
+  if (S._lastCudaOffline === undefined) { S._lastCudaOffline = !engineOnline; return; }
+  if (engineOnline === S._lastCudaOffline) return;
+  S._lastCudaOffline = !engineOnline;
+  if (engineOnline) {
+    S._cudaRestartingAt = false;
+    try { refreshCudaStatus(); } catch {}
+  }
+}
 
 let lastDetected = [];
 let cached = false;
@@ -77,13 +106,27 @@ async function detect(force) {
 
 let applying = false;
 
+async function waitEngineReady(timeoutMs) {
+  const limit = Date.now() + (timeoutMs || 90000);
+  while (Date.now() < limit) {
+    try {
+      const r = await fetch('http://127.0.0.1:8001/health', { cache: 'no-store' });
+      if (r.ok) return true;
+    } catch {}
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  return false;
+}
+
 async function applyDevice(device, gpuPython) {
   if (!isTauri()) return null;
   if (applying) return null;
   applying = true;
+  markCudaRestarting();
   setStatus(t('set.gpuPythonApplying'), null);
   try {
     const cfg = await invokeTauri('set_engine_config', { device, gpuPython: gpuPython || '' });
+    await waitEngineReady(90000);
     setStatus(cfg.active_cuda ? t('set.gpuPythonActiveCuda') : t('set.gpuPythonActiveCpu'), cfg.active_cuda);
     try { await refreshCudaStatus(); } catch {}
     return cfg;
@@ -104,6 +147,7 @@ function currentGpuPython() {
 }
 
 export async function initGpuPython() {
+  try { registerCudaRefresh(autoRefreshCudaStatus); } catch {}
   const btn = el('btnDetectPythons');
   if (btn) {
     btn.addEventListener('click', async () => {

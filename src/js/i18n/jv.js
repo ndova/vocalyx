@@ -295,6 +295,7 @@ export default {
   'eng.offlineCuda': 'CUDA: engine offline — ora terdeteksi',
   'eng.offlineRun': 'Engine offline — mlakuake maneh VocaLyx',
   'eng.cudaChecking': 'CUDA: ngecek…',
+  'eng.restarting': 'Miwulang maneh mesin audio…',
   'eng.karaokeMode': 'Karaoke mode',
   'eng.karaokeNoEngine': 'Karaoke ora bisa ditindakake — engine offline',
   'eng.karaokeFromDl': 'Karaoke ora bisa ditindakake kanggo lagu saka menu Unduhan',

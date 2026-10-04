@@ -1129,6 +1129,36 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
     ok(/setStatus\(t\('set\.gpuPythonIdle'\)/.test(
       fs.readFileSync(path.join(root, 'src/js/gpu.js'), 'utf8')),
       'b1: tidak auto-detect saat startup');
+
+    const envBlock = (rsEngine.match(/fn apply_runtime_env\([\s\S]*?\n}/) || [''])[0];
+    const bundledBlock = envBlock.slice(envBlock.indexOf('if let Some(rt) = bundled_runtime_dir(py)'));
+    ok(!/for rt in &runtime_dirs \{[\s\S]{0,200}paths\.push\(sp/.test(envBlock),
+      'fixA: site-packages runtime tidak lagi masuk PYTHONPATH untuk semua interpreter');
+    ok(bundledBlock.length > 0 && /paths\.push\(sp\.to_string_lossy\(\)\.to_string\(\)\)/.test(bundledBlock),
+      'fixA: site-packages hanya pushed untuk runtime bawaan');
+    ok(/cmd\.env\("VOCALYX_RUNTIME_DIR", rt\)/.test(envBlock)
+      && /cmd\.env\("PATH", value\)/.test(envBlock) && /FFMPEG_BINARY/.test(envBlock),
+      'fixA: ffmpeg & runtime dir tetap untuk Python sistem');
+    ok(/fn has_marker|has_marker\(base\)/.test(rsEngine)
+      && /if has_marker\(base\) \{[\s\S]{0,80}return base\.to_path_buf\(\)/.test(rsEngine),
+      'fixC: project_root berhenti di folder aplikasi, tidak naik ke home');
+    ok(!/let mut weak: Option<&Path> = None;/.test(rsEngine),
+      'fixC: marker lemah tidak lagi melompat ke ancestor');
+    const jsGpuTxt = fs.readFileSync(path.join(root, 'src/js/gpu.js'), 'utf8');
+    ok(/waitEngineReady\(90000\)/.test(jsGpuTxt) && /127\.0\.0\.1:8001\/health/.test(jsGpuTxt),
+      'fixB: menunggu engine siap sebelum refresh status');
+    ok(/markCudaRestarting\(\)/.test(jsGpuTxt),
+      'fixB: status "restarting" ditampilkan saat ganti device');
+    const jsEngTxt = fs.readFileSync(path.join(root, 'src/js/engine.js'), 'utf8');
+    ok(/t\('eng\.restarting'\)/.test(jsEngTxt)
+      && /export function markCudaRestarting/.test(jsGpuTxt),
+      'fixB: ada status restarting & penanda CUDA basi hilang');
+    ok(/S\._lastCudaOffline/.test(jsEngTxt),
+      'fixB: status CUDA di-refresh otomatis saat engine kembali online');
+    for (const lang of ['en', 'id', 'jv']) {
+      const txt = fs.readFileSync(path.join(root, `src/js/i18n/${lang}.js`), 'utf8');
+      ok(/'eng\.restarting'/.test(txt), `fixB: i18n ${lang} punya eng.restarting`);
+    }
     ok(/engine::detect_pythons/.test(rsLib) && /engine::set_engine_config/.test(rsLib)
       && /engine::EngineChoice::new\(\)/.test(rsLib),
       'lib: perintah CUDA terdaftar + state EngineChoice di-manage');

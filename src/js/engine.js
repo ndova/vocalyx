@@ -45,14 +45,18 @@ export function showSep(msg, ms = 4000) {
   if (ms) setTimeout(() => { if (sepStatus.textContent === msg) sepStatus.style.display = 'none'; }, ms);
 }
 const ENG_BASE = 'http://127.0.0.1:8001';
+let cudaRefreshHook = null;
+export function registerCudaRefresh(fn) { cudaRefreshHook = fn; }
 async function engineHealth() {
+  let ok = false;
   for (const u of [ENG_BASE + '/health', '/api/health']) {
     try {
       const r = await fetch(u, { cache: 'no-store' });
-      if (r.ok) { await r.json(); return true; }
+      if (r.ok) { await r.json(); ok = true; break; }
     } catch {}
   }
-  return false;
+  try { if (cudaRefreshHook) cudaRefreshHook(ok); } catch {}
+  return ok;
 }
 async function engineGet(path) {
   try {
@@ -86,24 +90,12 @@ async function karaokeCaps(selected) {
   }
   return null;
 }
-function karaokeCudaLabel(caps) {
-  if (!caps) return t('eng.offlineCuda');
-  if (caps.cuda) {
-    const vram = (caps.vram_free_gb != null && caps.vram_total_gb != null)
-      ? ` • VRAM bebas ${caps.vram_free_gb}/${caps.vram_total_gb} GB` : '';
-    const kim = caps.kim_cached ? ` • model Kim ${caps.kim_mb || '?'} MB (cached)` : ' • model Kim belum terdownload';
-    return `CUDA terdeteksi: ${caps.device || 'GPU'}${vram}${kim}`;
-  }
-  const prov = (caps.providers && caps.providers.length) ? caps.providers.join(',') : 'tanpa provider GPU';
-  return `CUDA tidak aktif — runtime bawaan memakai PyTorch CPU (${prov}). Untuk memakai GPU, atur "Python CUDA" di Settings › Karaoke.`;
-}
 function cudaDeviceLabel(dinfo, resolved) {
   const r = String(resolved || '').toLowerCase();
   if (r === 'cpu') return 'CPU';
   if (r === 'cuda') return `GPU (${(dinfo && dinfo.device) || 'CUDA'})`;
   if (!dinfo) return '';
-  if (dinfo.cuda) return `GPU (${dinfo.device || 'CUDA'})`;
-  return 'CPU';
+  return dinfo.cuda ? `GPU (${dinfo.device || 'CUDA'})` : 'CPU';
 }
 async function refreshCudaStatus() {
   const dot = document.getElementById('cudaConnDot');
@@ -113,14 +105,23 @@ async function refreshCudaStatus() {
   const sel = String((S.downloadOptions && S.downloadOptions.karaokeDevice) || 'auto').toLowerCase();
   let caps = null;
   try { caps = await karaokeCaps(sel); } catch { caps = null; }
+  S._lastCudaRefreshAt = Date.now();
+  if (!caps) {
+    S._lastCudaOffline = true;
+    if (dot) dot.style.background = 'var(--muted)';
+    if (el) { el.textContent = S._cudaRestartingAt ? t('eng.restarting') : t('eng.offlineRun'); el.style.color = '#e5484d'; }
+    S._prevCudaActive = false;
+    return false;
+  }
+  S._lastCudaOffline = false;
+  if (S._cudaRestartingAt) S._cudaRestartingAt = false;
   if (sel === 'cpu') {
     const nm = (caps && caps.cpu_name) || '';
     const th = (caps && caps.cpu_threads) || 0;
-    if (dot) dot.style.background = caps ? 'var(--accent)' : 'var(--muted)';
+    if (dot) dot.style.background = 'var(--accent)';
     if (el) {
-      if (!caps) el.textContent = t('eng.offlineRun');
-      else el.textContent = `${t('eng.active')}: ${nm || 'CPU'}${th ? ` • ${th} thread` : ''}`;
-      el.style.color = caps ? 'var(--muted)' : '#e5484d';
+      el.textContent = `${t('eng.active')}: ${nm || 'CPU'}${th ? ` • ${th} thread` : ''}`;
+      el.style.color = 'var(--muted)';
     }
     S._prevCudaActive = !!caps;
     return !!caps;
@@ -128,8 +129,7 @@ async function refreshCudaStatus() {
   const active = !!(caps && caps.cuda);
   if (dot) dot.style.background = active ? 'var(--accent)' : 'var(--muted)';
   if (el) {
-    if (!caps) el.textContent = t('eng.offlineRun');
-    else if (active) {
+    if (active) {
       const vram = (caps.vram_free_gb != null && caps.vram_total_gb != null) ? ` • VRAM bebas ${caps.vram_free_gb}/${caps.vram_total_gb} GB` : '';
       el.textContent = `${t('eng.active')}: ${caps.device || 'GPU'}${vram}`;
     } else el.textContent = t('eng.notDetected');
@@ -401,7 +401,7 @@ const caps0 = await karaokeCaps().catch(() => null);
       showToast(t('eng.cudaRequired'), 9000);
       return;
     }
-    if (caps0 && !caps0.cuda && selDev0 !== 'cpu') showToast(karaokeCudaLabel(caps0), 6000);
+    if (caps0 && !caps0.cuda && selDev0 !== 'cpu') showToast(t('eng.notDetected'), 6000);
     const needVram = Number(caps0 && caps0.min_free_vram_gb) || 0;
     const freeVram = caps0 ? Number(caps0.vram_free_gb) : NaN;
     if (caps0 && caps0.cuda && selDev0 !== 'cpu' && needVram > 0 && Number.isFinite(freeVram) && freeVram < needVram) {
@@ -594,4 +594,4 @@ const caps0 = await karaokeCaps().catch(() => null);
 $('#btnKaraoke').onclick = (e) => { if (e) e.preventDefault(); separate('karaoke'); };
 
 
-export { sepStatus, SRC_CAP, SRC_LABEL, showAudioNotice, ENG_BASE, engineHealth, engineInfo, engineGet, karaokeCaps, karaokeCudaLabel, cudaDeviceLabel, refreshCudaStatus, karaokeUploadName, parseEngineError, KARAOKE_STAGE_LABELS, updateKaraokeBadge, rerenderTrackViews, fadeAudioVolume, switchKaraokeAudio, isKaraokeBlocked, syncKaraokeBtn, separate };
+export { sepStatus, SRC_CAP, SRC_LABEL, showAudioNotice, ENG_BASE, engineHealth, engineInfo, engineGet, karaokeCaps, cudaDeviceLabel, refreshCudaStatus, karaokeUploadName, parseEngineError, KARAOKE_STAGE_LABELS, updateKaraokeBadge, rerenderTrackViews, fadeAudioVolume, switchKaraokeAudio, isKaraokeBlocked, syncKaraokeBtn, separate };

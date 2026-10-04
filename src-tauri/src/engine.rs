@@ -198,11 +198,18 @@ fn apply_runtime_env(cmd: &mut Command, py: &str, cwd: &Path, script: &Path) {
     if let Some(dir) = script.parent() {
         paths.push(dir.to_string_lossy().to_string());
     }
-    // Interpreter sistem (yang dipakai untuk CUDA) tidak punya `._pth`, tapi
-    // tetap butuh akses ke runtime hasil ekstraksi: ffmpeg, model, dan data
-    // aplikasi ada di sana. `VOCALYX_RUNTIME_DIR` dipakai engine untuk
-    // menemukan ffmpeg, dan `ffmpeg\bin` masuk PATH supaya panggilan
-    // `ffmpeg` polos (audio-separator) juga ketemu.
+    // Interpreter sistem (yang dipakai untuk CUDA) TIDAK boleh diberi
+    // `site-packages` runtime lewat PYTHONPATH. PYTHONPATH didahulukan atas
+    // `site-packages` milik interpreter, jadi `import torch` akan mengambil
+    // torch CPU dari runtime bawaan — bukan torch CUDA milik Python user.
+    // Gejalanya: engine jalan dengan Python CUDA tapi `/karaoke` tetap
+    // `cuda:false`, dan tombol Karaoke diblokir. Terverifikasi:
+    // tanpa PYTHONPATH torch 2.5.1+cu121 (cuda true), dengan PYTHONPATH
+    // torch 2.14.1+cpu (cuda false).
+    //
+    // Yang tetap disetup untuk interpreter sistem cuma `VOCALYX_RUNTIME_DIR`
+    // dan `ffmpeg\bin` di PATH (untuk ffmpeg & model), karena keduanya tidak
+    // memengaruhi resolusi import.
     let mut runtime_dirs: Vec<PathBuf> = Vec::new();
     if let Some(rt) = bundled_runtime_dir(py) {
         runtime_dirs.push(rt);
@@ -213,15 +220,16 @@ fn apply_runtime_env(cmd: &mut Command, py: &str, cwd: &Path, script: &Path) {
         }
     }
     for rt in &runtime_dirs {
+        cmd.env("VOCALYX_RUNTIME_DIR", rt);
+    }
+    // `site-packages` runtime hanya relevan untuk interpreter runtime bawaan.
+    // Runtime embeddable punya `._pth` yang mengabaikan PYTHONPATH, jadi ini
+    // hanya SAFETY-NET untuk setup non-embeddable, bukan jalur utama.
+    if let Some(rt) = bundled_runtime_dir(py) {
         let sp = rt.join("Lib").join("site-packages");
         if sp.is_dir() {
             paths.push(sp.to_string_lossy().to_string());
         }
-        cmd.env("VOCALYX_RUNTIME_DIR", rt);
-    }
-    // Kalau interpreter milik runtime bawaan, tambahkan juga seluruh folder
-    // di bawahnya yang punya site-packages (setuptools/venv yang lebih dalam).
-    if let Some(rt) = bundled_runtime_dir(py) {
         if let Ok(entries) = std::fs::read_dir(&rt) {
             let mut dirs: Vec<String> = entries
                 .filter_map(|e| e.ok())
@@ -362,27 +370,31 @@ fn bundled_runtime_root() -> Option<PathBuf> {
 /// `vx_core.py` mencari `ffmpeg/` dan `vx_download.py` membaca
 /// `.spotify-premium/device_id.txt` relatif terhadap `Path.cwd()`.
 ///
-/// `assets` sengaja dianggap marker lemah: folder `_up_` hasil salinan resource
-/// Tauri juga punya `assets`, whereas penanda project asli ada di folder yang
-/// lebih atas. Makanya `'assets'` hanya dipakai sebagai fallback.
+/// Folder tempat `python-engine` berada dianggap sebagai root aplikasi dan
+/// pencarian **berhenti di situ** kalau punya marker. Dulu pencarian terus naik
+/// sampai 8 tingkat mencari `package.json`, dan itu pernah membuat engine
+/// hasil installer ter-install berjalan dengan `cwd` = folder home user
+/// (yang kebetulan punya `package.json`) alih-alih folder install.
 fn project_root(script: &Path) -> PathBuf {
     let engine_dir = match script.parent() {
         Some(d) => d,
         None => return PathBuf::from("."),
     };
     let base = engine_dir.parent().unwrap_or(engine_dir);
-    let mut weak: Option<&Path> = None;
+    let has_marker = |dir: &Path| {
+        ["ffmpeg", ".spotify-premium", "package.json", "runtime", "assets", "python-engine"]
+            .iter()
+            .any(|m| dir.join(m).exists())
+    };
+    if has_marker(base) {
+        return base.to_path_buf();
+    }
     for up in base.ancestors().take(8) {
-        for marker in ["ffmpeg", ".spotify-premium", "package.json", "runtime"] {
-            if up.join(marker).exists() {
-                return up.to_path_buf();
-            }
-        }
-        if weak.is_none() && up.join("assets").exists() {
-            weak = Some(up);
+        if has_marker(up) {
+            return up.to_path_buf();
         }
     }
-    weak.map(Path::to_path_buf).unwrap_or_else(|| base.to_path_buf())
+    base.to_path_buf()
 }
 
 /// Kandidat interpreter yang punya torch CUDA + dependensi engine lengkap.

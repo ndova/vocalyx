@@ -295,6 +295,7 @@ export default {
   'eng.offlineCuda': 'CUDA: engine offline — not detected',
   'eng.offlineRun': 'Engine offline — restart VocaLyx',
   'eng.cudaChecking': 'CUDA: checking…',
+  'eng.restarting': 'Restarting the audio engine…',
   'eng.karaokeMode': 'Karaoke mode',
   'eng.karaokeNoEngine': 'Karaoke unavailable — engine offline',
   'eng.karaokeFromDl': 'Karaoke unavailable for songs from the Downloads menu',
