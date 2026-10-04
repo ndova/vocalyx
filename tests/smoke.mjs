@@ -1174,9 +1174,14 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
     ok(!/if \(applying\) return null;/.test(jsGpuQ),
       'gpu: pergantian device tidak lagi dibuang diam-diam saat sedang busy');
     ok(/let deviceQueue = Promise\.resolve\(\);/.test(jsGpuQ)
-      && /const p = deviceQueue\.then\(\(\) => runApplyDevice\(device, gpuPython\)\);/.test(jsGpuQ)
+      && /const p = deviceQueue\.then\(async \(\) => \{/.test(jsGpuQ)
       && /deviceQueue = p\.then\(\(\) => \{\}, \(\) => \{\}\);/.test(jsGpuQ),
       'gpu: pergantian device diantrikan, tidak hilang');
+    ok(/const seq = \+\+queueSeq;/.test(jsGpuQ)
+      && /if \(seq !== queueSeq\) return null;/.test(jsGpuQ),
+      'gpu: permintaan device lama dibuang, hanya pilihan terakhir yang dijalankan');
+    ok(/let detected = gpu::detect_cached\(false\);/.test(rsEngine),
+      'engine: pergantian device memakai cache deteksi, tidak probe ulang semua interpreter');
     ok(/const prev = \(S\.downloadOptions && S\.downloadOptions\.karaokeDevice\) \|\| 'auto';[\s\S]{0,420}if \(!ok && S\.downloadOptions\.karaokeDevice === dev\) \{[\s\S]{0,220}e\.target\.value = prev;/.test(jsThemeQ),
       'theme: device sebelumnya ditangkap dulu, jadi dropdown bisa kembali');
     ok(/if \(!ok && S\.downloadOptions\.karaokeDevice === dev\) \{[\s\S]{0,240}saveDownloadOptions\(\{ karaokeDevice: prev \}\)/.test(jsThemeQ),

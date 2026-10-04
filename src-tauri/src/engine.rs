@@ -919,9 +919,11 @@ pub async fn set_engine_config(
     }
     let gpu_py = gpu_python.trim().to_string();
     tauri::async_runtime::spawn_blocking(move || {
-        // Satu-satunya pass deteksi. `resolve_interpreter` memakai daftar ini,
-        // jadi tidak ada probe kedua.
-        let detected = gpu::detect_cached(true);
+        // Pakai cache (TTL 60 detik), bukan deteksi paksa: probe meng-import
+        // torch di tiap interpreter sehingga satu pergantian device bisa memakan
+        // 30-90 detik, dan klik berikutnya ikut menumpuk di.antrean. Tombol
+        // "Deteksi" tetap memakai force=true bila memang perlu data segar.
+        let detected = gpu::detect_cached(false);
         let chosen = resolve_interpreter(&dev, &gpu_py, &detected)?;
         let chosen_s = chosen.to_string_lossy().into_owned();
         let active_cuda = detected

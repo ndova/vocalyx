@@ -106,6 +106,7 @@ async function detect(force) {
 
 let applying = false;
 let deviceQueue = Promise.resolve();
+let queueSeq = 0;
 
 async function waitEngineReady(timeoutMs) {
   const limit = Date.now() + (timeoutMs || 90000);
@@ -147,7 +148,11 @@ async function runApplyDevice(device, gpuPython) {
 
 async function applyDevice(device, gpuPython) {
   if (!isTauri()) return null;
-  const p = deviceQueue.then(() => runApplyDevice(device, gpuPython));
+  const seq = ++queueSeq;
+  const p = deviceQueue.then(async () => {
+    if (seq !== queueSeq) return null;
+    return runApplyDevice(device, gpuPython);
+  });
   deviceQueue = p.then(() => {}, () => {});
   return p;
 }
