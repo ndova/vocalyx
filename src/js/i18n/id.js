@@ -143,6 +143,8 @@ export default {
   'set.quality': 'Kualitas',
   'set.format': 'Format',
   'set.language': 'Bahasa',
+  'set.appearance': 'Tampilan',
+  'set.appearanceHint': 'Tema mengikuti Windows secara otomatis. Pilih Terang atau Gelap untuk mengaturnya sendiri.',
   'set.languageHint': 'Pilih bahasa antarmuka',
   'set.presetAufr33': 'Terbaik - MelBand RoFormer Karaoke (Aufr33/Viperx)',
   'set.presetCpu': 'UVR-MDX-NET-Inst_HQ_4',
@@ -372,6 +374,9 @@ export default {
   'me.delCoverQ': 'Hapus cover "{n}"?',
 
   'th.lightMode': 'Mode terang',
+  'th.themeSystem': 'Ikuti Windows',
+  'th.themeLight': 'Terang',
+  'th.themeDark': 'Gelap',
   'th.darkMode': 'Mode gelap',
   'gain.start': 'Mulai',
 

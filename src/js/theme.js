@@ -93,18 +93,42 @@ document.querySelectorAll('.nav-item').forEach(btn=>{
 });
 const ICON_MOON = ico('moon');
 const ICON_SUN = ico('sun');
-function getTheme() {
+const THEME_KEY = 'vocalyx_theme_v1';
+function themePreference() {
   try {
-    const saved = localStorage.getItem('vocalyx_theme_v1');
-    if (saved === 'dark' || saved === 'light') return saved;
+    const v = localStorage.getItem(THEME_KEY);
+    if (v === 'dark' || v === 'light' || v === 'system') return v;
   } catch {}
-  return (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  return 'system';
 }
-function applyTheme(mode, save = true) {
+function mediaTheme() {
+  try {
+    return (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  } catch {}
+  return 'light';
+}
+async function tauriTheme() {
+  try {
+    if (!window.__TAURI_INTERNALS__) return null;
+    const { getCurrentWindow } = await import('@tauri-apps/api/window');
+    const th = await getCurrentWindow().theme();
+    return (th === 'dark' || th === 'light') ? th : null;
+  } catch {}
+  return null;
+}
+function getTheme() {
+  const p = themePreference();
+  return (p === 'dark' || p === 'light') ? p : mediaTheme();
+}
+async function resolvedTheme() {
+  const p = themePreference();
+  if (p === 'dark' || p === 'light') return p;
+  return (await tauriTheme()) || mediaTheme();
+}
+function applyTheme(mode) {
   const dark = mode === 'dark';
   if (dark) document.documentElement.dataset.theme = 'dark';
   else delete document.documentElement.dataset.theme;
-  if (save) { try { localStorage.setItem('vocalyx_theme_v1', dark ? 'dark' : 'light'); } catch {} }
   const b = document.getElementById('btnTheme');
   if (b) {
     b.innerHTML = dark ? ICON_SUN : ICON_MOON;
@@ -112,19 +136,46 @@ function applyTheme(mode, save = true) {
   }
   document.querySelectorAll('.brand-logo').forEach((el) => { el.src = dark ? './logo-dark.png' : './logo.png'; });
 }
-document.getElementById('btnTheme')?.addEventListener('click', () => {
-  applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
-});
-if (window.matchMedia) {
-  try {
-    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
-      let saved = null;
-      try { saved = localStorage.getItem('vocalyx_theme_v1'); } catch {}
-      if (!saved) applyTheme(e.matches ? 'dark' : 'light', false);
-    });
-  } catch {}
+function syncThemeSelect() {
+  const sel = document.getElementById('setTheme');
+  if (sel && sel.value !== themePreference()) sel.value = themePreference();
 }
-applyTheme(getTheme(), false);
+async function applyResolved() {
+  applyTheme(await resolvedTheme());
+}
+function setThemePreference(pref) {
+  const p = (pref === 'light' || pref === 'dark' || pref === 'system') ? pref : 'system';
+  try { localStorage.setItem(THEME_KEY, p); } catch {}
+  syncThemeSelect();
+  if (p === 'system') applyResolved();
+  else applyTheme(p);
+}
+function watchSystemTheme() {
+  if (window.__TAURI_INTERNALS__) {
+    try {
+      import('@tauri-apps/api/window').then(({ getCurrentWindow }) =>
+        getCurrentWindow().onThemeChanged(() => { if (themePreference() === 'system') applyResolved(); })
+      ).catch(() => {});
+    } catch {}
+  }
+  if (window.matchMedia) {
+    try {
+      matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+        if (themePreference() === 'system') applyTheme(e.matches ? 'dark' : 'light');
+      });
+    } catch {}
+  }
+}
+document.getElementById('btnTheme')?.addEventListener('click', () => {
+  setThemePreference(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+});
+document.getElementById('setTheme')?.addEventListener('change', (e) => {
+  setThemePreference(e.target.value);
+});
+watchSystemTheme();
+syncThemeSelect();
+if (themePreference() === 'system') { applyTheme(mediaTheme()); applyResolved(); }
+else applyTheme(getTheme());
 {
   const searchViewInput = document.getElementById('searchViewInput');
   searchViewInput?.addEventListener('keydown', (e) => {
@@ -308,4 +359,4 @@ document.getElementById('ytCookiesPath')?.addEventListener('change', (e)=>{
   saveDownloadOptions({ ytCookiesPath: e.target.value.trim() });
 });
 
-export { syncMaxBtn, attachDrag, ICON_MOON, ICON_SUN, getTheme, applyTheme, searchViewBox };
+export { syncMaxBtn, attachDrag, ICON_MOON, ICON_SUN, getTheme, applyTheme, setThemePreference, themePreference, syncThemeSelect, watchSystemTheme, searchViewBox };

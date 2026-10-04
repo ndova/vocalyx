@@ -537,6 +537,44 @@ ok(document.documentElement.lang === 'en', 'i18n: html[lang] ikut en');
     ok(!/applyLang\(\s*\)/.test(themeSrc),
       'i18n: theme.js tidak memanggil applyLang() tanpa argumen (tidak menimpa bahasa tersimpan)');
     ok(/syncLangCode\(lang\(\)\)/.test(themeSrc), 'i18n: theme.js sinkronkan dropdown dari lang()');
+    ok(/const THEME_KEY = 'vocalyx_theme_v1';/.test(themeSrc)
+      && /function themePreference\(\) \{[\s\S]{0,260}v === 'dark' \|\| v === 'light' \|\| v === 'system'/.test(themeSrc)
+      && /return 'system';/.test(themeSrc),
+      'theme: preferensi punya 3 status (system/light/dark), default system');
+    ok(/async function tauriTheme\(\)[\s\S]{0,400}getCurrentWindow\(\)\.theme\(\)/.test(themeSrc)
+      && /window\.__TAURI_INTERNALS__/.test(themeSrc),
+      'theme: sumber kebenaran took theme Windows lewat API Tauri');
+    ok(/async function resolvedTheme\(\) \{[\s\S]{0,220}if \(p === 'dark' \|\| p === 'light'\) return p;[\s\S]{0,120}await tauriTheme\(\)\) \|\| mediaTheme\(\);/.test(themeSrc),
+      'theme: resolvedTheme memakai override tanpa memanggil API, dan systemTheme sebagai fallback');
+    const applyThemeBlock = (themeSrc.match(/function applyTheme\(mode\) \{[\s\S]*?\n\}/) || [''])[0];
+    ok(applyThemeBlock.length > 0 && !/localStorage/.test(applyThemeBlock),
+      'theme: applyTheme tidak lagi menulis localStorage (preferensi dipisah dari tampilan)');
+    ok(/function setThemePreference\(pref\) \{[\s\S]{0,320}localStorage\.setItem\(THEME_KEY, p\)/.test(themeSrc)
+      && /if \(p === 'system'\) applyResolved\(\);\s*else applyTheme\(p\);/.test(themeSrc),
+      'theme: setThemePreference menyimpan preferensi, override diterapkan sinkron');
+    ok(/getCurrentWindow\(\)\.onThemeChanged\(\(\) => \{ if \(themePreference\(\) === 'system'\) applyResolved\(\); \}\)/.test(themeSrc),
+      'theme: perubahan tema Windows diterapkan live saat preferensi system');
+    ok(/themePreference\(\) === 'system'\) applyTheme\(e\.matches \? 'dark' : 'light'\)/.test(themeSrc),
+      'theme: fallback matchMedia hanya berlaku saat preferensi system');
+    ok(/document\.getElementById\('setTheme'\)\?\.addEventListener\('change', \(e\) => \{\s*setThemePreference\(e\.target\.value\);/.test(themeSrc)
+      && /function syncThemeSelect\(\)/.test(themeSrc),
+      'theme: dropdown Settings tersambung ke setThemePreference');
+    ok(/function loadSettingsUI\(\)\{\s*import\('\.\/gpu\.js'\)\.then\(\(m\) => m\.ensureGpuPythonProbed\(\)\)\.catch\(\(\) => \{\}\);\s*import\('\.\/theme\.js'\)\.then\(\(m\) => m\.syncThemeSelect\(\)\)/.test(
+        fs.readFileSync(path.join(root, 'src/js/player.js'), 'utf8')),
+      'theme: dropdown Settings disinkronkan ulang saat halaman Settings dibuka');
+    const htmlTheme = fs.readFileSync(path.join(root, 'src/index.html'), 'utf8');
+    ok(/id="setTheme"/.test(htmlTheme)
+      && /<option value="system"/.test(htmlTheme)
+      && /<option value="light"/.test(htmlTheme)
+      && /<option value="dark"/.test(htmlTheme),
+      'theme: dropdown Settings punya 3 opsi system/light/dark');
+    for (const tl of ['en', 'id', 'jv']) {
+      const ti = fs.readFileSync(path.join(root, `src/js/i18n/${tl}.js`), 'utf8');
+      ok(new RegExp(`'set\\.appearance'`).test(ti) && new RegExp(`'set\\.appearanceHint'`).test(ti)
+        && new RegExp(`'th\\.themeSystem'`).test(ti) && new RegExp(`'th\\.themeLight'`).test(ti)
+        && new RegExp(`'th\\.themeDark'`).test(ti),
+        `theme i18n ${tl}: kunci appearance + themeSystem/Light/Dark ada`);
+    }
     localStorage.setItem('vocalyx_lang_v1', 'jv');
     const bootLang = i18nCore.initI18n();
     ok(bootLang === 'jv', `i18n: boot membaca bahasa tersimpan jv (dapat ${bootLang})`);

@@ -143,6 +143,8 @@ export default {
   'set.quality': 'Quality',
   'set.format': 'Format',
   'set.language': 'Language',
+  'set.appearance': 'Appearance',
+  'set.appearanceHint': 'Theme follows Windows automatically. Pick Light or Dark to override it.',
   'set.languageHint': 'Choose the interface language',
   'set.presetAufr33': 'Best - MelBand RoFormer Karaoke (Aufr33/Viperx)',
   'set.presetCpu': 'UVR-MDX-NET-Inst_HQ_4',
@@ -372,6 +374,9 @@ export default {
   'me.delCoverQ': 'Delete the cover "{n}"?',
 
   'th.lightMode': 'Light mode',
+  'th.themeSystem': 'Follow Windows',
+  'th.themeLight': 'Light',
+  'th.themeDark': 'Dark',
   'th.darkMode': 'Dark mode',
   'gain.start': 'Start',
 
