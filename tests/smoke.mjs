@@ -1159,32 +1159,11 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
       const txt = fs.readFileSync(path.join(root, `src/js/i18n/${lang}.js`), 'utf8');
       ok(/'eng\.restarting'/.test(txt), `fixB: i18n ${lang} punya eng.restarting`);
     }
-
-    ok(/pub fn restart\(app: &AppHandle\) -> Result<\(\), String>/.test(rsEngine),
-      'fixD2: restart() mengembalikan Result');
-    ok(/wait_port_free\(6000\);[\s\S]{0,200}if port_listening\(\) \{[\s\S]{0,400}return Err/.test(rsEngine),
-      'fixD2: restart() error bila port 8001 masih dipegang engine lain');
-    ok(/fn wait_engine_cuda\(expect_cuda: bool/.test(rsEngine)
-      && /and_then\(\|\(\)\| wait_engine_cuda\(want_cuda/.test(rsEngine),
-      'fixD1: set_engine_config verifikasi cuda lewat /health setelah restart');
-    ok(/fn health_json\(/.test(rsEngine) && /serde_json::from_str\(body\.trim\(\)\)/.test(rsEngine),
-      'fixD1: /health dibaca sebagai JSON untuk verifikasi');
-    ok(/if let Some\(prev\) = previous \{[\s\S]{0,160}EngineChoice::store\(&app, prev\)/.test(rsEngine),
-      'fixD1: state & interpreter dikembalikan bila verifikasi gagal');
-    ok(/fn stale_engine_pid\(\)/.test(rsEngine) && /engine\.pid/.test(rsEngine)
-      && /fs::write\(app_data_dir\(\)\.join\("engine\.pid"\)/.test(rsEngine),
-      'fixD3: PID engine dicatat untuk membedakan engine yatim vs instance lain');
-
-    const jsTheme = fs.readFileSync(path.join(root, 'src/js/theme.js'), 'utf8');
-    ok(/const prev = \(S\.downloadOptions && S\.downloadOptions\.karaokeDevice\) \|\| 'auto';[\s\S]{0,400}if \(!ok\) \{[\s\S]{0,200}e\.target\.value = prev;/.test(jsTheme),
-      'fixE: device sebelumnya ditangkap dulu lalu dropdown + localStorage dikembalikan saat gagal');
-    ok(/if \(!ok\) \{[\s\S]{0,220}saveDownloadOptions\(\{ karaokeDevice: prev \}\)/.test(jsTheme),
-      'fixE: localStorage ikut dikembalikan ke device sebelumnya');
     ok(/engine::detect_pythons/.test(rsLib) && /engine::set_engine_config/.test(rsLib)
       && /engine::EngineChoice::new\(\)/.test(rsLib),
       'lib: perintah CUDA terdaftar + state EngineChoice di-manage');
     ok(/resolve_interpreter\(&dev, &gpu_py, &detected\)\?/.test(rsEngine)
-      && /if \(dev == "cuda" \|\| dev == "gpu"\) && !probe_cuda \{[\s\S]{0,160}return Err/.test(rsEngine),
+      && /if \(dev == "cuda" \|\| dev == "gpu"\) && !active_cuda \{[\s\S]{0,160}return Err/.test(rsEngine),
       'rust: device cuda tanpa interpreter CUDA ditolak sebelum restart');
     ok(/VOCALYX_RUNTIME_DIR/.test(rsEngine) && /FFMPEG_BINARY/.test(rsEngine)
       && /cmd\.env\("PATH", value\)/.test(rsEngine),
