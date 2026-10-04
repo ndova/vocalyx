@@ -449,18 +449,7 @@
                 <span id="cudaConnDot" style="width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none"></span>
                 <div id="karaokeCudaStatus" class="settings-desc" data-t="set.cuDA" style="flex:1">CUDA: checking…</div>
               </div>
-
-              <div class="settings-block">
-                <div class="settings-label" data-t="set.gpuPython">Python CUDA (opsional)</div>
-                <div class="settings-group-hint" data-t="set.gpuPythonHint">Runtime bawaan memakai PyTorch CPU, jadi GPU tidak terpakai. Kalau PC ini punya Python lain dengan PyTorch CUDA + dependensi engine, pakai yang itu untuk karaoke.</div>
-                <div class="settings-row">
-                  <select id="gpuPythonSelect" class="modal-input" style="flex:1">
-                    <option value="" data-t="set.gpuPythonAuto">Otomatis (deteksi terbaik)</option>
-                  </select>
-                  <button id="btnDetectPythons" class="btn-add-folder" data-t="set.detectPythons">Deteksi</button>
-                </div>
-                <div id="gpuPythonStatus" class="settings-desc" style="margin-top:6px"></div>
-              </div>
+              <div id="deviceCudaHint" class="settings-desc" data-t="set.deviceCudaHintChecking" style="margin-top:6px"></div>
             </div>
 
             <div class="settings-group">

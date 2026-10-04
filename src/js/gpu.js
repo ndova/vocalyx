@@ -41,74 +41,41 @@ let cached = false;
 
 function el(id) { return document.getElementById(id); }
 
-function shortPath(p) {
-  const s = String(p || '');
-  const parts = s.split(/[\\/]/).filter(Boolean);
-  return parts.length <= 3 ? s : '...\\' + parts.slice(-3).join('\\');
+function cudaGpuName(entries) {
+  const hit = (entries || []).find((i) => i && i.cuda && i.has_deps && i.device);
+  return hit ? hit.device : '';
 }
 
-function labelFor(info) {
-  const name = shortPath(info.path);
-  if (info.cuda) {
-    const build = info.cuda_build ? ` ${info.cuda_build}` : '';
-    const dev = info.device ? ` • ${info.device}` : '';
-    const deps = info.has_deps ? '' : ` • ${t('set.gpuPythonNoDepsShort')}`;
-    return `${name} — CUDA${build}${dev}${deps}`;
+function applyDeviceHint(state, entries) {
+  const hint = el('deviceCudaHint');
+  if (!hint) return;
+  hint.style.color = 'var(--muted)';
+  if (state === 'checking') { hint.textContent = t('set.deviceCudaHintChecking'); return; }
+  if (state !== 'ready') { hint.textContent = t('set.deviceCudaHintUnknown'); return; }
+  const cudaReady = (entries || []).some((i) => i && i.cuda && i.has_deps);
+  if (!cudaReady) {
+    hint.textContent = t('set.deviceCudaHintNone');
+    return;
   }
-  const deps = info.has_deps ? '' : ` • ${t('set.gpuPythonNoDepsShort')}`;
-  return `${name} — CPU${deps}`;
-}
-
-function setStatus(text, ok) {
-  const s = el('gpuPythonStatus');
-  if (!s) return;
-  s.textContent = text || '';
-  s.style.color = ok === true ? 'var(--muted)' : ok === false ? '#e5484d' : 'var(--muted)';
-}
-
-function fillSelect() {
-  const sel = el('gpuPythonSelect');
-  if (!sel) return;
-  const current = S.downloadOptions.gpuPython || '';
-  sel.innerHTML = '';
-  const auto = document.createElement('option');
-  auto.value = '';
-  auto.textContent = t('set.gpuPythonAuto');
-  sel.appendChild(auto);
-  for (const info of lastDetected) {
-    const o = document.createElement('option');
-    o.value = info.path;
-    o.textContent = labelFor(info);
-    if (!info.has_deps) o.disabled = true;
-    if (info.path === current) o.selected = true;
-    sel.appendChild(o);
-  }
-  if (!lastDetected.some((i) => i.path === current)) {
-    sel.value = '';
-  }
+  const usingCuda = String((S.downloadOptions && S.downloadOptions.karaokeDevice) || 'cpu').toLowerCase() === 'cuda';
+  const name = cudaGpuName(entries);
+  hint.textContent = usingCuda
+    ? t('set.deviceCudaHintReady', { gpu: name || 'CUDA' })
+    : t('set.deviceCudaHintReadyCpu', { gpu: name || 'CUDA' });
 }
 
 async function detect(force) {
-  if (!isTauri()) { setStatus(t('set.gpuPythonTauriOnly'), false); return lastDetected; }
-  if (cached && !force) { return lastDetected; }
-  setStatus(t('set.gpuPythonDetecting'), null);
+  if (!isTauri()) return lastDetected;
+  if (cached && !force) return lastDetected;
   try {
     lastDetected = await invokeTauri('detect_pythons_async', { force: !!force });
     cached = true;
   } catch {
     lastDetected = [];
   }
-  fillSelect();
   const cudaReady = lastDetected.filter((i) => i.cuda && i.has_deps);
   applyDeviceAvailability('ready', cudaReady.length > 0);
-  if (!lastDetected.length) {
-    setStatus(t('set.gpuPythonNone'), false);
-  } else if (cudaReady.length) {
-    setStatus(t('set.gpuPythonFound', { n: cudaReady.length }), true);
-  } else {
-    const anyCuda = lastDetected.some((i) => i.cuda);
-    setStatus(anyCuda ? t('set.gpuPythonNoDeps') : t('set.gpuPythonCpuOnly'), false);
-  }
+  applyDeviceHint('ready', lastDetected);
   return lastDetected;
 }
 
@@ -131,7 +98,6 @@ async function waitEngineReady(timeoutMs) {
 async function runApplyDevice(device, gpuPython) {
   applying = true;
   markCudaRestarting();
-  setStatus(t('set.gpuPythonApplying'), null);
   try {
     const cfg = await invokeTauri('set_engine_config', { device, gpuPython: gpuPython || '' });
     const strict = device === 'cuda';
@@ -142,13 +108,14 @@ async function runApplyDevice(device, gpuPython) {
       try { active = !!(await refreshCudaStatus(true)); } catch { active = false; }
       if (online && (!strict || active === true)) { matched = true; break; }
     }
-    const cudaOn = !!cfg.active_cuda;
-    if (matched) setStatus(cudaOn ? t('set.gpuPythonActiveCuda') : t('set.gpuPythonActiveCpu'), cudaOn);
-    else setStatus(`${t('set.gpuPythonSwitchFailed')}: engine tidak sesuai device ${device}`, false);
-    return matched ? cfg : null;
+    if (!matched) {
+      try { showToast(`${t('set.deviceSwitchFailed')}: engine tidak sesuai device ${device}`, 7000); } catch {}
+      return null;
+    }
+    applyDeviceHint(cached ? 'ready' : 'checking', lastDetected);
+    return cfg;
   } catch (e) {
-    setStatus(`${t('set.gpuPythonSwitchFailed')}: ${e?.message || String(e)}`, false);
-    try { showToast(`${t('set.gpuPythonSwitchFailed')}: ${e?.message || String(e)}`, 7000); } catch {}
+    try { showToast(`${t('set.deviceSwitchFailed')}: ${e?.message || String(e)}`, 7000); } catch {}
     return null;
   } finally {
     applying = false;
@@ -169,9 +136,6 @@ async function applyDevice(device, gpuPython) {
 
 function currentDevice() {
   return String((S.downloadOptions && S.downloadOptions.karaokeDevice) || 'cpu').toLowerCase();
-}
-function currentGpuPython() {
-  return String((S.downloadOptions && S.downloadOptions.gpuPython) || '');
 }
 
 function deviceCudaOption() {
@@ -209,11 +173,17 @@ function applyDeviceAvailability(state, cudaReady) {
 async function loadCudaAvailabilityFromDisk() {
   try {
     const sum = await invokeTauri('gpu_probe_cached', { maxAgeSecs: 86400 });
-    if (!sum || !Array.isArray(sum.entries)) { applyDeviceAvailability('checking', false); return false; }
+    if (!sum || !Array.isArray(sum.entries)) {
+      applyDeviceAvailability('checking', false);
+      applyDeviceHint('checking', null);
+      return false;
+    }
     applyDeviceAvailability('ready', !!sum.cuda_ready);
+    applyDeviceHint('ready', sum.entries);
     return true;
   } catch {
     applyDeviceAvailability('unknown', false);
+    applyDeviceHint('unknown', null);
     return false;
   }
 }
@@ -234,14 +204,13 @@ export async function syncEngineConfig() {
       S.downloadOptions.karaokeDevice = device;
       persist();
     }
-    if (cfg.gpu_python && S.downloadOptions.gpuPython !== cfg.gpu_python) {
-      S.downloadOptions.gpuPython = cfg.gpu_python;
+    if (S.downloadOptions.gpuPython) {
+      S.downloadOptions.gpuPython = '';
       persist();
     }
     const dev = el('karaokeDevice');
     if (dev && dev.value !== device) dev.value = device;
-    const sel = el('gpuPythonSelect');
-    if (sel && cfg.gpu_python && sel.value !== cfg.gpu_python) sel.value = cfg.gpu_python;
+    applyDeviceHint(cudaOpt && !cudaOpt.disabled && lastDetected.length ? 'ready' : 'checking', lastDetected);
     return cfg;
   } catch { return null; }
 }
@@ -257,31 +226,13 @@ export async function ensureGpuPythonProbed() {
 export async function initGpuPython() {
   try { registerCudaRefresh(autoRefreshCudaStatus); } catch {}
   applyDeviceAvailability('checking', false);
+  applyDeviceHint('checking', null);
   await loadCudaAvailabilityFromDisk();
   await syncEngineConfig();
-  const btn = el('btnDetectPythons');
-  if (btn) {
-    btn.addEventListener('click', async () => {
-      btn.disabled = true;
-      cached = false;
-      await detect(true);
-      btn.disabled = false;
-    });
-  }
-  const sel = el('gpuPythonSelect');
-  if (sel) {
-    sel.addEventListener('change', async () => {
-      const path = sel.value || '';
-      S.downloadOptions.gpuPython = path;
-      try { localStorage.setItem('vocalyx_downloadOptions', JSON.stringify(S.downloadOptions)); } catch {}
-      await applyDevice(currentDevice(), path);
-    });
-  }
-  setStatus(t('set.gpuPythonIdle'), null);
 }
 
 export async function setDeviceWithEngine(device, gpuPython) {
   return applyDevice(device, gpuPython);
 }
 
-export { detect as detectPythons };
+

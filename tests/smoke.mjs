@@ -1127,9 +1127,9 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
     ok(/detect_pythons_async', \{ force: !!force \}/.test(
       fs.readFileSync(path.join(root, 'src/js/gpu.js'), 'utf8')),
       'b1: tombol Deteksi mengirim force=true');
-    ok(/setStatus\(t\('set\.gpuPythonIdle'\)/.test(
-      fs.readFileSync(path.join(root, 'src/js/gpu.js'), 'utf8')),
-      'b1: tidak auto-detect saat startup');
+ok(/export async function ensureGpuPythonProbed\(\)/.test(
+   fs.readFileSync(path.join(root, 'src/js/gpu.js'), 'utf8')),
+   'b1: deteksi CUDA cukup saat halaman Settings dibuka (tidak jalan di background startup)');
 
     const envBlock = (rsEngine.match(/fn apply_runtime_env\([\s\S]*?\n}/) || [''])[0];
     const bundledBlock = envBlock.slice(envBlock.indexOf('if let Some(rt) = bundled_runtime_dir(py)'));
@@ -1267,8 +1267,8 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
     ok(/const strict = device === 'cuda';/.test(jsGpuQ)
       && /if \(online && \(!strict \|\| active === true\)\)/.test(jsGpuQ),
       'device: hanya cuda yang menuntut CUDA aktif, cpu tidak lagi revert ke gpu');
-    ok(/const cudaOn = !!cfg\.active_cuda;/.test(jsGpuQ),
-      'device: label status diambil dari config Rust, bukan nilai balik refresh');
+    ok(/if \(!matched\) \{\s*try \{ showToast\(`\$\{t\('set\.deviceSwitchFailed'\)\}: engine tidak sesuai device \$\{device\}`, 7000\); \} catch \{\}\s*return null;/.test(jsGpuQ),
+      'device: kegagalan pindah device dilaporkan lewat toast, tidak lagi lewat dropdown');
     ok(/if \(caps0 && !caps0\.cuda && selDev0 === 'cuda'\) \{[\s\S]{0,200}eng\.cudaFallbackCpu/.test(jsEngineS)
       && !/eng\.cudaRequired[\s\S]{0,120}return;/.test(jsEngineS),
       'karaoke: cuda tanpa dukungan tidak lagi memblokir, ada notif fallback');
@@ -1303,10 +1303,13 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
       'deteksi: TIDAK probe di background saat app start (regresi boot 86 detik)');
     ok(/function loadSettingsUI\(\)\{\s*import\('\.\/gpu\.js'\)\.then\(\(m\) => m\.ensureGpuPythonProbed\(\)\)/.test(jsPlayerD2),
       'deteksi: deteksi baru jalan saat halaman Settings dibuka');
-    ok(/const deps = info\.has_deps \? '' : ` • \$\{t\('set\.gpuPythonNoDepsShort'\)\}`;/.test(jsGpuQ),
-      'label: interpreter tanpa dependensi engine ditandai jelas');
-    ok(/if \(!info\.has_deps\) o\.disabled = true;/.test(jsGpuQ),
-      'label: opsi tanpa dependensi engine tidak bisa dipilih');
+    ok(/function applyDeviceHint\(state, entries\)/.test(jsGpuQ)
+      && /set\.deviceCudaHintNone/.test(jsGpuQ)
+      && /set\.deviceCudaHintReady/.test(jsGpuQ)
+      && /set\.deviceCudaHintReadyCpu/.test(jsGpuQ),
+      'label: hint CUDA menjelaskan kondisi PC dan device yang dipakai');
+    ok(/const hit = \(entries \|\| \[\]\)\.find\(\(i\) => i && i\.cuda && i\.has_deps && i\.device\);/.test(jsGpuQ),
+      'label: nama GPU diambil dari hasil deteksi');
     ok(/export function hasCudaInterpreter\(\)/.test(jsGpuQ) === false
       && !/hasCudaInterpreter/.test(jsGpuQ),
       'label: hasCudaInterpreter() yang tidak terpakai sudah dihapus');
@@ -1344,8 +1347,9 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
     ok(/for \(let i = 0; i < 90; i\+\+\) \{[\s\S]{0,220}await refreshCudaStatus\(true\)/.test(jsGpuQ)
       && /if \(online && \(!strict \|\| active === true\)\) \{ matched = true; break; \}/.test(jsGpuQ),
       'status: gpu.js menunggu engine hidup + benar-benar sesuai device (baca tanpa cache)');
-    ok(/return matched \? cfg : null;/.test(jsGpuQ),
-      'status: gagal sesuai device dikembalikan sebagai null agar dropdown dikembalikan');
+    ok(/if \(!matched\) \{[\s\S]{0,200}return null;/.test(jsGpuQ)
+      && /S\.downloadOptions\.gpuPython = '';/.test(jsGpuQ),
+      'status: device tidak cocok -> null; gpuPython pinning lama dibersihkan');
 
     ok(/static START_LOCK: Mutex<\(\)> = Mutex::new\(\(\)\);/.test(rsEngine)
       && /let _guard = match START_LOCK\.lock\(\)/.test(rsEngine),
@@ -1410,15 +1414,21 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
     ok(/gpuPython:''/.test(fs.readFileSync(path.join(root, 'src/js/state.js'), 'utf8')),
       'b1: state punya default gpuPython');
 
-    ok(/detect_pythons/.test(jsGpu) && /set_engine_config/.test(jsGpu),
+    ok(/detect_pythons_async/.test(jsGpu) && /set_engine_config/.test(jsGpu),
       'b1: gpu.js memakai perintah deteksi + set config');
-    ok(/gpuPythonSelect/.test(jsGpu) && /btnDetectPythons/.test(jsGpu),
-      'b1: gpu.js mengisi dropdown dan tombol deteksi');
+    ok(/applyDeviceAvailability\('ready', cudaReady\.length > 0\)/.test(jsGpu)
+      && /applyDeviceHint\('ready', lastDetected\)/.test(jsGpu),
+      'b1: gpu.js memperbarui ketersediaan CUDA tanpa dropdown manual');
     ok(/selDev0 === 'cuda'/.test(fs.readFileSync(path.join(root, 'src/js/engine.js'), 'utf8')),
-      'b1: karaoke diblokir bila device cuda tanpa CUDA aktif');
-    ok(/id="gpuPythonSelect"/.test(fs.readFileSync(path.join(root, 'src/index.html'), 'utf8'))
-      && /id="btnDetectPythons"/.test(fs.readFileSync(path.join(root, 'src/index.html'), 'utf8')),
-      'b1: UI Python CUDA ada di Settings');
+      'b1: karaoke memberi notif fallback bila device cuda tanpa CUDA aktif');
+    const htmlNoGpuPy = fs.readFileSync(path.join(root, 'src/index.html'), 'utf8');
+    ok(!/id="gpuPythonSelect"/.test(htmlNoGpuPy)
+      && !/id="btnDetectPythons"/.test(htmlNoGpuPy)
+      && !/id="gpuPythonStatus"/.test(htmlNoGpuPy)
+      && !/set\.gpuPythonHint/.test(htmlNoGpuPy),
+      'b1: blok "Python CUDA (optional)" sudah dihapus dari Settings');
+    ok(/id="deviceCudaHint"/.test(htmlNoGpuPy) && /data-t="set\.deviceCudaHintChecking"/.test(htmlNoGpuPy),
+      'b1: hint kontekstual CUDA menggantikan blok yang dihapus');
 
     const APPNAME = /%APPDATA%[\\/]VocaLyx/;
     ok(/pub fn app_data_dir\(\) -> PathBuf \{\s*\n\s*data_root\(\)\.join\(APP_DIRNAME\)/.test(rsRt)

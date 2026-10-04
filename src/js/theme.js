@@ -287,9 +287,8 @@ document.getElementById('karaokeDevice')?.addEventListener('change', async (e)=>
   const prev = (S.downloadOptions && S.downloadOptions.karaokeDevice) || 'cpu';
   saveDownloadOptions({ karaokeDevice: dev });
   try { refreshCudaStatus(); } catch {}
-  const gpu = (S.downloadOptions && S.downloadOptions.gpuPython) || '';
   const gpuMod = await import('./gpu.js');
-  const ok = await gpuMod.setDeviceWithEngine(dev, gpu);
+  const ok = await gpuMod.setDeviceWithEngine(dev, '');
   if (!ok && S.downloadOptions.karaokeDevice === dev) {
     e.target.value = prev;
     saveDownloadOptions({ karaokeDevice: prev });
