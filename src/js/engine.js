@@ -76,9 +76,9 @@ async function engineInfo() { // /health versi lengkap; engineHealth() cuma retu
   }
   return null;
 }
-async function karaokeCaps(selected) {
+async function karaokeCaps(selected, force) {
   const dev = String(selected || (S.downloadOptions && S.downloadOptions.karaokeDevice) || 'auto').toLowerCase();
-  if (S._karaokeCapsCache && S._karaokeCapsKey === dev && Date.now() - S._karaokeCapsAt < 60000) return S._karaokeCapsCache;
+  if (!force && S._karaokeCapsCache && S._karaokeCapsKey === dev && Date.now() - S._karaokeCapsAt < 60000) return S._karaokeCapsCache;
   for (const u of [ENG_BASE + '/karaoke', '/api/karaoke']) {
     try {
       const r = await fetch(u + '?device=' + encodeURIComponent(dev), { cache: 'no-store' });
@@ -97,14 +97,14 @@ function cudaDeviceLabel(dinfo, resolved) {
   if (!dinfo) return '';
   return dinfo.cuda ? `GPU (${dinfo.device || 'CUDA'})` : 'CPU';
 }
-async function refreshCudaStatus() {
+async function refreshCudaStatus(force) {
   const dot = document.getElementById('cudaConnDot');
   const el = document.getElementById('karaokeCudaStatus');
   if (!el && !dot) return false;
   if (el) el.textContent = t('eng.cudaChecking');
   const sel = String((S.downloadOptions && S.downloadOptions.karaokeDevice) || 'auto').toLowerCase();
   let caps = null;
-  try { caps = await karaokeCaps(sel); } catch { caps = null; }
+  try { caps = await karaokeCaps(sel, force); } catch { caps = null; }
   S._lastCudaRefreshAt = Date.now();
   if (!caps) {
     S._lastCudaOffline = true;

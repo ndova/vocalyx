@@ -1145,7 +1145,7 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
     ok(!/let mut weak: Option<&Path> = None;/.test(rsEngine),
       'fixC: marker lemah tidak lagi melompat ke ancestor');
     const jsGpuTxt = fs.readFileSync(path.join(root, 'src/js/gpu.js'), 'utf8');
-    ok(/waitEngineReady\(90000\)/.test(jsGpuTxt) && /127\.0\.0\.1:8001\/health/.test(jsGpuTxt),
+    ok(/waitEngineReady\(1000\)/.test(jsGpuTxt) && /127\.0\.0\.1:8001\/health/.test(jsGpuTxt),
       'fixB: menunggu engine siap sebelum refresh status');
     ok(/markCudaRestarting\(\)/.test(jsGpuTxt),
       'fixB: status "restarting" ditampilkan saat ganti device');
@@ -1183,6 +1183,19 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
       'theme: localStorage kembali ke device lama, dan request lama tidak menimpa request baru');
     ok(/pub fn restart\(app: &AppHandle\)/.test(rsEngine),
       'rust: restart() tetap tanpa Result (perganti CPU tidak bisa error)');
+
+    const jsEngineS = fs.readFileSync(path.join(root, 'src/js/engine.js'), 'utf8');
+    ok(/async function karaokeCaps\(selected, force\)/.test(jsEngineS)
+      && /if \(!force && S\._karaokeCapsCache/.test(jsEngineS),
+      'status: cache /karaoke bisa dilewati agar tidak menampilkan data engine lama');
+    ok(/async function refreshCudaStatus\(force\)/.test(jsEngineS)
+      && /await karaokeCaps\(sel, force\)/.test(jsEngineS),
+      'status: refreshCudaStatus meneruskan force ke cache');
+    ok(/for \(let i = 0; i < 90; i\+\+\) \{[\s\S]{0,220}await refreshCudaStatus\(true\)/.test(jsGpuQ)
+      && /if \(active === wantCuda\) \{ matched = true; break; \}/.test(jsGpuQ),
+      'status: gpu.js menunggu engine benar-benar sesuai device (baca tanpa cache)');
+    ok(/return matched \? cfg : null;/.test(jsGpuQ),
+      'status: gagal sesuai device dikembalikan sebagai null agar dropdown dikembalikan');
     ok(!/^\s*\/\//m.test(rsEngine.replace(/^\s*\/\/![\s\S]*$/gm, '').replace(/^\s*\/\/\/.*$/gm, '')),
       'rust: engine.rs tanpa komentar // baru');
 

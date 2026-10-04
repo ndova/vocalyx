@@ -125,10 +125,17 @@ async function runApplyDevice(device, gpuPython) {
   setStatus(t('set.gpuPythonApplying'), null);
   try {
     const cfg = await invokeTauri('set_engine_config', { device, gpuPython: gpuPython || '' });
-    await waitEngineReady(90000);
-    setStatus(cfg.active_cuda ? t('set.gpuPythonActiveCuda') : t('set.gpuPythonActiveCpu'), cfg.active_cuda);
-    try { await refreshCudaStatus(); } catch {}
-    return cfg;
+    const wantCuda = device === 'cuda' || device === 'gpu';
+    let matched = false;
+    let active = false;
+    for (let i = 0; i < 90; i++) {
+      await waitEngineReady(1000);
+      try { active = !!(await refreshCudaStatus(true)); } catch { active = false; }
+      if (active === wantCuda) { matched = true; break; }
+    }
+    if (matched) setStatus(active ? t('set.gpuPythonActiveCuda') : t('set.gpuPythonActiveCpu'), active);
+    else setStatus(`${t('set.gpuPythonSwitchFailed')}: engine tidak sesuai device ${device}`, false);
+    return matched ? cfg : null;
   } catch (e) {
     setStatus(`${t('set.gpuPythonSwitchFailed')}: ${e?.message || String(e)}`, false);
     try { showToast(`${t('set.gpuPythonSwitchFailed')}: ${e?.message || String(e)}`, 7000); } catch {}
