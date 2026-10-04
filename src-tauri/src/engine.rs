@@ -82,10 +82,89 @@ pub fn restart(app: &AppHandle) {
         }
     }
     wait_port_free(6000);
+    take_over_stale_engine();
     start(app);
 }
 
+/// Engine yang memegang port 8001 tapi bukan anak instance ini akan membuat
+/// `start()` melakukan "skip spawn" selamanya, sehingga pergantian device tidak
+/// pernah benar-benar terjadi. Gejalanya: log `restart: stop engine (pid ...)`
+/// lalu `engine sudah hidup di 127.0.0.1:8001, skip spawn` tanpa baris
+/// `start engine` sama sekali.
+///
+/// Dua sumbernya: instance VocaLyx sebelumnya yang mati sebelum menutup engine,
+/// dan spawn ganda yang hanya menyimpan child terakhir di state `Engine`.
+/// Karena itu port yang dijawab engine VocaLyx (`engine_alive()` sudah memastikan
+/// jawabannya `/health` milik kita) aman diambil alih.
+fn take_over_stale_engine() {
+    if !engine_alive() {
+        return;
+    }
+    let Some(pid) = port_owner_pid() else {
+        log_line!("restart: port {ENGINE_PORT} masih hidup tapi PID pemegangnya tidak ditemukan");
+        return;
+    };
+    log_line!("restart: ambil alih engine yatim di port {ENGINE_PORT} (pid {pid})");
+    kill_pid(pid);
+    wait_port_free(6000);
+}
+
+#[cfg(windows)]
+fn port_owner_pid() -> Option<u32> {
+    let out = Command::new("netstat")
+        .args(["-ano", "-p", "tcp"])
+        .stdin(Stdio::null())
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    for line in text.lines() {
+        let cols: Vec<&str> = line.split_whitespace().collect();
+        if cols.len() < 5 || !cols[0].eq_ignore_ascii_case("TCP") {
+            continue;
+        }
+        if cols[1].rsplit(':').next() != Some(ENGINE_PORT.to_string().as_str()) {
+            continue;
+        }
+        if cols[3].eq_ignore_ascii_case("TIME_WAIT") {
+            continue;
+        }
+        if let Ok(pid) = cols[4].parse::<u32>() {
+            return Some(pid);
+        }
+    }
+    None
+}
+
+#[cfg(not(windows))]
+fn port_owner_pid() -> Option<u32> {
+    None
+}
+
+fn kill_pid(pid: u32) {
+    #[cfg(windows)]
+    {
+        let _ = Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/F", "/T"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    let _ = pid;
+}
+
+/// `start()` bisa dipanggil dari `spawn_ensure_and_start` (spawn_blocking) dan
+/// dari `restart` sekaligus. Tanpa lock, dua panggilan berdekatan bisa sama-sama
+/// melihat port masih kosong lalu spawning dua engine; state `Engine` hanya
+/// menyimpan child terakhir, jadi engine yang pertama jadi yatim yang tetap
+/// memegang port 8001 dan memblokir semua pergantian device berikutnya.
+static START_LOCK: Mutex<()> = Mutex::new(());
+
 pub fn start(app: &AppHandle) {
+    let _guard = match START_LOCK.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
     if engine_alive() {
         log_line!("engine sudah hidup di 127.0.0.1:8001, skip spawn");
         return;
@@ -134,9 +213,28 @@ pub fn start(app: &AppHandle) {
                 *slot = Some(child);
             }
             log_line!("engine berjalan (pid {})", pid);
+            wait_engine_listen(30_000);
         }
-        Err(e) => log_line!("GAGAL spawn: {}", e),
+        Err(e) => {
+            log_line!("GAGAL spawn: {}", e);
+            return;
+        }
     }
+}
+
+/// Tahan lock `START_LOCK` sampai engine benar-benar listen, supaya `start()`
+/// berikutnya tidak spawning engine kedua ke port yang sama.
+fn wait_engine_listen(max_ms: u64) {
+    let step = Duration::from_millis(300);
+    let mut waited: u64 = 0;
+    while waited < max_ms {
+        if engine_alive() {
+            return;
+        }
+        std::thread::sleep(step);
+        waited += step.as_millis() as u64;
+    }
+    log_line!("start: engine belum listen setelah {} detik", max_ms / 1000);
 }
 
 /// Ping `/health` dengan HTTP mentah lewat TcpStream supaya tidak perlu

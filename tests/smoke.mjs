@@ -1196,6 +1196,20 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
       'status: gpu.js menunggu engine benar-benar sesuai device (baca tanpa cache)');
     ok(/return matched \? cfg : null;/.test(jsGpuQ),
       'status: gagal sesuai device dikembalikan sebagai null agar dropdown dikembalikan');
+
+    ok(/static START_LOCK: Mutex<\(\)> = Mutex::new\(\(\)\);/.test(rsEngine)
+      && /let _guard = match START_LOCK\.lock\(\)/.test(rsEngine),
+      'engine: start() dikunci agar dua panggilan bersamaan tidak spawn dua engine');
+    ok(/wait_engine_listen\(30_000\);/.test(rsEngine)
+      && /fn wait_engine_listen\(max_ms: u64\)/.test(rsEngine),
+      'engine: lock ditahan sampai engine benar-benar listen');
+    ok(/fn take_over_stale_engine\(\)/.test(rsEngine)
+      && /restart: ambil alih engine yatim di port/.test(rsEngine),
+      'engine: restart() mengambil alih port yang dipegang engine yatim');
+    ok(/fn port_owner_pid\(\) -> Option<u32>/.test(rsEngine)
+      && /"netstat"/.test(rsEngine) && /"taskkill"/.test(rsEngine)
+      && /fn take_over_stale_engine\(\) \{[\s\S]{0,120}if !engine_alive\(\) \{[\s\S]{0,200}port_owner_pid\(\)/.test(rsEngine),
+      'engine: proses pemegang port 8001 dicari dan hanya diambil alih kalau jawabannya /health milik kita');
     ok(!/^\s*\/\//m.test(rsEngine.replace(/^\s*\/\/![\s\S]*$/gm, '').replace(/^\s*\/\/\/.*$/gm, '')),
       'rust: engine.rs tanpa komentar // baru');
 
