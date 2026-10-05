@@ -67,9 +67,9 @@ export function plPathIndex(pl, path){
 }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
 if (!S.downloadOptions.karaokeDevice) S.downloadOptions.karaokeDevice = 'cpu';
-if (!['karaoke_aufr33','cpu_inst_hq'].includes(S.downloadOptions.karaokeQuality)) S.downloadOptions.karaokeQuality = 'karaoke_aufr33';
+if (!['karaoke_aufr33','karaoke_full','cpu_inst_hq'].includes(S.downloadOptions.karaokeQuality)) S.downloadOptions.karaokeQuality = 'karaoke_aufr33';
 if (!['flac','ogg','wav'].includes(S.downloadOptions.karaokeFormat)) S.downloadOptions.karaokeFormat = 'flac';
-if (!['karaoke_aufr33', 'cpu_inst_hq'].includes(S.downloadOptions.karaokeQuality)) S.downloadOptions.karaokeQuality = 'karaoke_aufr33';
+if (!['karaoke_aufr33', 'karaoke_full', 'cpu_inst_hq'].includes(S.downloadOptions.karaokeQuality)) S.downloadOptions.karaokeQuality = 'karaoke_aufr33';
 if (typeof S.downloadOptions.replayGainEnabled !== 'boolean') S.downloadOptions.replayGainEnabled = false;
 if (!Number.isFinite(S.downloadOptions.replayGainTarget)) S.downloadOptions.replayGainTarget = -14;
 S.downloadOptions.replayGainTarget = Math.max(-20, Math.min(-10, S.downloadOptions.replayGainTarget));

@@ -1,0 +1,28 @@
+# Dependensi engine untuk venv CUDA milik app (Opsi B: tombol "Pasang
+# dependensi CUDA" -> %APPDATA%\VocaLyx\py-cuda).
+#
+# Dipakai `src-tauri/src/cuda_setup.rs`, BUKAN pip manual. Bedanya dari
+# requirements.txt:
+#   - baris torch DIHAPUS dari sini: torch CUDA dipasang terpisah lebih dulu
+#     dari index resmi cu121 (`TORCH_PIN` di cuda_setup.rs), supaya pip tidak
+#     pernah mengambil torch CPU dari PyPI.
+#   - onnxruntime-gpu dipertahankan (butuh CUDA runtime).
+# Pasangan versi dikunci constraints-cuda.txt yang wajib diteruskan dengan
+# flag `-c` (pelajaran constraints-cpu.txt: tanpa pin, turunan seperti
+# onnx2torch menaikkan/mengganti torch seenaknya).
+fastapi
+uvicorn[standard]
+python-multipart
+audio-separator[gpu]==0.47.0
+mutagen
+Pillow
+imageio-ffmpeg
+numpy
+onnxruntime-gpu
+pymobiledevice3
+yt-dlp
+soundfile
+librosa
+scipy
+requests
+ytmusicapi

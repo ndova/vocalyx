@@ -174,7 +174,30 @@ function searchTrackRow(tk, absIdx){
     b.style.cursor = 'default';
     const src = (tk.source || 'online').toLowerCase();
         const dlIcon = ico('download', 14);
-        b.innerHTML = `<span style="color:#8b93a9">${absIdx+1}</span><span class="t-main">${onlineCoverHtml(tk)}<span style="min-width:0"><div class="t-title"><span style="overflow:hidden;text-overflow:ellipsis">${tk.title}</span><span class="src-badge src-${src}">${tk.source || 'online'}</span></div><div class="t-sub">${tk.artist}</div></span></span><span class="c-dur">${tk.duration? fmt(tk.duration) : '--:--'}</span><span class="c-more" style="display:flex; gap:4px; align-items:center"><button class="btn-add-folder" data-play-online="${absIdx}" title="${t('se.playPreview')}" aria-label="${t('se.playPreview')}" style="font-size:11px !important; padding:3px 6px !important">${ICON.play}</button><button class="btn-add-folder" data-dl-online="${absIdx}" title="${t('se.downloadSong')}" aria-label="${t('se.downloadSong')}" style="font-size:11px !important; padding:3px 6px !important; display:inline-grid; place-items:center">${dlIcon}</button></span>`;
+        const flagBadge = tk.page_only
+          ? `<span class="src-badge" title="${t('se.pageOnlyHint')}">${t('se.pageOnly')}</span>`
+          : tk.preview_only
+            ? `<span class="src-badge" title="${t('se.previewOnlyHint')}">${t('se.previewOnly')}</span>`
+            : '';
+        b.innerHTML = `<span style="color:#8b93a9">${absIdx+1}</span><span class="t-main">${onlineCoverHtml(tk)}<span style="min-width:0"><div class="t-title"><span style="overflow:hidden;text-overflow:ellipsis">${tk.title}</span><span class="src-badge src-${src}">${tk.source || 'online'}</span>${flagBadge}</div><div class="t-sub">${tk.artist}</div></span></span><span class="c-dur">${tk.duration? fmt(tk.duration) : '--:--'}</span><span class="c-more" style="display:flex; gap:4px; align-items:center"><button class="btn-add-folder" data-play-online="${absIdx}" title="${t('se.playPreview')}" aria-label="${t('se.playPreview')}" style="font-size:11px !important; padding:3px 6px !important">${ICON.play}</button><button class="btn-add-folder" data-dl-online="${absIdx}" title="${tk.page_only ? t('se.openPage') : t('se.downloadSong')}" aria-label="${tk.page_only ? t('se.openPage') : t('se.downloadSong')}" style="font-size:11px !important; padding:3px 6px !important; display:inline-grid; place-items:center">${tk.page_only ? '↗' : dlIcon}</button></span>`;
+        if (tk.page_only) {
+          const dlBtn = b.querySelector('[data-dl-online]');
+          if (dlBtn) dlBtn.onclick = async (e)=>{
+            e.stopPropagation();
+            try {
+              const m = await import('@tauri-apps/plugin-opener');
+              const fn = m.openUrl || (m.default && m.default.openUrl);
+              if (typeof fn === 'function' && /^https?:\/\//i.test(tk.trackId || '')) { await fn(tk.trackId); return; }
+            } catch {}
+            try { showToast(t('se.openPageFail'), 4000); } catch {}
+          };
+          const playBtn = b.querySelector('[data-play-online]');
+          if (playBtn) playBtn.onclick = async (e)=>{
+            e.stopPropagation();
+            try { showToast(t('se.pageOnlyHint'), 4000); } catch {}
+          };
+          return b;
+        }
     b.querySelector('[data-play-online]').onclick = async (e)=>{
       e.stopPropagation();
       const playBtn = b.querySelector('[data-play-online]');

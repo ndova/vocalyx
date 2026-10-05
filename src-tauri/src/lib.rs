@@ -5,6 +5,7 @@ use serde::Serialize;
 use std::path::Path;
 use tauri::Manager;
 
+mod cuda_setup;
 mod engine;
 mod runtime;
 mod smtc;
@@ -449,7 +450,12 @@ pub fn run() {
             engine::detect_pythons_async,
             engine::gpu_probe_cached,
             engine::get_engine_config,
-            engine::set_engine_config
+            engine::set_engine_config,
+            cuda_setup::cuda_setup_status,
+            cuda_setup::cuda_setup_precheck,
+            cuda_setup::cuda_setup_start,
+            cuda_setup::cuda_setup_cancel,
+            cuda_setup::cuda_setup_reset
         ])
         .setup(|app| {
             runtime::spawn_ensure_and_start(app.handle().clone());

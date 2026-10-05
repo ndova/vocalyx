@@ -11,7 +11,7 @@ boost HF +12 dB). Itu menghasilkan "suara air" yang menetap -- burst envelope
 12-16 kHz naik dari 0.197 (file sumber) ke 0.348, dan detail backing ikut
 turun. JANGAN kembalikan masking itu tanpa bukti baru.
 
-Usage: karaoke_best.py <input> <out_dir> <cuda|cpu> [preset]
+Usage: karaoke_best.py <input> <out_dir> <cuda|cpu> [preset] [--no-dereverb] [--ensemble] [--no-ensemble] [--ens-algo NAME]
 """
 import json
 import pathlib
@@ -24,7 +24,7 @@ import win_nowindow  # noqa: E402
 win_nowindow.hide_child_consoles()
 
 import vx_karaoke_sep as sep  # noqa: E402
-from vx_sep_cache import KARAOKE_PRESETS  # noqa: E402
+from vx_sep_cache import KARAOKE_ENSEMBLE, KARAOKE_ENSEMBLE_ALGO, KARAOKE_PRESETS  # noqa: E402
 
 DEFAULT_PRESET = "karaoke_aufr33"
 
@@ -36,12 +36,61 @@ def main():
     inp = pathlib.Path(sys.argv[1])
     out_dir = pathlib.Path(sys.argv[2])
     device = sys.argv[3].lower()
-    preset = sys.argv[4].lower() if len(sys.argv) >= 5 else DEFAULT_PRESET
+    rest = [a for a in sys.argv[4:]]
+    no_dereverb_flag = "--no-dereverb" in rest
+    rest = [a for a in rest if not a.startswith("--")]
+    preset = rest[0].lower() if rest else DEFAULT_PRESET
     if preset not in KARAOKE_PRESETS:
         sep.eprint(f"preset '{preset}' tidak dikenal, pakai '{DEFAULT_PRESET}'")
         preset = DEFAULT_PRESET
     model = KARAOKE_PRESETS[preset][0]
-    weights = ((model, 1.0),)
+    # Ensemble karaoke: karaoke_aufr33 default SINGLE (v18, ensemble opt-in;
+    # min_fft terbukti menumpulkan lagu padat), karaoke_full default ENSEMBLE
+    # avg_wave (v23, kedua model ONNX cepat saling menutupi residu).
+    # Override: --ensemble/--no-ensemble, VOCALYX_ENSEMBLE/VOCALYX_NO_ENSEMBLE,
+    # algoritma via --ens-algo / VOCALYX_ENS_ALGO.
+    import os as _os
+    ens_want = "--ensemble" in sys.argv[4:] or \
+        (_os.environ.get("VOCALYX_ENSEMBLE") or "").strip().lower() in ("1", "true", "on", "yes")
+    no_ens_flag = "--no-ensemble" in sys.argv[4:]
+    no_ens_env = (_os.environ.get("VOCALYX_NO_ENSEMBLE") or "").strip().lower() in ("1", "true", "on", "yes")
+    ens_algo = ""
+    for _i, _a in enumerate(sys.argv[4:]):
+        if _a == "--ens-algo" and _i + 5 < len(sys.argv):
+            ens_algo = sys.argv[_i + 5].strip().lower()
+    if not ens_algo:
+        ens_algo = (_os.environ.get("VOCALYX_ENS_ALGO") or "").strip().lower()
+    if ens_algo not in ("avg", "avg_wave", "min_fft", "median_fft", "max_fft",
+                        "min_wave", "median_wave", "max_wave",
+                        "uvr_min_spec", "uvr_max_spec"):
+        ens_algo = KARAOKE_ENSEMBLE_ALGO.get(preset, "min_fft")
+    ens_members = tuple(KARAOKE_ENSEMBLE.get(preset, ()))
+    if preset == "karaoke_full":
+        use_ens = len(ens_members) > 1 and not no_ens_flag and not no_ens_env
+    else:
+        use_ens = (ens_want and not no_ens_flag and not no_ens_env
+                   and len(ens_members) > 1)
+    if use_ens:
+        weights = ens_members
+        ens_algo_eff = ens_algo
+        sep.eprint(f"[KaraokeBest] ensemble {len(weights)} model [{ens_algo_eff}]: "
+                   + ", ".join(f"{m}({w})" for m, w in weights))
+    else:
+        weights = ((model, 1.0),)
+        ens_algo_eff = "avg"
+        sep.eprint("[KaraokeBest] single model")
+    # Tahap-2 dereverb (v15): default MATI (opt-in via VOCALYX_DEREVERB=1).
+    # Terbukti menumpulkan mid/high pada lagu padat; masalah mendem bukan
+    # reverb. Gagal -> fallback mentah di dalam build_instrumental_from_models.
+    use_dereverb = (
+        preset == "karaoke_aufr33"
+        and device != "cpu"
+        and not no_dereverb_flag
+        and sep._dereverb_enabled()
+    )
+    sep.eprint(f"[KaraokeBest] dereverb tahap-2: {'nyala' if use_dereverb else 'mati'}")
+    has_ckpt = any(m.lower().endswith(".ckpt") for m, _ in weights)
+    sep.eprint(f"[KaraokeBest] overlap inferensi: {sep._wanted_overlap() if has_ckpt else 'n/a (ONNX)'}")
 
     sep.emit_progress(2, "start")
     try:
@@ -65,7 +114,8 @@ def main():
     try:
         res = sep.build_instrumental_from_models(
             weights, inp, out_dir, device,
-            allow_download=True, progress=(6.0, 72.0))
+            allow_download=True, progress=(6.0, 72.0),
+            dereverb=use_dereverb, algorithm=ens_algo_eff)
     except Exception as ex:
         sep.eprint(f"[KaraokeBest] {model} gagal: {ex}")
         import traceback

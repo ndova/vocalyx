@@ -53,6 +53,11 @@ def band_energy_db(spec: np.ndarray, lo_hz: float, hi_hz: float) -> np.ndarray:
     return 10 * np.log10(np.maximum(e, 1e-20))
 
 
+def _band_mask(lo_hz: float, hi_hz: float) -> np.ndarray:
+    freqs = np.fft.rfftfreq(N_FFT, 1 / dsp.SAMPLE_RATE)
+    return (freqs >= lo_hz) & (freqs <= hi_hz)
+
+
 def metrics(x: np.ndarray, mix: np.ndarray) -> dict:
     sx = frame_spectrum(x)
     sm = frame_spectrum(mix)
@@ -68,9 +73,28 @@ def metrics(x: np.ndarray, mix: np.ndarray) -> dict:
               & (np.fft.rfftfreq(N_FFT, 1 / dsp.SAMPLE_RATE) <= 3400)] ** 2).sum(axis=0)
     vb_x = float(np.mean(xb / np.maximum(xt, 1e-20)))
     vb_m = float(np.mean(mb / np.maximum(mt, 1e-20)))
-    return {"hf_floor_db_vs_mix": round(hf_db, 2),
-            "vocal_band_ratio": round(vb_x, 4),
-            "vocal_band_ratio_mix": round(vb_m, 4)}
+    out = {"hf_floor_db_vs_mix": round(hf_db, 2),
+           "vocal_band_ratio": round(vb_x, 4),
+           "vocal_band_ratio_mix": round(vb_m, 4)}
+    # v14: metrik mid/treble + sisa reverb di bagian sepi.
+    try:
+        for key, lo, hi in (("mid_presence", 2000.0, 6000.0), ("air", 12000.0, 16000.0)):
+            m = _band_mask(lo, hi)
+            ex = float(np.median((sx[m] ** 2).sum(axis=0)))
+            em = float(np.median((sm[m] ** 2).sum(axis=0)))
+            out[f"{key}_db_vs_mix"] = round(float(10 * np.log10(max(ex, 1e-20) / max(em, 1e-20))), 2)
+        # Frame sepi (mix < persentil 10): energi stem di sana vs mix (dB).
+        # Tinggi = sisa reverb/hash hantu vokal masih menempel di instrumental.
+        thr = float(np.percentile(mt, 10.0))
+        quiet = mt <= max(thr, 1e-20)
+        if bool(quiet.any()):
+            rq = float(np.mean(xt[quiet]) / max(float(np.mean(mt[quiet])), 1e-20))
+            out["quiet_residual_db_vs_mix"] = round(float(10 * np.log10(max(rq, 1e-20))), 2)
+        else:
+            out["quiet_residual_db_vs_mix"] = 0.0
+    except Exception as ex:
+        out["extended_metrics_error"] = str(ex)[:200]
+    return out
 
 
 def bleed_corr(inst: np.ndarray, voc: np.ndarray) -> float:
@@ -94,7 +118,8 @@ def pick_inst(primary_path: pathlib.Path | None, second: pathlib.Path | None,
         if not p.is_file():
             continue
         low = p.name.lower()
-        if "(instrumental)" in low or "(other)" in low or "_no_vocals" in low or "(no_vocals)" in low:
+        if ("(instrumental)" in low or "(other)" in low or "_no_vocals" in low
+                or "(no_vocals)" in low or "(karaoke)" in low):
             return p
     return None
 

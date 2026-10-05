@@ -94,20 +94,22 @@ def _clamp_bool(raw, default: bool) -> bool:
 
 def _run_dsp(job_id: str, inst: Path, vocal: Path | None, out: Path, log_path: Path,
              source: Path, centre_kill: float, match_level: bool,
-             vocal_kill: float = 1.0) -> Path | None:
-    """Tahap post: high-pass + limiter + loudness match. Tanpa masking.
+             vocal_kill: float = 1.0, clarity: bool = True) -> Path | None:
+    """Tahap post: clarity EQ + high-pass + limiter + loudness match. Tanpa masking.
 
     Instrumental dari model dipakai apa adanya; yang ditambahkan hanya
-    rumble-cut, limiter, dan penyamaan loudness ke lagu asli. Argumen
-    ``--vocal-kill``/``--vocal-kill-subtractive`` masih diteruskan supaya
-    signature cache tidak berubah, tapi DSP sudah mengabaikannya.
+    clarity EQ lembut ber-guard (v14, default nyala), rumble-cut, limiter,
+    dan penyamaan loudness ke lagu asli. Argumen ``--vocal-kill``/
+    ``--vocal-kill-subtractive`` masih diteruskan supaya signature cache
+    tidak berubah, tapi DSP sudah mengabaikannya.
     """
     if not DSP_SCRIPT.exists():
         log.warning("karaoke DSP script hilang: %s (post dilewati)", DSP_SCRIPT)
         return inst if inst.exists() else None
     args = ["--inst", str(inst), "--out", str(out),
             "--vocal-kill", f"{centre_kill:.3f}",
-            "--vocal-kill-subtractive", f"{vocal_kill:.3f}"]
+            "--vocal-kill-subtractive", f"{vocal_kill:.3f}",
+            "--clarity", ("on" if clarity else "off")]
     if match_level:
         args += ["--match-lufs", str(source)]
     produced, _ = _run_script(job_id, DSP_SCRIPT, args, log_path)
@@ -117,12 +119,19 @@ def _run_dsp(job_id: str, inst: Path, vocal: Path | None, out: Path, log_path: P
     return inst if inst.exists() else None
 
 
+def _clarity_env_off() -> bool:
+    import os as _os
+
+    return (_os.environ.get("VOCALYX_NO_CLARITY") or "").strip().lower() in ("1", "true", "on", "yes")
+
+
 def _worker(job_id: str, raw: bytes, suffix: str, mode: str, quality: str,
             device: str, target_format: str, cache_path: Path,
             track_path: str | None,
             vocal_kill: float = DEFAULT_VOCAL_KILL,
             centre_kill: float = DEFAULT_CENTRE_KILL,
-            match_level: bool = True):
+            match_level: bool = True,
+            clarity: bool = True):
     job = _JOBS.get(job_id)
     if not job:
         return
@@ -160,7 +169,8 @@ def _worker(job_id: str, raw: bytes, suffix: str, mode: str, quality: str,
             quality = "cpu_inst_hq"
             log.info("perangkat tanpa CUDA: karaoke_aufr33 dialihkan ke cpu_inst_hq (UVR-MDX-NET-Inst_HQ_4, benchmark CPU tercepat)")
         persist_base, stem = _resolve_persist(track_path)
-        sig = _persist_signature(mode, quality, vocal_kill, centre_kill, match_level, {})
+        sig = _persist_signature(mode, quality, vocal_kill, centre_kill, match_level, {},
+                                 clarity and not _clarity_env_off())
 
         with tempfile.TemporaryDirectory() as td:
             td_p = Path(td)
@@ -211,11 +221,13 @@ def _worker(job_id: str, raw: bytes, suffix: str, mode: str, quality: str,
             wav_inst: Path | None = None
             wav_voc: Path | None = None
             # Preset karaoke (lihat vx_sep_cache.KARAOKE_PRESETS):
-            #   karaoke_aufr33  -> MelBand RoFormer Karaoke Aufr33/Viperx (GPU/default)
+            #   karaoke_aufr33  -> MelBand RoFormer Karaoke Aufr33/Viperx, single
+            #                      overlap-8 (GPU/default; hapus lead saja)
+            #   karaoke_full    -> ensemble Kim_Vocal_2 + Inst_HQ_4 avg_wave
+            #                      (hapus semua vokal; CUDA & CPU)
             #   cpu_inst_hq     -> UVR-MDX-NET-Inst_HQ_4 (CPU cepat)
             # Tidak ada fallback otomatis (mode 'vocal'/Demucs sudah dihapus):
-            # bila preset terpilih (karaoke_aufr33 / cpu_inst_hq) gagal, job
-            # langsung ditandai failed.
+            # bila preset terpilih gagal, job langsung ditandai failed.
             #
             # Jalur post-processing TIDAK memakai masking: stem instrumental
             # dari model dipakai apa adanya lalu di-loudness-match. Versi
@@ -249,7 +261,8 @@ def _worker(job_id: str, raw: bytes, suffix: str, mode: str, quality: str,
             if wav_inst is not None:
                 _set_job(job_id, pct=74.0, stage="dsp")
                 post = _run_dsp(job_id, wav_inst, wav_voc, out_dir / "post.wav", log_path,
-                                 src, centre_kill, match_level, vocal_kill)
+                                 src, centre_kill, match_level, vocal_kill,
+                                 clarity and not _clarity_env_off())
                 if post is not None:
                     wav_inst = post
                 with _JOBS_LOCK:
@@ -315,6 +328,7 @@ async def separate(
     vocal_kill: str = Form(""),
     centre_kill: str = Form(""),
     match_level: str = Form(""),
+    clarity: str = Form(""),
 ):
     mode = (mode or "karaoke").lower()
     if mode != "karaoke":
@@ -329,6 +343,7 @@ async def separate(
     vk = _clamp_float(vocal_kill, DEFAULT_VOCAL_KILL, 0.70, 1.30)
     ck = _clamp_float(centre_kill, DEFAULT_CENTRE_KILL, 0.0, 1.25)
     ml = _clamp_bool(match_level, True)
+    cl = _clamp_bool(clarity, True)
 
     suffix = _resolve_suffix(file.filename, file.content_type)
     if suffix not in SUPPORTED:
@@ -347,7 +362,7 @@ async def separate(
 
     model_lc = (model or "bsroformer").lower()
     fingerprint = _model_fingerprint()
-    params = f"{vk:.3f}|{ck:.3f}|{int(ml)}"
+    params = f"{vk:.3f}|{ck:.3f}|{int(ml)}|{int(cl)}"
     key = hashlib.md5(raw + f"|{model_lc}|{mode}|{quality}|{target_format}|{params}|{fingerprint}".encode()).hexdigest()
     out_path = APP_DIR / f"{key}_{mode}.{target_format}"
     tp_hint = (track_path or "").strip()
@@ -382,7 +397,7 @@ async def separate(
                          "mode": mode, "format": target_format, "at": time.time()}
     th = threading.Thread(target=_worker,
                           args=(job_id, raw, suffix, mode, quality, dev, target_format,
-                                out_path, tp_clean or None, vk, ck, ml),
+                                out_path, tp_clean or None, vk, ck, ml, cl),
                           daemon=True)
     th.start()
     return {"ok": True, "job_id": job_id, "cached": False}
@@ -493,12 +508,16 @@ def karaoke_caps(device: str = "auto"):
     probe = (device or "auto").lower() != "cpu"
     info = _device_info(probe_cuda=probe)
     missing = _missing_best_models()
-    quality_note = ("karaoke_aufr33=MelBand RoFormer Karaoke Aufr33/Viperx (GPU, default); "
+    quality_note = ("karaoke_aufr33=MelBand RoFormer Karaoke Aufr33/Viperx, single "
+                    "model overlap-8 (GPU, default; hapus lead, backing dipertahankan; "
+                    "ensemble aufr33+gabox_v2 opt-in). "
+                    "karaoke_full=ensemble Kim_Vocal_2 + UVR-MDX-NET-Inst_HQ_4 "
+                    "(hapus SEMUA vokal incl. backing; CUDA & CPU). "
                     "cpu_inst_hq=UVR-MDX-NET-Inst_HQ_4 (CPU, cepat). "
-                    "Setiap preset memakai SATU model dan stem instrumentalnya "
-                    f"dipakai apa adanya (dsp v{KARAOKE_DSP_VERSION}) — tanpa "
-                    "masking, karena masking ganda yang dulu jadi sumber 'suara air'. "
-                    "Post: limiter -1dBTP + loudness match ke lagu asli "
+                    f"Stem instrumental dipakai apa adanya (dsp v{KARAOKE_DSP_VERSION}) — "
+                    "tanpa masking, karena masking ganda yang dulu jadi sumber 'suara air'. "
+                    "Post: clarity EQ bertingkat ber-guard (de-mud, presence, bite, air) "
+                    "+ limiter iteratif -1dBTP + loudness match ke lagu asli "
                     "(high-pass mati secara bawaan).")
     if missing:
         quality_note += " Model Best belum ada (diunduh saat proses): " + ", ".join(missing)

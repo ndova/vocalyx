@@ -5,7 +5,7 @@ import re
 import shutil
 import subprocess
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from urllib.parse import quote_plus, urljoin, urlparse
 
@@ -90,17 +90,38 @@ def _search_soundcloud(query: str, n: int, cookies: str = ""):
         def _probe(c):
             j, sid, dur, page = c
             try:
-                if _sc_full_available(page, cookies, timeout=20):
+                if _sc_full_available(page, cookies, timeout=40, retries=1):
                     return c
             except Exception:
                 pass
             return None
-        full = []
+        # Berhenti awal: ambil hasil sesuai selesai (bukan tunggu semua),
+        # batalkan sisanya begitu kuota n terpenuhi. Tanpa ini satu probe
+        # lambat menahan semuanya sampai timeout future.
+        full, preview_only = [], []
         with ThreadPoolExecutor(max_workers=4) as ex:
-            for c in ex.map(_probe, cands):
-                if c and len(full) < n:
-                    full.append(c)
-        for (j, sid, dur, page) in full:
+            futs = {ex.submit(_probe, c): c for c in cands}
+            try:
+                for fut in as_completed(futs, timeout=90):
+                    try:
+                        hit = fut.result()
+                    except Exception:
+                        hit = None
+                    if hit is not None:
+                        full.append(hit)
+                    else:
+                        preview_only.append(futs[fut])
+                    if len(full) >= n:
+                        break
+            except Exception:
+                pass
+            for f in futs:
+                f.cancel()
+        # Fallback: bila TIDAK ADA yang full, tampilkan kandidat preview-only
+        # ber-badge (lebih baik dari 0 total; user yang putuskan). Metadata
+        # kandidat sudah valid (halaman soundcloud.com + durasi disaring).
+        use_preview_fallback = not full and bool(preview_only)
+        for (j, sid, dur, page) in (full or preview_only[:n]):
             title = str(j.get("title") or query)
             artist = str(j.get("uploader") or j.get("channel") or j.get("uploader_id") or "SoundCloud")
             thumbs = j.get("thumbnails") or []
@@ -122,6 +143,7 @@ def _search_soundcloud(query: str, n: int, cookies: str = ""):
                 "coverUrl": cover,
                 "previewUrl": None,
                 "source": "soundcloud",
+                "preview_only": bool(use_preview_fallback),
                 "trackId": page,
             })
     except Exception as e:
@@ -129,22 +151,81 @@ def _search_soundcloud(query: str, n: int, cookies: str = ""):
     return out
 
 
+def _lucene_escape(q: str) -> str:
+    """Escape karakter khusus Lucene yang aman di dalam grup kurung.
+
+    Terverifikasi live: meng-escape `-` menjadi `\\-` justru melempar
+    `[BACKEND_ERROR] Invalid or no response from Elasticsearch`, sementara
+    tanpa escape backend OK. `-` hanya spesial di awal klausa, jadi TIDAK
+    di-escape. Yang di-escape: karakter pemecah sintaks
+    (`"` `:` `(` `)` dan operator boolean/field lainnya).
+    """
+    return re.sub(r'([+=&|><!(){}[\]^"~*?:\\/])', r"\\\1", str(q or ""))
+
+
+def _archive_metadata(ident: str, timeout: int = 25, retries: int = 1):
+    """Daftar files metadata archive.org, atau None bila gagal total.
+
+    Timeout 25 dtk + 1x retry: dari log lapangan, 10 dtk tanpa retry membuat
+    dokumen terlewat satu per satu padahal server hanya lambat.
+    """
+    url = f"https://archive.org/metadata/{ident}"
+    attempt = 0
+    while True:
+        try:
+            mr = requests.get(url, timeout=timeout)
+            if mr.ok:
+                return mr.json().get("files") or []
+            if attempt < retries and mr.status_code in (429, 500, 502, 503, 504):
+                attempt += 1
+                time.sleep(1.5 * attempt)
+                continue
+            return None
+        except Exception as e:
+            if attempt < retries:
+                attempt += 1
+                time.sleep(1.5 * attempt)
+                continue
+            log.warning("Archive metadata %s failed: %s", ident, e)
+            return None
+
+
 def _search_archive(query: str, n: int):
 
 
     out = []
     try:
-        q = query.strip().replace('"', "")[:120]
-        if not q:
+        q = _lucene_escape(query.strip()[:120])
+        if not q.strip("\\"):
             return out
         lucene = f'(title:({q}) OR creator:({q})) AND mediatype:audio'
-        r = requests.get("https://archive.org/advancedsearch.php", params={
+        params = {
             "q": lucene, "fl[]": ["identifier", "title", "creator", "downloads"],
             "rows": min(max(n, 1), 10), "page": 1, "output": "json",
-        }, headers={"User-Agent": "Mozilla/5.0 VocaLyx/0.1"}, timeout=12)
+        }
+        r = requests.get("https://archive.org/advancedsearch.php", params=params,
+                         headers={"User-Agent": "Mozilla/5.0 VocaLyx/0.1"}, timeout=20)
         if not r.ok:
+            log.warning("Archive search HTTP %s: %s", r.status_code, (r.text or "")[:160])
             return out
-        docs = (r.json().get("response") or {}).get("docs") or []
+        try:
+            body = r.json()
+        except Exception:
+            log.warning("Archive search bukan JSON: %s", (r.text or "")[:160])
+            return out
+        if isinstance(body, dict) and body.get("error"):
+            # Backend Elasticsearch menolak sintaks fielded (pernah terukur
+            # untuk pola tertentu) -> mundur ke query polos yang longgar.
+            log.warning("Archive search backend error, coba query polos: %s", str(body.get("error"))[:120])
+            plain = f"{query.strip()[:120]} AND mediatype:audio"
+            r2 = requests.get("https://archive.org/advancedsearch.php",
+                              params={**params, "q": plain},
+                              headers={"User-Agent": "Mozilla/5.0 VocaLyx/0.1"}, timeout=20)
+            try:
+                body = r2.json() if r2.ok else {}
+            except Exception:
+                body = {}
+        docs = (body.get("response") or {}).get("docs") or [] if isinstance(body, dict) else []
         for d in docs[:n]:
             ident = d.get("identifier") or ""
             if not ident:
@@ -157,38 +238,49 @@ def _search_archive(query: str, n: int):
                 artist = artist[0] if artist else "Archive.org"
             title, artist = str(title or query), str(artist or "Archive.org")
             preview, dur, cover = None, None, f"https://archive.org/services/img/{ident}"
-            try:
-                mr = requests.get(f"https://archive.org/metadata/{ident}", timeout=10)
-                if mr.ok:
-                    files = (mr.json().get("files") or [])
-                    best = None
-                    for f in files:
-                        name = str(f.get("name") or "")
-                        if not name or "/" in name:
-                            continue
-                        if str(f.get("private") or "").lower() == "true":
-                            continue
-                        low = name.lower()
-                        if not any(low.endswith("." + e) for e in ("mp3", "m4a", "ogg", "flac", "opus", "wav", "aac")):
-                            continue
-                        if "_spectrogram" in low or low.endswith(".png") or low.endswith(".jpg"):
-                            continue
-                        best = f
-                        if low.endswith(".mp3"):
-                            break
-                    if best:
-                        fname = str(best.get("name"))
-                        preview = f"https://archive.org/download/{ident}/{fname}"
-                        try:
-                            length = best.get("length")
-                            dur = int(float(str(length))) if length else None
-                        except Exception:
-                            dur = None
-            except Exception as e:
-                log.warning("Archive metadata %s failed: %s", ident, e)
-            if not preview:
-                continue
+            files = _archive_metadata(ident)
+            best = None
+            if files:
+                for f in files:
+                    name = str(f.get("name") or "")
+                    if not name or "/" in name:
+                        continue
+                    if str(f.get("private") or "").lower() == "true":
+                        continue
+                    low = name.lower()
+                    if not any(low.endswith("." + e) for e in ("mp3", "m4a", "ogg", "flac", "opus", "wav", "aac")):
+                        continue
+                    if "_spectrogram" in low or low.endswith(".png") or low.endswith(".jpg"):
+                        continue
+                    best = f
+                    if low.endswith(".mp3"):
+                        break
+                if best:
+                    fname = str(best.get("name"))
+                    preview = f"https://archive.org/download/{ident}/{fname}"
+                    try:
+                        length = best.get("length")
+                        dur = int(float(str(length))) if length else None
+                    except Exception:
+                        dur = None
             clean = re.sub(r"\.[a-z0-9]{2,4}$", "", title, flags=re.I).replace("_", " ").strip() or query
+            if not preview:
+                # Fallback: metadata gagal total, tapi itemnya ADA. Tampilkan
+                # entri halaman (bisa dibuka manual) alih-alih dibuang diam-diam;
+                # unduhan langsung tidak bisa tanpa URL file (page_only=True).
+                out.append({
+                    "id": f"ia-{ident}",
+                    "title": clean,
+                    "artist": artist,
+                    "album": "",
+                    "duration": dur,
+                    "coverUrl": cover,
+                    "previewUrl": None,
+                    "source": "archive",
+                    "page_only": True,
+                    "trackId": f"https://archive.org/details/{ident}",
+                })
+                continue
             out.append({
                 "id": f"ia-{ident}",
                 "title": clean,
@@ -306,6 +398,90 @@ def _fs_parse_cards(html: str):
     return items
 
 
+_FS_REST_HEADERS = {
+    **_FS_HEADERS,
+    "Accept": "application/json, text/javascript, */*; q=0.01",
+    "X-Requested-With": "XMLHttpRequest",
+}
+
+_FS_REST_REFERER = "https://www.4shared.com/web/q?category=1&query="
+
+
+def _fs_rest_search(query: str, offset: int, limit: int, timeout: int = 25, retries: int = 1):
+    """Cari via REST JSON 4shared (pengganti scraping HTML yang markup-nya mati).
+
+    Halaman search kini JS-rendered (hasil via XHR `GET /web/rest/v1_2/files`
+    dengan param `search`, BUKAN `query`; respons `{"files": [...]}`). Scraping
+    `jsCardItem` lama menghasilkan 0 kartu dan dipertahankan hanya sebagai
+    fallback bila REST gagal total.
+    """
+    from urllib.parse import urlencode
+
+    params = {"search": query, "category": "1", "offset": offset, "limit": limit}
+    url = "https://www.4shared.com/web/rest/v1_2/files?" + urlencode(params)
+    headers = {**_FS_REST_HEADERS, "Referer": _FS_REST_REFERER + quote_plus(query)}
+    attempt = 0
+    while True:
+        try:
+            r = _fs_fetch(url, headers=headers, timeout=timeout)
+            if not r.ok:
+                if attempt < retries and r.status_code in (429, 500, 502, 503, 504):
+                    attempt += 1
+                    time.sleep(1.5 * attempt)
+                    continue
+                log.warning("4shared REST HTTP %s", r.status_code)
+                return []
+            try:
+                data = r.json()
+            except Exception:
+                log.warning("4shared REST bukan JSON: %s", (r.text or "")[:160])
+                return []
+            files = data.get("files") if isinstance(data, dict) else None
+            return files if isinstance(files, list) else []
+        except Exception as e:
+            if attempt < retries:
+                attempt += 1
+                time.sleep(1.5 * attempt)
+                continue
+            log.warning("4shared REST gagal: %s", e)
+            return []
+
+
+def _fs_rest_item(f: dict) -> dict | None:
+    """Petakan satu item REST -> format internal. None bila bukan audio layak."""
+    try:
+        if not isinstance(f, dict):
+            return None
+        if f.get("abusiveContent") or f.get("ownerOnly"):
+            return None
+        fid = str(f.get("id") or "")
+        name = str(f.get("name") or "")
+        if not fid or not name:
+            return None
+        low = name.lower()
+        ext = low.rsplit(".", 1)[-1] if "." in low else ""
+        mime = str(f.get("mimeType") or "")
+        if ext not in _FS_AUDIO_EXTS and not mime.startswith("audio/"):
+            return None
+        import html as _html
+
+        raw = re.sub(r"\s+", " ", _html.unescape(name).replace("_", " ")).strip()
+        title = re.sub(r"\.(mp3|m4a|wav|flac|ogg|wma|aac|opus|webm)$", "", raw, flags=re.I).strip() or raw
+        parts = [p.strip() for p in title.split(" - ", 1)]
+        if len(parts) == 2:
+            artist, title = parts[0], parts[1]
+        else:
+            artist = "Unknown"
+        page = str(f.get("downloadPage") or "")
+        if not page or not _fs_is_url(page):
+            return None
+        return {"fileId": fid, "pageUrl": page, "title": title[:120] or raw[:120],
+                "artist": artist[:120], "duration": None,
+                "coverUrl": str(f.get("thumbnailUrl") or ""), "ext": ext or "mp3"}
+    except Exception:
+        return None
+
+
 def _search_fourshared(query: str, n: int):
 
 
@@ -315,40 +491,48 @@ def _search_fourshared(query: str, n: int):
         if not q:
             return out
         want = max(1, min(40, int(n) or 8))
-        pages = [(0, f"https://www.4shared.com/web/q?category=1&query={quote_plus(q)}")]
         seen_ids = set()
-        for pi, (offset, url) in enumerate(pages):
-            try:
-                if offset:
-                    url = f"https://www.4shared.com/web/q?category=1&offset={offset}&query={quote_plus(q)}"
-                r = _fs_fetch(url, timeout=12)
-                if not r.ok or not r.text or len(r.text) < 5000:
-                    continue
-                items = _fs_parse_cards(r.text)
-                added = 0
-                for it in items:
-                    if it["fileId"] in seen_ids:
-                        continue
-                    seen_ids.add(it["fileId"])
-                    out.append({
-                        "id": f"fs-{it['fileId']}",
-                        "title": it["title"][:120],
-                        "artist": it["artist"][:120],
-                        "album": "",
-                        "duration": it["duration"] or None,
-                        "coverUrl": it["coverUrl"] or "",
-                        "previewUrl": None,
-                        "source": "4shared",
-                        "trackId": it["pageUrl"],
-                    })
-                    added += 1
-                    if len(out) >= want:
-                        break
-                if len(out) >= want or added == 0 or pi >= 2:
+        offset = 0
+        for _page in range(4):
+            items = _fs_rest_search(q, offset, 12)
+            if not items:
+                # Fallback terakhir: scraping HTML lama (markup 2024).
+                if not out and offset == 0:
+                    try:
+                        r = _fs_fetch(
+                            f"https://www.4shared.com/web/q?category=1&query={quote_plus(q)}",
+                            timeout=25)
+                        if r.ok and r.text and len(r.text) >= 5000:
+                            items = [{"_legacy": it} for it in _fs_parse_cards(r.text)]
+                    except Exception:
+                        pass
+                if not items:
                     break
-                pages.append((len(seen_ids), ""))
-            except Exception:
-                continue
+            added = 0
+            for entry in items:
+                it = entry["_legacy"] if isinstance(entry, dict) and "_legacy" in entry else _fs_rest_item(entry)
+                if not it or it["fileId"] in seen_ids:
+                    continue
+                seen_ids.add(it["fileId"])
+                out.append({
+                    "id": f"fs-{it['fileId']}",
+                    "title": it["title"][:120],
+                    "artist": it["artist"][:120],
+                    "album": "",
+                    "duration": it["duration"] or None,
+                    "coverUrl": it["coverUrl"] or "",
+                    "previewUrl": None,
+                    "source": "4shared",
+                    "trackId": it["pageUrl"],
+                })
+                added += 1
+                if len(out) >= want:
+                    break
+            if len(out) >= want or added == 0:
+                break
+            offset += len(items)
+        if not out:
+            log.warning("4shared search 0 hasil: %s", q[:80])
     except Exception as e:
         log.warning("4shared search failed: %s", e)
     return out[:n]
@@ -410,7 +594,10 @@ def _resolve_4shared(page_url: str, timeout: int = 20) -> dict:
             return {"error": f"Stream 4shared tak terjangkau: {str(e)[:120]}"}
         download_url = None
         try:
-            dlink_m = re.search(r"(dlink_[A-Za-z0-9_.]+)", preview_url)
+            # Kelas karakter WAJIB mencakup `-`: segmen dlink asli mengandung
+            # strip (mis. `...Tulus_5F-_5FHati...`); tanpanya URL unduhan
+            # terpotong di tengah path (terbukti saat probing REST 2026).
+            dlink_m = re.search(r"(dlink_[A-Za-z0-9_.\-]+)", preview_url)
             if dlink_m:
 
                 dc_host = urlparse(preview_url).hostname or ""
@@ -568,8 +755,8 @@ async def search(payload: dict):
         f_fs = ex.submit(_search_fourshared, query, per_fs) if per_fs else None
         sp, dbg_sp = _safe(f_sp, 25, "spotify", "kredensial Spotify belum diisi" if not _skip else _skip)
         dz, dbg_dz = _safe(f_dz, 25, "deezer", _skip)
-        sc, dbg_sc = _safe(f_sc, 60, "soundcloud", _skip)
-        ia, dbg_ia = _safe(f_ia, 30, "archive", _skip)
+        sc, dbg_sc = _safe(f_sc, 100, "soundcloud", _skip)
+        ia, dbg_ia = _safe(f_ia, 90, "archive", _skip)
         fs, dbg_fs = _safe(f_fs, 25, "fourshared", _skip)
     debug = {"spotify": dbg_sp, "deezer": dbg_dz, "soundcloud": dbg_sc,
              "archive": dbg_ia, "fourshared": dbg_fs}
@@ -726,20 +913,45 @@ def _valid_cookies(path: str | None) -> str:
         return ""
 
 
-def _sc_full_available(url: str, cookies: str = "", timeout: int = 25) -> bool:
-    """True bila SoundCloud menyediakan stream FULL (non-preview) utk URL ini."""
+def _sc_full_available(url: str, cookies: str = "", timeout: int = 40, retries: int = 1) -> bool:
+    """True bila SoundCloud menyediakan stream FULL (non-preview) utk URL ini.
 
-    try:
-        yt_dlp = shutil.which("yt-dlp") or shutil.which("yt-dlp.exe")
-        if not yt_dlp or not url:
+    Timeout 40 dtk + 1x retry: dari log lapangan, probe `-J` sering timeout
+    tepat di 20 dtk karena throttling SoundCloud (bukan karena URL mati).
+    Retry hanya untuk timeout/gagal jalan; hasil parse definitif (tidak ada
+    format full) langsung False tanpa retry.
+    """
+
+    yt_dlp = shutil.which("yt-dlp") or shutil.which("yt-dlp.exe")
+    if not yt_dlp or not url:
+        return False
+    cmd = [yt_dlp, "--no-warnings", "--skip-download", "-J", url]
+    if cookies:
+        cmd += ["--cookies", cookies]
+    attempt = 0
+    while True:
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired as e:
+            log.warning("sc full-check timeout (%ss): %s", timeout, url[-80:])
+            if attempt < retries:
+                attempt += 1
+                continue
+            log.warning("sc full-check failed: %s", e)
             return False
-        cmd = [yt_dlp, "--no-warnings", "--skip-download", "-J", url]
-        if cookies:
-            cmd += ["--cookies", cookies]
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        except Exception as e:
+            log.warning("sc full-check failed: %s", e)
+            return False
         if proc.returncode != 0:
+            err = (proc.stderr or "")[-200:]
+            if attempt < retries and ("timed out" in err.lower() or "timeout" in err.lower() or not (proc.stdout or "").strip()):
+                attempt += 1
+                continue
             return False
-        data = json.loads(proc.stdout or "{}")
+        try:
+            data = json.loads(proc.stdout or "{}")
+        except Exception:
+            return False
         fmts = data.get("formats") or []
         if isinstance(fmts, dict):
             fmts = [fmts]
@@ -753,9 +965,7 @@ def _sc_full_available(url: str, cookies: str = "", timeout: int = 25) -> bool:
                 continue
             if (f.get("acodec") or "none") != "none" or "mp3" in fid or "opus" in fid or "http" in fid or "hls" in fid:
                 return True
-    except Exception as e:
-        log.warning("sc full-check failed: %s", e)
-    return False
+        return False
 
 
 def _scsearch_url(artist: str, title: str, timeout: int = 20, cookies: str = "") -> str | None:

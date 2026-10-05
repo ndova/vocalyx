@@ -22,6 +22,7 @@
       <div class="topbar-title"><span id="topbarViewTitle">Local Music</span><span id="downloadCount" style="color:var(--muted);font-size:11px"></span><span id="deviceConnDot" style="width:8px;height:8px;border-radius:50%;background:var(--muted);display:none"></span></div>
       <div class="topbar-right">
         <a class="topbar-support" id="btnSupport" href="https://www.buymeacoffee.com/nny7jp2d2bh" target="_blank" rel="noopener noreferrer" data-t-title="ab.supportTitle" title="Support VocaLyx with a coffee" data-t-aria="ab.supportTitle" aria-label="Support VocaLyx with a coffee"><img src="https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&amp;emoji=&#9749;&amp;slug=nny7jp2d2bh&amp;button_colour=FFDD00&amp;font_colour=000000&amp;font_family=Cookie&amp;outline_colour=000000&amp;coffee_colour=ffffff" alt="Buy me a coffee" width="136" height="34" referrerpolicy="no-referrer"></a>
+        <a class="topbar-support topbar-saweria" id="btnSaweria" href="https://saweria.co/ndova" target="_blank" rel="noopener noreferrer" style="display:none" data-t-title="ab.supportSaweriaTitle" title="Dukung via Saweria" data-t-aria="ab.supportSaweriaTitle" aria-label="Dukung via Saweria"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e0245e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-ico="heart" aria-hidden="true"></svg><span>Saweria</span></a>
         <button class="win-btn" id="btnAbout" data-t-title="win.about" title="About"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="info-circle"></svg></button>
         <button class="win-btn" id="btnWaveSettings" data-t-title="btn.settings" title="Settings"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="settings"></svg></button>
         <button class="win-btn" id="btnMin" data-t-title="win.minimize" title="Minimize"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="minus"></svg></button>
@@ -433,6 +434,7 @@
                 <label class="settings-select"><span data-t="set.quality">Quality</span>
                   <select id="karaokeQuality" class="modal-input">
                     <option value="karaoke_aufr33" data-t="set.presetAufr33">Best — MelBand RoFormer Karaoke (Aufr33/Viperx)</option>
+                    <option value="karaoke_full" data-t="set.presetFull">Full — Hapus Semua Vokal (Kim + Inst_HQ_4)</option>
                     <option value="cpu_inst_hq" data-t="set.presetCpu">UVR-MDX-NET-Inst_HQ_4</option>
                   </select>
                 </label>
@@ -450,6 +452,17 @@
                 <div id="karaokeCudaStatus" class="settings-desc" data-t="set.cuDA" style="flex:1">CUDA: checking…</div>
               </div>
               <div id="deviceCudaHint" class="settings-desc" data-t="set.deviceCudaHintChecking" style="margin-top:6px"></div>
+              <div id="cudaSetupBox" style="margin-top:8px;display:none">
+                <div id="cudaSetupStatus" class="settings-desc" style="margin-bottom:6px"></div>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                  <button id="cudaSetupBtn" class="btn-add-folder" type="button" data-t="set.cudaSetupInstall">Pasang dependensi CUDA</button>
+                  <button id="cudaSetupCancelBtn" class="btn-add-folder" type="button" style="display:none" data-t="set.cudaSetupCancel">Batal</button>
+                </div>
+                <div id="cudaSetupBarWrap" style="display:none;margin-top:6px;background:var(--muted);border-radius:4px;height:8px;overflow:hidden">
+                  <div id="cudaSetupBar" style="width:0%;height:100%;background:var(--accent)"></div>
+                </div>
+                <div id="cudaSetupPct" class="settings-desc" style="margin-top:4px"></div>
+              </div>
             </div>
 
             <div class="settings-group">

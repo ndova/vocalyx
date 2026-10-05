@@ -50,7 +50,25 @@ ROFORMER_CONFIGS = {
         "config_mel_band_roformer_instrumental_gabox.yaml",
     "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt":
         "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956_config.yaml",
+    "mel_band_roformer_karaoke_gabox_v2.ckpt":
+        "config_mel_band_roformer_karaoke_gabox.yaml",
+    # Tahap-2 dereverb (v14): rantai preferensi, yang less-aggressive dulu
+    # supaya room musik tidak ikut dikeringkan. Keduanya ada di
+    # ROFORMER_REPO (release "model-configs" nomadkaraoke) dan terdaftar di
+    # models.json audio-separator, jadi Separator bisa memuatnya.
+    "dereverb_mel_band_roformer_less_aggressive_anvuew_sdr_18.8050.ckpt":
+        "dereverb_mel_band_roformer_anvuew.yaml",
+    "dereverb_mel_band_roformer_anvuew_sdr_19.1729.ckpt":
+        "dereverb_mel_band_roformer_anvuew.yaml",
 }
+
+# Rantai model dereverb tahap-2 untuk preset karaoke_aufr33 (CUDA saja).
+# Less-aggressive pertama; kalau gagal/unduhan gagal, coba standar; kalau
+# keduanya gagal, instrumental mentah dipakai (fallback, bukan failed).
+DEREVERB_CHAIN = (
+    "dereverb_mel_band_roformer_less_aggressive_anvuew_sdr_18.8050.ckpt",
+    "dereverb_mel_band_roformer_anvuew_sdr_19.1729.ckpt",
+)
 
 MIN_MODEL_BYTES = 8 * 1024 * 1024
 
@@ -130,34 +148,86 @@ def have_model(model_file: str) -> bool:
 
 
 def _download_one(url: str, dest: Path) -> bool:
-    """Unduh satu file atomik (.part lalu rename). Kembalikan True bila OK."""
+    """Unduh satu file atomik (.part lalu rename). Kembalikan True bila OK.
+
+    Ada progres MB + resume: kalau .part dari run sebelumnya masih ada,
+    dilanjutkan via header Range (bukan dari nol). File .part yang gagal
+    SENGAJA tidak dihapus supaya bisa dilanjutkan run berikutnya; file
+    setengah jadi tidak pernah dipakai karena ``have_model`` menolaknya.
+    """
+    import urllib.request
+
     tmp = dest.with_suffix(dest.suffix + ".part")
-    eprint(f"[KaraokeSep] unduh {dest.name} ...")
+    resume_from = 0
+    try:
+        if tmp.is_file():
+            resume_from = tmp.stat().st_size
+    except Exception:
+        resume_from = 0
+    headers = {"User-Agent": "VocaLyx/0.1"}
+    if resume_from > 0:
+        headers["Range"] = f"bytes={resume_from}-"
+        eprint(f"[KaraokeSep] unduh {dest.name} ... (lanjut dari {resume_from/1e6:.1f} MB)")
+    else:
+        eprint(f"[KaraokeSep] unduh {dest.name} ...")
     try:
         started = time.time()
-        import urllib.request
-
-        req = urllib.request.Request(url, headers={"User-Agent": "VocaLyx/0.1"})
-        with urllib.request.urlopen(req, timeout=120) as resp, open(tmp, "wb") as fh:
-            shutil.copyfileobj(resp, fh)
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            status = getattr(resp, "status", 200)
+            if resume_from > 0 and status != 206:
+                eprint(f"[KaraokeSep] server tidak dukung resume (HTTP {status}); mulai dari nol")
+                resume_from = 0
+                mode = "wb"
+            else:
+                mode = "ab" if resume_from > 0 else "wb"
+            total = None
+            try:
+                if status == 206:
+                    cr = resp.headers.get("Content-Range", "")
+                    if "/" in cr:
+                        total = int(cr.rsplit("/", 1)[-1])
+                else:
+                    total = int(resp.headers.get("Content-Length", "0") or 0) or None
+            except Exception:
+                total = None
+            got = resume_from
+            last_log = got
+            chunk = 1 << 20
+            with open(tmp, mode) as fh:
+                while True:
+                    buf = resp.read(chunk)
+                    if not buf:
+                        break
+                    fh.write(buf)
+                    got += len(buf)
+                    if got - last_log >= 25 * (1 << 20):
+                        last_log = got
+                        el = time.time() - started
+                        rate = (got - resume_from) / max(el, 1e-3) / 1e6
+                        if total:
+                            eprint(f"[KaraokeSep] {dest.name}: {got/1e6:.0f}/{total/1e6:.0f} MB "
+                                   f"({100.0*got/max(total,1):.0f}%, {rate:.2f} MB/s)")
+                        else:
+                            eprint(f"[KaraokeSep] {dest.name}: {got/1e6:.0f} MB ({rate:.2f} MB/s)")
         size = tmp.stat().st_size
         if size < MIN_MODEL_BYTES and dest.suffix.lower() != ".yaml":
-            tmp.unlink(missing_ok=True)
-            eprint(f"[KaraokeSep] unduhan {dest.name} terpotong ({size} byte)")
+            eprint(f"[KaraokeSep] unduhan {dest.name} terpotong ({size} byte) — .part disimpan, bisa dilanjutkan")
             return False
         if size <= 0:
-            tmp.unlink(missing_ok=True)
             eprint(f"[KaraokeSep] unduhan {dest.name} kosong")
             return False
         tmp.replace(dest)
         eprint(f"[KaraokeSep] {dest.name} siap ({size/1e6:.1f} MB, {time.time()-started:.0f}s)")
         return True
     except Exception as ex:
+        kept = 0
         try:
-            tmp.unlink(missing_ok=True)
+            kept = tmp.stat().st_size if tmp.is_file() else 0
         except Exception:
             pass
-        eprint(f"[KaraokeSep] gagal unduh {dest.name}: {ex}")
+        eprint(f"[KaraokeSep] gagal unduh {dest.name}: {ex} "
+               f"(tersimpan {kept/1e6:.1f} MB, bisa dilanjutkan run berikutnya)")
         return False
 
 
@@ -253,7 +323,52 @@ def combine_instrumentals(mix: np.ndarray,
 # separator
 # --------------------------------------------------------------------------
 
-def _new_separator(out_dir: Path):
+# Overlap inferensi MDXC/RoFormer (v15): yaml aufr33 memakai num_overlap=4;
+# menaikkan ke 8 adalah praktik standar komunitas (UVR/MVSEP) untuk estimasi
+# mask lebih halus di batas chunk -> transient/treble lebih utuh ("mendem"
+# berkurang di sumbernya, bukan via EQ). Hanya berlaku untuk arch MDXC
+# (termasuk MelBand RoFormer); model ONNX/MDX/VR mengabaikan mdxc_params.
+# VOCALYX_OVERLAP memaksa nilai lain (mis. "4" untuk A/B vs perilaku lama).
+SEP_OVERLAP = 8
+
+
+def _cuda_total_gb() -> float | None:
+    """Total VRAM GPU pertama (GB) atau None bila tak terdeteksi."""
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return None
+        free_b, total_b = torch.cuda.mem_get_info()
+        return float(total_b) / 1e9
+    except Exception:
+        return None
+
+
+def _wanted_overlap() -> int | None:
+    """Overlap inferensi: env menang; lalu otomatis berdasar total VRAM.
+
+    Nasihat otomatis tier VRAM (sinkron dengan precheck Rust): < 6 GB -> 4
+    (hemat memori di GPU 4 GB seperti RTX 3050), >= 6 GB -> 8. VOCALYX_OVERLAP
+    memaksa nilai lain (mis. "4"/"8" untuk A/B).
+    """
+    import os as _os
+
+    raw = (_os.environ.get("VOCALYX_OVERLAP") or "").strip()
+    if raw:
+        try:
+            v = int(raw)
+            return v if v > 0 else None
+        except Exception:
+            pass
+    total = _cuda_total_gb()
+    if total is not None and total < 6.0:
+        eprint(f"[KaraokeSep] VRAM total {total:.1f} GB -> overlap otomatis 4 (hemat memori)")
+        return 4
+    return SEP_OVERLAP
+
+
+def _new_separator(out_dir: Path, overlap: int | None = None):
     from audio_separator.separator import Separator
 
     return Separator(
@@ -263,6 +378,8 @@ def _new_separator(out_dir: Path):
         normalization_threshold=1.0,
         amplification_threshold=0.0,
         use_native_fp16=NATIVE_FP16,
+        mdxc_params={"segment_size": 256, "override_model_segment_size": False,
+                     "batch_size": None, "overlap": overlap, "pitch_shift": 0},
     )
 
 
@@ -345,39 +462,143 @@ def separate_one(model_file: str, inp: Path, work_dir: Path, device: str
     """
     out_dir = work_dir / model_path(model_file).stem
     out_dir.mkdir(parents=True, exist_ok=True)
-    sep = None
-    try:
-        sep = _new_separator(out_dir)
-        sep.load_model(model_filename=model_file)
-        primary = _primary_name(sep)
-        eprint(f"[KaraokeSep] {model_file} primary={primary or '?'} device={device}")
-        hb = Heartbeat(f"separate:{model_path(model_file).stem}")
-        hb.start()
+    want_ov = _wanted_overlap()
+    # Hanya model .ckpt (keluarga MDXC/RoFormer) yang memakai overlap; untuk
+    # ONNX/VR, fallback tidak ada gunanya dan hanya menggandakan waktu.
+    can_retry_ov = model_file.lower().endswith(".ckpt") and want_ov is not None
+    attempts = [want_ov] + ([None] if can_retry_ov else [])
+    last_ex: Exception | None = None
+    for ov in attempts:
+        sep = None
         try:
-            outputs = sep.separate(str(inp))
-        finally:
-            hb.stop()
-        found = _pick_primary(outputs, out_dir, primary)
-        if not found or not found.is_file():
-            raise RuntimeError(f"{model_file}: tidak menghasilkan stem primer ({primary or '?'})")
-        second = _pick_secondary(outputs, out_dir, found)
-        if second is not None:
-            eprint(f"[KaraokeSep] {model_file} secondary={second.name}")
-        return found, primary, second
-    finally:
-        if sep is not None:
+            sep = _new_separator(out_dir, overlap=ov)
+            sep.load_model(model_filename=model_file)
+            primary = _primary_name(sep)
+            eprint(f"[KaraokeSep] {model_file} primary={primary or '?'} device={device} "
+                   f"overlap={ov if ov is not None else 'yaml-default'}")
+            hb = Heartbeat(f"separate:{model_path(model_file).stem}")
+            hb.start()
             try:
-                del sep
-            except Exception:
-                pass
-        free_vram(model_file)
+                outputs = sep.separate(str(inp))
+            finally:
+                hb.stop()
+            found = _pick_primary(outputs, out_dir, primary)
+            if not found or not found.is_file():
+                raise RuntimeError(f"{model_file}: tidak menghasilkan stem primer ({primary or '?'})")
+            second = _pick_secondary(outputs, out_dir, found)
+            if second is not None:
+                eprint(f"[KaraokeSep] {model_file} secondary={second.name}")
+            return found, primary, second
+        except Exception as ex:
+            last_ex = ex
+            if ov is not None and can_retry_ov:
+                eprint(f"[KaraokeSep] {model_file} overlap={ov} gagal ({ex}); coba overlap bawaan yaml")
+                try:
+                    for stale in out_dir.glob("*.wav"):
+                        stale.unlink(missing_ok=True)
+                except Exception:
+                    pass
+                continue
+            raise
+        finally:
+            if sep is not None:
+                try:
+                    del sep
+                except Exception:
+                    pass
+            free_vram(model_file)
+    assert last_ex is not None
+    raise last_ex
+
+
+def _dereverb_enabled() -> bool:
+    """Tahap-2 dereverb hanya bila eksplisit opt-in (default MATI sejak v15).
+
+    Terbukti pada lagu padat malah menumpulkan mid/high (air -9 dB di
+    "The Call"); masalah mendem bukan reverb. Aktifkan manual bila perlu:
+    VOCALYX_DEREVERB=1 (VOCALYX_NO_DEREVERB=1 lama tetap dihormati sebagai off).
+    """
+    import os as _os
+
+    env = (_os.environ.get("VOCALYX_DEREVERB") or "").strip().lower()
+    no = (_os.environ.get("VOCALYX_NO_DEREVERB") or "").strip().lower()
+    if no in ("1", "true", "on", "yes"):
+        return False
+    return env in ("1", "true", "on", "yes")
+
+
+def dereverb_instrumental(inst: np.ndarray, work_dir: Path, device: str,
+                          allow_download: bool = True) -> np.ndarray | None:
+    """Bersihkan sisa reverb hantu vokal dari instrumental mentah (v14).
+
+    Menjalankan SATU model dereverb MelBand (rantai ``DEREVERB_CHAIN``) dengan
+    input instrumental mentah, mengambil stem primernya (kering), me-level-match
+    lalu blend 65/35 dengan mentah via ``dsp.blend_with_clean``. Hanya untuk
+    CUDA; di CPU dilewati (terlalu lambat). Kegagalan apa pun -> None supaya
+    pemanggil memakai instrumental mentah (fallback, bukan failed).
+
+    Ini BUKAN masking: tidak ada pengurangan spektral adaptif ganda, hanya
+    estimasi neural + blend linier sekali.
+    """
+    if not _dereverb_enabled():
+        eprint("[KaraokeSep] dereverb mati (default v15; opt-in via VOCALYX_DEREVERB=1)")
+        return None
+    if (device or "").lower() == "cpu":
+        eprint("[KaraokeSep] dereverb dilewati di CPU (berat, preset CPU tetap cepat)")
+        return None
+    raw = dsp.to_stereo(inst).astype(np.float32)
+    if raw.size == 0:
+        return None
+    work_dir = Path(work_dir)
+    work_dir.mkdir(parents=True, exist_ok=True)
+    in_wav = work_dir / "_dereverb_in.wav"
+    try:
+        dsp.write_wav(in_wav, raw)
+    except Exception as ex:
+        eprint(f"[KaraokeSep] dereverb: tulis input gagal: {ex}")
+        return None
+    try:
+        for model in DEREVERB_CHAIN:
+            if not ensure_model(model, allow_download=allow_download):
+                eprint(f"[KaraokeSep] dereverb: model tidak tersedia: {model}")
+                continue
+            try:
+                emit_progress(70.0, f"dereverb:{model_path(model).stem}")
+                found, primary, _second = separate_one(
+                    model, in_wav, work_dir / "_dereverb", device)
+                dry = dsp.to_stereo(dsp.fit_length(dsp.load_audio(found), raw.shape[-1]))
+                blended = dsp.blend_with_clean(raw, dry, dsp.DEREVERB_BLEND)
+                try:
+                    a = blended.ravel()[::97].astype(np.float64)
+                    b = raw.ravel()[::97].astype(np.float64)
+                    corr = float(np.corrcoef(a, b)[0, 1])
+                except Exception:
+                    corr = 1.0
+                if corr < 0.90:
+                    eprint(f"[KaraokeSep] dereverb {model}: corr {corr:.3f} < 0.90, "
+                           f"dianggap merusak musik -> mentah dipakai")
+                    continue
+                eprint(f"[KaraokeSep] dereverb {model} ok (primary={primary or '?'}, corr={corr:.4f})")
+                emit_progress(72.0, "dereverb:done")
+                return blended.astype(np.float32)
+            except Exception as ex:
+                eprint(f"[KaraokeSep] dereverb {model} gagal: {ex}")
+                continue
+    finally:
+        try:
+            in_wav.unlink(missing_ok=True)
+        except Exception:
+            pass
+    eprint("[KaraokeSep] dereverb: semua model gagal -> instrumental mentah dipakai")
+    return None
 
 
 def build_instrumental_from_models(weights, inp: Path, out_dir: Path, device: str,
                                    vocal_kill: float = 1.0,
                                    allow_download: bool = True,
                                    progress: tuple[float, float] = (6.0, 72.0),
-                                   algorithm: str = "avg") -> dict:
+                                   algorithm: str = "avg",
+                                   dereverb: bool = True) -> dict:
     """Pisahkan dengan beberapa model, lalu rakit instrumental pada skala mix asli.
 
     ``weights``: list ``(model_file, bobot)``. Model yang bobotnya nol dilewati.
@@ -474,6 +695,22 @@ def build_instrumental_from_models(weights, inp: Path, out_dir: Path, device: st
         raise RuntimeError("semua model gagal")
 
     inst = combine_instrumentals(mix, inst_parts, algorithm=algorithm)
+
+    # Tahap-2 (v14, CUDA saja): keringkan sisa reverb hantu vokal, lalu blend
+    # 65/35 dengan mentah. Gagal -> mentah dipakai (fallback, bukan failed).
+    if dereverb and _dereverb_enabled() and (device or "").lower() != "cpu":
+        try:
+            clean = dereverb_instrumental(inst, work_dir, device,
+                                          allow_download=allow_download)
+        except Exception as ex:
+            eprint(f"[KaraokeSep] tahap dereverb error: {ex}")
+            clean = None
+        if clean is not None:
+            inst = dsp.to_stereo(dsp.fit_length(clean, mix.shape[-1])).astype(np.float32)
+            used.append("dereverb_anvuew[dry-blend]")
+        else:
+            eprint("[KaraokeSep] tahap dereverb dilewati/gagal; instrumental mentah dipakai")
+
     vocal = np.zeros_like(mix)
 
     out_dir.mkdir(parents=True, exist_ok=True)

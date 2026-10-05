@@ -45,16 +45,51 @@ MDX_FALLBACK_STANDARD = ("Kim_Vocal_2.onnx", 1.0)
 ENSEMBLE_MODEL_WEIGHTS = (BEST_MODEL_ROFORMER,)
 
 # Preset karaoke yang bisa dipilih user. Key = nilai di <select id="karaokeQuality">.
+# karaoke_full (v23): ensemble dua model vocal-vs-instrumental -> menghapus
+# SEMUA vokal (lead + backing). Alternatif untuk lagu yang backing-nya
+# mengganggu; default tetap karaoke_aufr33 (lead-out, backing dipertahankan).
 KARAOKE_PRESETS = {
     "karaoke_aufr33": ("mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt", 1.0),
+    "karaoke_full": ("Kim_Vocal_2.onnx", 1.0),
     # jalur CPU: MDX-Net Inst_HQ_4 adalah yang tercepat dari benchmark CPU
     # (34 dtk untuk klip 60 dtk; Resurrection ~371 dtk).
     "cpu_inst_hq": ("UVR-MDX-NET-Inst_HQ_4.onnx", 1.0),
 }
 
+# Model dereverb tahap-2 (v14): ikut sidik jari supaya cache lama (tanpa
+# dereverb/clarity) otomatis dianggap stale begitu file modelnya hadir.
+DEREVERB_MODELS = (
+    "dereverb_mel_band_roformer_less_aggressive_anvuew_sdr_18.8050.ckpt",
+    "dereverb_mel_band_roformer_anvuew_sdr_19.1729.ckpt",
+)
+
+# Ensemble karaoke (v16, preset karaoke_aufr33): dua model karaoke MelBand
+# (aufr33/viperx + gabox_v2; versi resmi 3-model dengan becruily, tapi
+# becruily terlalu berat di RTX 3050 4 GB). Algoritma default min_fft (v17):
+# tutup bin sisa vokal yang hanya bersih di satu model (pola vocal_clean
+# komunitas); avg mengawetkan spektrum tapi juga sisa vokalnya.
+# Dijalankan sekuensial (VRAM aman); satu gagal -> satunya dipakai.
+AUFR33_MODEL = "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt"
+GABOX_V2_MODEL = "mel_band_roformer_karaoke_gabox_v2.ckpt"
+KIM_VOCAL_2_MODEL = "Kim_Vocal_2.onnx"
+INST_HQ_4_MODEL = "UVR-MDX-NET-Inst_HQ_4.onnx"
+KARAOKE_ENSEMBLE = {
+    "karaoke_aufr33": ((AUFR33_MODEL, 0.5), (GABOX_V2_MODEL, 0.5)),
+    "karaoke_full": ((KIM_VOCAL_2_MODEL, 0.5), (INST_HQ_4_MODEL, 0.5)),
+}
+# Algoritma gabung default per preset (v23): karaoke_full selalu ensemble
+# avg_wave (kedua model ONNX cepat, saling menutupi residu); karaoke_aufr33
+# default single (ensemble opt-in, terbukti ensemble-min menumpulkan lagu
+# padat). Bisa dioverride via --ens-algo / VOCALYX_ENS_ALGO.
+KARAOKE_ENSEMBLE_ALGO = {
+    "karaoke_full": "avg_wave",
+}
+
 ALL_MODELS = tuple(dict.fromkeys(
     [BEST_MODEL[0], BEST_MODEL_ROFORMER[0], STANDARD_MODEL[0]]
     + [name for name, _ in MDX_FALLBACK_WEIGHTS]
+    + list(DEREVERB_MODELS)
+    + [GABOX_V2_MODEL]
 ))
 
 # Naikkan setiap kali math stem atau rantai post-processing berubah supaya
@@ -89,7 +124,46 @@ ALL_MODELS = tuple(dict.fromkeys(
 # v13: Preset "high" (Kim_Vocal_2), "roformer", dan "standard" (resmi) dihapus
 #      dari KARAOKE_PRESETS; default pindah ke karaoke_aufr33. Preset
 #      karaoke_becruily dihapus karena terlalu berat (~1 jam/lagu di RTX 3050 4 GB).
-KARAOKE_DSP_VERSION = 13
+# v14: preset karaoke_aufr33 (CUDA) + tahap-2 dereverb MelBand anvuew
+#      (less-aggressive dulu, blend 65/35, fallback mentah) + clarity EQ
+#      lembut ber-guard di finish(). Cache v13 wajib dianggap stale karena
+#      karakter bunyi berubah (reverb berkurang, mid/treble lebih terbuka).
+# v15: overlap inferensi MDXC/RoFormer 4 (yaml) -> 8 via mdxc_params, khusus
+#      model .ckpt (praktik standar UVR/MVSEP; mask lebih halus di batas
+#      chunk). Dereverb default MATI (bukan masalahnya + menumpulkan mid/high;
+#      opt-in via env). Cache v14 wajib stale (stem beda di sumbernya).
+# v16: preset karaoke_aufr33 jadi ENSEMBLE 2 model karaoke MelBand
+#      (aufr33/viperx + gabox_v2, avg waveform — preset karaoke resmi
+#      komunitas versi 2-model; becruily dikecualikan karena terlalu berat).
+#      Cache v15 wajib stale (instrumental = rata-rata 2 model).
+# v17: ensemble default min_fft (tutup sisa vokal per-bin ala vocal_clean;
+#      avg mengawetkan spektrum tapi juga sisa vokalnya) + clarity dijinakkan
+#      (presence +1.0, air +0.5 — EQ lama ikut mengangkat pecahan sisa vokal
+#      +0.6 dB di atas mix). Cache v16 wajib stale.
+# v18: default kembali SINGLE (ensemble-min terbukti menumpulkan air
+#      -3.82 vs -1.98 dan residual sepi -0.03 vs -0.87 di lagu padat;
+#      ensemble jadi opt-in --ensemble/VOCALYX_ENSEMBLE=1). Cache v17 stale.
+# v19: koreksi TP iteratif via plafon limiter (bukan potong rata) + margin
+#      adaptif untuk master padat. Kasus The Call: final -10.63 LUFS (3.1 LU
+#      di bawah target -7.5) karena koreksi lama memotong rata -1.51 dB.
+#      Cache v18 wajib stale (level akhir berubah).
+# v20: bass guard — low-shelf -1 dB @150 Hz + tilt-guard relatif. Lead hilang
+#      -> gain match mengangkat bass (+0.5 dB relatif terukur) + unmasking
+#      bikin bass telanjang terdengar nendang. Cache v19 wajib stale.
+# v21: CABUT total shelf + tilt-guard v20 — premis terbalik, bass hasil justru
+#      KURANG nendang (soal transient limiter, bukan level). Rantai EQ kembali
+#      ke clarity v19 (de-mud + presence + air + guard). Cache v20 stale.
+# v22: boost bertingkat untuk detail/renyah (tekstur utuh, level -2 dB):
+#      bite bell +1 dB @3.2 kHz Q1 + air shelf +1.5 dB @11 kHz (dari +0.5),
+#      presence tetap (zona sisa vokal) + penjaga quiet_residual (bite gugur
+#      bila sisa sepi naik >+1 dB vs mix). Cache v21 wajib stale.
+# v23: preset baru karaoke_full = ensemble Kim_Vocal_2 + Inst_HQ_4 (avg_wave,
+#      default ensemble) untuk menghapus SEMUA vokal incl. backing. aufr33
+#      tetap default single. Cache v22 wajib stale (preset/algo baru).
+# v24: overlap OTOMATIS berdasar total VRAM (< 6 GB -> 4, di atasnya 8;
+#      sinkron nasihat tier precheck Rust). GPU 4 GB kembali ke overlap 4
+#      (hemat memori; terukur setara di klip uji). Cache v23 wajib stale.
+KARAOKE_DSP_VERSION = 24
 
 PERSIST_META = "karaoke_meta.json"
 
@@ -138,8 +212,11 @@ def _missing_ensemble_models() -> list[str]:
 
 
 def _missing_best_models(preset: str = "karaoke_aufr33") -> list[str]:
-    """Model yang belum ada untuk preset Best tertentu."""
+    """Model yang belum ada untuk preset Best tertentu (termasuk ensemble)."""
     model_dir = _model_dir()
+    ens = KARAOKE_ENSEMBLE.get(preset)
+    if ens:
+        return [name for name, _ in ens if not (model_dir / name).is_file()]
     weights = KARAOKE_PRESETS.get(preset) or BEST_MODEL
     name = weights[0]
     return [] if (model_dir / name).is_file() else [name]
@@ -210,7 +287,7 @@ def _persist_meta(persist_base, stem: str) -> dict | None:
 
 
 def _persist_signature(mode: str, quality: str, vocal_kill: float, centre_kill: float,
-                       match_level: bool, models: dict) -> dict:
+                       match_level: bool, models: dict, clarity: bool = True) -> dict:
     return {
         "version": KARAOKE_DSP_VERSION,
         "mode": mode,
@@ -218,6 +295,7 @@ def _persist_signature(mode: str, quality: str, vocal_kill: float, centre_kill: 
         "vocal_kill": round(float(vocal_kill), 3),
         "centre_kill": round(float(centre_kill), 3),
         "match_level": bool(match_level),
+        "clarity": bool(clarity),
         "models": models or {},
     }
 
@@ -238,6 +316,11 @@ def _persist_matches(meta: dict | None, sig: dict) -> bool:
         if abs(float(meta.get("centre_kill", -1)) - sig["centre_kill"]) > 1e-6:
             return False
         if bool(meta.get("match_level")) != sig["match_level"]:
+            return False
+        # Meta lama (v13) tidak punya kunci clarity -> get default True; tapi
+        # meta v13 sudah gugur di cek version di atas, jadi ini hanya untuk
+        # bedakan on/off di versi yang sama.
+        if bool(meta.get("clarity", True)) != bool(sig.get("clarity", True)):
             return False
         return True
     except Exception:

@@ -1,4 +1,4 @@
-import { t } from './i18n/core.js';
+import { t, onLangChange, lang } from './i18n/core.js';
 import { engineInfo, showToast } from './engine.js';
 import { checkForUpdate, manifestUrl, openDownload } from './updater.js';
 
@@ -6,6 +6,16 @@ let aboutOpen = false;
 let updateState = null;
 
 const SUPPORT_URL = 'https://www.buymeacoffee.com/nny7jp2d2bh';
+const SUPPORT_SAWERIA_URL = 'https://saweria.co/ndova';
+
+export function syncSupportButtons(next) {
+  const l = String(next || lang() || 'en').toLowerCase();
+  const saweria = l === 'id' || l === 'jv';
+  const bmc = document.getElementById('btnSupport');
+  const saw = document.getElementById('btnSaweria');
+  if (bmc) bmc.style.display = saweria ? 'none' : '';
+  if (saw) saw.style.display = saweria ? '' : 'none';
+}
 
 function setRow(id, value) {
   const el = document.getElementById(id);
@@ -136,6 +146,13 @@ export function initAbout() {
     const ok = await openDownload(SUPPORT_URL);
     if (!ok) showToast(t('ab.openLinkFail'), 3000);
   });
+  document.getElementById('btnSaweria')?.addEventListener('click', async (e) => {
+    e.preventDefault();
+    const ok = await openDownload(SUPPORT_SAWERIA_URL);
+    if (!ok) showToast(t('ab.openLinkFail'), 3000);
+  });
+  try { onLangChange(syncSupportButtons); } catch {}
+  try { syncSupportButtons(); } catch {}
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAbout(); });
   loadVersion();
 }

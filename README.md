@@ -1,81 +1,104 @@
-# VocaLyx — Desktop Music Manager | Vocal Isolation | Karaoke & EQ
+# VocaLyx — Desktop Music Manager | Karaoke & EQ
 
-Arsitektur: **Tauri (frontend) + Python (audio engine BS-RoFormer)**. Support **mp3 + m4a**.
+**[🇮🇩 Bahasa Indonesia](#-bahasa-indonesia) · [🇬🇧 English](#-english)**
 
-## Penulis
+Arsitektur: **Tauri (frontend) + Python (audio engine)**. Kelola koleksi lokal, cari & unduh lagu, buat trek karaoke, EQ 10-band, lirik sinkron.
 
 Dibuat dan dikembangkan oleh **Arif Mundhofir**.
+Lisensi: [MIT](LICENSE) · Atribusi pihak ketiga: [NOTICE](NOTICE)
 
-Lisensi: [MIT](LICENSE) · Atribusi font pihak ketiga: [NOTICE](NOTICE)
+---
 
-## Jalankan (dev, tanpa Rust)
+## 🇮🇩 Bahasa Indonesia
 
-Butuh: Node 18+, Python 3.10/3.11, Torch CUDA (sudah ada 2.5.1+cu121 di laptop ini).
+### Fitur
+
+- **Karaoke / vocal removal** — 3 preset: `karaoke_aufr33` (MelBand RoFormer Aufr33/Viperx, hapus lead, backing dipertahankan), `karaoke_full` (Kim_Vocal_2 + Inst_HQ_4, hapus semua vokal), `cpu_inst_hq` (cepat untuk CPU). Post-processing: clarity EQ bertingkat ber-guard, limiter iteratif −1 dBTP, loudness-match ke lagu asli. Hasil di-cache per lagu.
+- **CUDA satu klik** — PC tanpa PyTorch CUDA bisa pasang dependensi GPU (±5,8 GB, sumber resmi PyPI + PyTorch) lewat tombol di Settings, tanpa install Python manual.
+- **Pencarian & unduh** — Spotify, Deezer, SoundCloud, Archive.org, 4shared, YouTube/YT Music, dengan info status per sumber bila gagal.
+- **EQ 10-band + preset** (Rock/Pop/Jazz/…), VolumeGain loudness matching, Pembersih Audio (declip + normalisasi).
+- **Lirik sinkron** (.lrc) + editor per baris + kontrol offset waktu.
+- **Transfer iPhone dua arah** (butuh Apple Mobile Device Service — hanya dideteksi, lihat bawah).
+
+### Persyaratan sistem
+
+- Windows 10/11 64-bit + koneksi internet.
+- Disk: installer ±665 MB → runtime ±1,9 GB → +5,8 GB bila pasang CUDA → +model AI sesuai pemakaian.
+- GPU opsional: driver NVIDIA + ±4 GB VRAM untuk karaoke CUDA. Tanpa GPU, mode CPU tetap jalan penuh.
+- iPhone: pasang **Apple Mobile Device Support** (ikut bundel iTunes for Windows) sebagai administrator, sambungkan via USB, ketuk **Trust**. Aplikasi hanya mendeteksi, tidak memasang otomatis (batasan lisensi Apple).
+
+### Instalasi (pengguna)
+
+Unduh `VocaLyx_0.1.0-beta_x64-setup.exe` (NSIS) atau `.msi` dari halaman rilis, jalankan, selesai — Python, ffmpeg, dan runtime CPU sudah termasuk. Runtime diekstrak otomatis ke `%APPDATA%\VocaLyx` saat pertama dibuka. Model AI diunduh otomatis saat pertama dipakai; dependensi CUDA dipasang lewat tombol di Settings › Karaoke.
+
+### Jalankan dari source (dev)
+
+Butuh: Node 18+, Python 3.10/3.11, Rust (untuk `.exe`).
 
 ```powershell
-# 1) Frontend
 npm install
-npm run dev
-# buka http://localhost:1420
-
-# 2) Python engine (terminal baru)
-pip install -r python-engine/requirements.txt
-python python-engine/server.py
-# health: http://127.0.0.1:8001/health
+npm run dev:all        # frontend + engine sekaligus
+# atau: npm run dev  +  npm run engine  (dua terminal)
 ```
 
-Frontend Vite mem-proxy `/api/*` → `127.0.0.1:8001`, jadi tombol Vocal Off / Karaoke langsung jalan.
-
-## Jalankan sebagai Tauri (.exe)
+### Bangun rilis
 
 ```powershell
-winget install Rustlang.Rustup
-# restart terminal, lalu:
-cargo --version
-npm run tauri dev
-npm run tauri build
+npm test                # smoke + test Python (wajib hijau)
+npm run build           # frontend -> dist/
+python scripts/build_runtime.py --repack   # stage engine + runtime-bundle.zip
+npx tauri build         # MSI + NSIS di src-tauri/target/release/bundle/
 ```
 
-## Rilis untuk pengguna lain
-
-Installer dibangun dari `npm run tauri -- build`. Ada dua varian:
-
-| Varian | Ukuran | Isi |
+| Varian installer | Ukuran | Isi |
 | --- | --- | --- |
-| **Full** | ± 665 MB | Sudah membawa runtime Python + ffmpeg + model CPU. Tinggal install, jalan offline. |
-| **Lite** | ± 10 MB | Shell kecil, runtime diunduh saat pertama kali dijalankan. |
+| **Full** (yang dibangun) | ± 665 MB | Runtime Python + ffmpeg + model CPU. Tinggal install. |
+| **Lite** | ± 10 MB | Shell saja; runtime diunduh saat pertama jalan. |
 
-Runtime diekstrak ke `%APPDATA%\VocaLyx\runtime` (± 1,9 GB). Installer Full mengekstraknya
-otomatis saat aplikasi dibuka, jadi **tidak perlu Python atau ffmpeg terpasang**.
-Paket runtime untuk varian Lite di-hosting di repo `vocalyx-releases` dan bisa dibuat
-dengan `python scripts/build_runtime.py --repack`.
+---
 
-Model CPU `UVR-MDX-NET-Inst_HQ_4.onnx` ikut terbundel. Model besar (BS-RoFormer) dan
-runtime GPU CUDA bisa diunduh terpisah bila dibutuhkan.
+## 🇬🇧 English
 
-## Prasyarat: membaca iPhone
+### Features
 
-VocaLyx hanya **mendeteksi** driver Apple, tidak pernah memasangnya otomatis karena
-batasan lisensi Apple. Untuk membaca library iPhone:
+- **Karaoke / vocal removal** — 3 presets: `karaoke_aufr33` (MelBand RoFormer Aufr33/Viperx, removes lead, keeps backing), `karaoke_full` (Kim_Vocal_2 + Inst_HQ_4, removes all vocals), `cpu_inst_hq` (fast CPU path). Post chain: guarded multi-stage clarity EQ, iterative −1 dBTP limiter, loudness-match to the original. Results are cached per track.
+- **One-click CUDA** — PCs without PyTorch CUDA can install GPU dependencies (±5.8 GB, official PyPI + PyTorch sources) from a Settings button, no manual Python setup.
+- **Search & download** — Spotify, Deezer, SoundCloud, Archive.org, 4shared, YouTube/YT Music, with per-source status on failure.
+- **10-band EQ + presets**, VolumeGain loudness matching, Audio Cleaner (declip + normalize).
+- **Synced lyrics** (.lrc) + per-line editor + time-offset control.
+- **Two-way iPhone transfer** (requires Apple Mobile Device Service — detected only, see below).
 
-1. Unduh **Apple Mobile Device Support** dari Apple (ikut bundel di iTunes for Windows).
-2. Jalankan installer sebagai administrator.
-3. Sambungkan iPhone dengan **kabel data USB**, buka kunci, lalu ketuk **Trust**.
+### System requirements
 
-Kalau driver/service belum ada, tab Device menampilkan panduan langkah di dalam aplikasi.
-Deteksi dilakukan lewat service *Apple Mobile Device Service* di `127.0.0.1:27015`.
+- Windows 10/11 64-bit + internet connection.
+- Disk: installer ±665 MB → runtime ±1.9 GB → +5.8 GB for CUDA → +AI models as used.
+- Optional GPU: NVIDIA driver + ±4 GB VRAM for CUDA karaoke. CPU mode is fully functional without one.
+- iPhone: install **Apple Mobile Device Support** (bundled with iTunes for Windows) as administrator, connect via USB, tap **Trust**. The app only detects it, never installs it (Apple licensing).
 
-## Cara pakai
+### Install (users)
 
-1. Klik **＋ Add Folder**, pilih folder berisi lagu (mp3/m4a/flac). Cover & Duration langsung tampil, `mdx_extra/*Artist - Judul*/no_vocals.*` terdeteksi sebagai Karaoke.
-2. Klik baris lagu untuk putar. Waveform + waktu jalan otomatis.
-3. EQ 10-band + Preset (Rock/Jazz/Pop) + VolumeGain real via Web Audio.
-4. Lirik sinkron otomatis dari `Lyrics/<nama>.lrc` atau download LRCLIB → simpan ke `Lyrics/`.
-5. **Karaoke mode / Vocal Off** → pakai file lokal `mdx_extra/*/no_vocals.flac|wav|mp3` jika ada, jika tidak generate otomatis. Hasil disimpan ke `mdx_extra/` untuk next time, cache di `%APPDATA%/VocaLyx/cache/`.
+Download `VocaLyx_0.1.0-beta_x64-setup.exe` (NSIS) or `.msi` from the releases page and run — Python, ffmpeg, and the CPU runtime are included. The runtime self-extracts to `%APPDATA%\VocaLyx` on first launch. AI models download on first use; CUDA dependencies install from a button in Settings › Karaoke.
 
-## Catatan RTX 3050 4GB
+### Run from source (dev)
 
-- Model `mel_band_roformer_ep_3005_sdr_11.4360.ckpt` (BS-RoFormer) dengan `segment 128, overlap 0.25, batch 1` hemat 4GB VRAM.
-- Fallback ke `htdemucs` jika BS-RoFormer OOM.
-- Proses lagu 3 menit ≈ 30–60 detik di GPU.
-- Device name untuk Spotify Premium Connect: `VocaLyx-XXXX` (bukan Tokek).
+Requires: Node 18+, Python 3.10/3.11, Rust (for `.exe`).
+
+```powershell
+npm install
+npm run dev:all        # frontend + engine together
+# or: npm run dev  +  npm run engine  (two terminals)
+```
+
+### Build a release
+
+```powershell
+npm test                # smoke + Python tests (must be green)
+npm run build           # frontend -> dist/
+python scripts/build_runtime.py --repack   # stage engine + runtime-bundle.zip
+npx tauri build         # MSI + NSIS under src-tauri/target/release/bundle/
+```
+
+| Installer variant | Size | Contents |
+| --- | --- | --- |
+| **Full** (built) | ± 665 MB | Python runtime + ffmpeg + CPU model. Just install. |
+| **Lite** | ± 10 MB | Shell only; runtime downloads on first run. |

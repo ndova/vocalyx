@@ -796,7 +796,26 @@ ok(/export from iPhone to PC/.test(iphoneNote?.textContent || ''), 'about: kalim
   ok(sup?.closest('.topbar-right') !== null, 'topbar: tombol kopi ada di topbar-right');
   ok(sup?.closest('.topbar')?.querySelector('#btnAbout') !== null, 'topbar: tombol kopi ada di header');
   const before = sup?.nextElementSibling;
-  ok(before?.id === 'btnAbout', 'topbar: tombol kopi berada sebelum tombol About');
+  ok(before?.id === 'btnSaweria', 'topbar: tombol saweria berada setelah tombol kopi');
+  ok(before?.nextElementSibling?.id === 'btnAbout', 'topbar: tombol kopi+saweria berada sebelum tombol About');
+  const saw = document.getElementById('btnSaweria');
+  ok(!!saw && saw.href === 'https://saweria.co/ndova', 'topbar: link dukungan saweria ada');
+  ok(!!saw?.querySelector('svg') && (saw?.textContent || '').includes('Saweria'), 'topbar: tombol saweria lokal (svg+teks, bukan gambar eksternal)');
+  ok(saw?.getAttribute('rel')?.includes('noopener'), 'topbar: link saweria pakai rel noopener');
+  let sawPrevented = null;
+  saw?.addEventListener('click', (e) => { sawPrevented = e.defaultPrevented; });
+  try { saw?.click(); } catch (e) { ok(false, `topbar: klik saweria melempar ${e.message}`); }
+  await sleep(40);
+  ok(sawPrevented === true, 'topbar: klik saweria dicegat (webview tidak navigasi)');
+  i18nCore.applyLang('id');
+  await sleep(20);
+  ok(document.getElementById('btnSaweria')?.style.display !== 'none' && document.getElementById('btnSupport')?.style.display === 'none', 'topbar: bahasa ID menampilkan saweria, BMC sembunyi');
+  i18nCore.applyLang('jv');
+  await sleep(20);
+  ok(document.getElementById('btnSaweria')?.style.display !== 'none' && document.getElementById('btnSupport')?.style.display === 'none', 'topbar: bahasa JV menampilkan saweria, BMC sembunyi');
+  i18nCore.applyLang('en');
+  await sleep(20);
+  ok(document.getElementById('btnSaweria')?.style.display === 'none' && document.getElementById('btnSupport')?.style.display !== 'none', 'topbar: bahasa EN menampilkan BMC, saweria sembunyi');
   ok(!document.getElementById('aboutSupport') && !$('#aboutModal')?.querySelector('a[href*="buymeacoffee"]'), 'about: tidak ada lagi tombol kopi di modal About');
   let supPrevented = null;
   sup?.addEventListener('click', (e) => { supPrevented = e.defaultPrevented; });
@@ -811,6 +830,13 @@ ok(/export from iPhone to PC/.test(iphoneNote?.textContent || ''), 'about: kalim
   ok(/height:\s*34px/.test(supCss), 'css: gambar kopi di topbar setinggi 34px');
   ok(/-webkit-app-region:\s*no-drag/.test((cssSup.match(/\.topbar-support \{[^}]*\}/) || [''])[0]), 'css: tombol kopi bebas drag region');
   ok(!/about-support/.test(cssSup), 'css: gaya about-support sudah dibuang');
+  ok(/\.topbar-saweria/.test(cssSup), 'css: gaya tombol saweria ada');
+}
+{
+  const aboutSrc = fs.readFileSync(path.join(root, 'src/js/about.js'), 'utf8');
+  ok(/SUPPORT_SAWERIA_URL = 'https:\/\/saweria\.co\/ndova'/.test(aboutSrc), 'about: URL saweria benar');
+  ok(/syncSupportButtons/.test(aboutSrc) && /onLangChange\(syncSupportButtons\)/.test(aboutSrc), 'about: tombol dukungan sinkron bahasa (EN=BMC, ID/JV=Saweria)');
+  ok(['en', 'id', 'jv'].every((L) => fs.readFileSync(path.join(root, `src/js/i18n/${L}.js`), 'utf8').includes('ab.supportSaweriaTitle')), 'UI: label saweria ada di semua bahasa');
 }
 
 document.querySelector('[data-nav="local"]')?.click();
@@ -998,7 +1024,7 @@ try {
   ok(pySepMain.includes('"min_free_vram_gb": MIN_FREE_VRAM_GB'), 'py: ambang VRAM dikirim ke UI untuk pre-flight');
   ok(src.includes('caps0.min_free_vram_gb') && src.includes("t('eng.vramLow'"), 'UI: cek VRAM sebelum mulai job, pesan jelas');
   ok(i18nCore.t('eng.vramLow', { free: '0.4', need: '0.5' }).includes('0.4') && i18nCore.t('eng.vramLow', { free: '0.4', need: '0.5' }).includes('0.5'), 'UI: pesan VRAM membawa angka VRAM');
-  ok(/KARAOKE_DSP_VERSION = 13/.test(pySepCache), 'py: versi cache naik ke 13 (preset aufr33 default)');
+  ok(/KARAOKE_DSP_VERSION = 24/.test(pySepCache), 'py: versi cache naik ke 24 (overlap otomatis VRAM)');
   ok(pySepMain.includes('def karaoke_caps(device: str = "auto")'), 'py: endpoint terima device');
   ok(pySepMain.includes('BEST_SCRIPT = SCRIPTS_DIR / "karaoke_best.py"') && pySepBest.includes('weights = ((model, 1.0),)'), 'py: Best = SATU model per preset (bukan ensemble)');
   ok(!pySepMain.includes('attempts.append((ENSEMBLE_SCRIPT,'), 'py: ensemble 2-model tidak lagi dipakai (2x lambat + max-spec tahan bleed)');
@@ -1058,8 +1084,8 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
     const stagedRes = path.join(root, 'src-tauri/target/release/python-engine');
     if (fs.existsSync(stagedRes)) {
       const files = fs.readdirSync(stagedRes);
-      ok(files.includes('server.py') && files.length <= 20,
-        `4: resource installer berisi staging engine (${files.length} file)`);
+      ok(files.includes('server.py') && files.includes('requirements-cuda.txt') && files.includes('constraints-cuda.txt') && files.length <= 24,
+        `4: resource installer berisi staging engine + pin CUDA (${files.length} file)`);
     } else {
       ok(true, '4: resource installer belum dibangun (jalankan tauri build)');
     }
@@ -1558,13 +1584,27 @@ ok(/export async function ensureGpuPythonProbed\(\)/.test(
   // --- Model: Best = Kim_Vocal_2 (replikasi file yang PENGGUNA sukai)
   ok(/BEST_MODEL = \("Kim_Vocal_2\.onnx", 1\.0\)/.test(cacheCode), 'py: BEST_MODEL = Kim_Vocal_2 (6 dtk/mnt)');
   ok(/BEST_MODEL_ROFORMER = \("bs_roformer_instrumental_resurrection_unwa\.ckpt"/.test(cacheCode), 'py: preset kedua = RoFormer Resurrection');
-  ok(/KARAOKE_PRESETS = \{/.test(cacheCode) && /"karaoke_aufr33":/.test(cacheCode) && /"cpu_inst_hq":/.test(cacheCode), 'py: KARAOKE_PRESETS punya aufr33 + cpu_inst_hq');
+  ok(/KARAOKE_PRESETS = \{/.test(cacheCode) && /"karaoke_aufr33":/.test(cacheCode) && /"karaoke_full":/.test(cacheCode) && /"cpu_inst_hq":/.test(cacheCode), 'py: KARAOKE_PRESETS punya aufr33 + full + cpu_inst_hq');
+  ok(/"karaoke_full": \(\(KIM_VOCAL_2_MODEL, 0\.5\), \(INST_HQ_4_MODEL, 0\.5\)\)/.test(cacheCode), 'py: preset full = ensemble Kim + Inst_HQ_4');
   ok(!/bs_roformer_karaoke_anvuew/.test(cacheCode), 'py: model anvuew (sumber artifact HF) tidak lagi dipakai');
-  ok(pyBest.includes('from vx_sep_cache import KARAOKE_PRESETS') && pyBest.includes('DEFAULT_PRESET = "karaoke_aufr33"'), 'py: karaoke_best.py membaca preset KARAOKE_PRESETS');
-  ok(/KARAOKE_DSP_VERSION = 13/.test(cacheCode), 'py: versi cache naik ke 13 (preset aufr33 default)');
+  ok(/from vx_sep_cache import .*KARAOKE_PRESETS/.test(pyBest) && pyBest.includes('DEFAULT_PRESET = "karaoke_aufr33"'), 'py: karaoke_best.py membaca preset KARAOKE_PRESETS');
+  ok(/KARAOKE_DSP_VERSION = 24/.test(cacheCode), 'py: versi cache naik ke 24 (overlap otomatis VRAM)');
+  ok(/_cuda_total_gb/.test(pySepKaraoke) && /total < 6\.0/.test(pySepKaraoke), 'py: overlap otomatis turun di VRAM <6GB');
+  ok(/CLARITY_BITE_DB = 1\.0/.test(pyDsp) && /CLARITY_AIR_DB = 1\.5/.test(pyDsp) && /_quiet_residual_db/.test(pyDsp), 'py: bite + air berani, dijaga guard residual');
+  ok(/plafon limiter/.test(pyDsp) && /_TP_MAX_ITER/.test(pyDsp), 'py: koreksi TP via plafon limiter, bukan potong rata');
+  ok(!/lowshelf=/.test(pyCode(pyDsp)), 'py: tidak ada EQ bass (shelf v20 yang salah arah dicabut)');
+  ok(/GABOX_V2_MODEL = "mel_band_roformer_karaoke_gabox_v2\.ckpt"/.test(cacheCode) && /"karaoke_aufr33": \(\(AUFR33_MODEL, 0\.5\), \(GABOX_V2_MODEL, 0\.5\)\)/.test(cacheCode), 'py: peta ensemble 2 model tersedia (opt-in)');
+  ok(/--ensemble/.test(pyBest) && /VOCALYX_ENSEMBLE/.test(pyBest) && /--ens-algo/.test(pyBest), 'py: ensemble opt-in via flag/env + algoritma bisa dipilih');
+  ok(/KARAOKE_ENSEMBLE\.get\(preset/.test(pyBest), 'py: karaoke_best memakai peta ensemble (fallback single)');
+  ok(/DEREVERB_CHAIN = \(/.test(pySepKaraoke) && /dereverb_mel_band_roformer_less_aggressive_anvuew/.test(pySepKaraoke), 'py: tahap-2 dereverb anvuew (less-aggressive dulu)');
+  ok(/def dereverb_instrumental/.test(pySepKaraoke) && /VOCALYX_NO_DEREVERB/.test(pySepKaraoke), 'py: dereverb bisa dimatikan via env + fallback mentah');
+  ok(/def blend_with_clean/.test(pyDsp) && /def clarity_chain/.test(pyDsp) && /def _guard_clarity/.test(pyDsp), 'py: blend dereverb + clarity EQ ber-guard ada di DSP');
+  ok(/highshelf=f=4500/.test(pyDsp) && !/highshelf=f=4500:g=1[2-9]/.test(pyCode(pyDsp)), 'py: presence lembut (bukan boost belasan dB)');
   ok(/MIN_FREE_VRAM_GB = 0\.5/.test(pySepMain), 'py: ambang VRAM 0.5 GB (Kim_Vocal_2 hanya 0.12 GB)');
   ok(pySepMain.includes('quality not in KARAOKE_PRESETS'), 'py: preset valid divalidasi via KARAOKE_PRESETS');
   ok(/^NATIVE_FP16 = True$/m.test(pySepKaraoke), 'py: NATIVE_FP16 tetap aktif (dipakai preset RoFormer)');
+  ok(/^SEP_OVERLAP = 8$/m.test(pySepKaraoke) && /mdxc_params=\{[^}]*"overlap": overlap/.test(pySepKaraoke), 'py: overlap inferensi 8 via mdxc_params (bukan default yaml 4)');
+  ok(/_wanted_overlap/.test(pySepKaraoke) && /VOCALYX_OVERLAP/.test(pySepKaraoke), 'py: overlap bisa dioverride via env untuk A/B');
 
   // --- Loudness: match ke lagu asli, bukan konstan
   const finSrc = pyDsp.slice(pyDsp.indexOf('def finish('));
@@ -1581,12 +1621,18 @@ ok(/export async function ensureGpuPythonProbed\(\)/.test(
 
   // --- UI: dropdown preset, slider Center sudah dihapus
   const html = fs.readFileSync(path.join(root, 'src/index.html'), 'utf8');
-  ok(html.includes('id="karaokeQuality"') && html.includes('value="karaoke_aufr33"') && html.includes('value="cpu_inst_hq"') && !html.includes('value="standard"'), 'UI: dropdown preset punya opsi aufr33 + cpu_inst_hq, tanpa standard');
+  ok(html.includes('id="karaokeQuality"') && html.includes('value="karaoke_aufr33"') && html.includes('value="karaoke_full"') && html.includes('value="cpu_inst_hq"') && !html.includes('value="standard"'), 'UI: dropdown preset punya opsi aufr33 + full + cpu_inst_hq, tanpa standard');
   ok(!html.includes('id="karaokeCentreKill"') && !html.includes('id="karaokeCentreWarn"'), 'UI: slider + peringatan Center dihapus (tidak ada masking)');
   ok(!html.includes('id="karaokeVocalKill"'), 'UI: slider Vokal dihapus (tidak ada masking)');
   ok(!src.includes('karaokeCentreKill') && !src.includes('karaokeVocalKill'), 'UI: tidak ada sisa referensi slider karaoke');
   ok(!pySepMain.includes("--vocal-kill-subtractive") || true, 'py: argumen lama masih diterima (kompatibilitas CLI)');
   ok(['en', 'id', 'jv'].every((L) => fs.readFileSync(path.join(root, `src/js/i18n/${L}.js`), 'utf8').includes('set.presetAufr33')), 'UI: label preset ada di semua bahasa');
+  ok(['en', 'id', 'jv'].every((L) => fs.readFileSync(path.join(root, `src/js/i18n/${L}.js`), 'utf8').includes('set.presetFull')), 'UI: label presetFull ada di semua bahasa');
+  ok(html.includes('id="cudaSetupBox"') && html.includes('id="cudaSetupBtn"') && html.includes('id="cudaSetupCancelBtn"') && html.includes('id="cudaSetupBar"'), 'UI: blok pasang CUDA satu klik ada di Settings');
+  ok(['en', 'id', 'jv'].every((L) => { const s = fs.readFileSync(path.join(root, `src/js/i18n/${L}.js`), 'utf8'); return s.includes('set.cudaSetupInstall') && s.includes('set.cudaSetupStageTorch') && s.includes('set.cudaSetupFailed'); }), 'UI: label cudaSetup ada di semua bahasa');
+  ok(src.includes('cuda-setup://progress') && src.includes('cuda_setup_start') && src.includes('cuda_setup_cancel'), 'UI: wiring event + command pasang CUDA ada');
+  ok(src.includes('lastCudaProg') && src.includes('lastCudaEventAt'), 'UI: progres CUDA diingat (anti kedip hilang-muncul)');
+  ok(src.includes('pulsing') && fs.readFileSync(path.join(root, 'src/styles.css'), 'utf8').includes('cudapulse'), 'UI: bar indeterminasi saat event sepi (tidak pernah hilang saat installing)');
   const cacheSrc = fs.readFileSync(path.join(root, 'python-engine/vx_sep_cache.py'), 'utf8');
   const convSrc = cacheSrc.slice(cacheSrc.indexOf('def _convert_wav_to_target('));
   ok(convSrc.includes('"-sample_fmt", "s16"') && convSrc.includes('pcm_s16le'), 'py: keluaran dipaksa 16-bit (flac & wav)');
@@ -1595,14 +1641,14 @@ ok(/export async function ensureGpuPythonProbed\(\)/.test(
   ok(!pySepBest.includes('loudnorm=I=') && !pySepSingle.includes('loudnorm=I='), 'py: loudness match hanya di tahap DSP');
   ok(pySep.includes('def build_instrumental_from_models') && pySep.includes('ensure_model('), 'py: bobot ensemble dinormalisasi + model auto-unduh');
   ok(cacheSrc.includes('def _model_fingerprint') && pySepMain.includes('_model_fingerprint()'), 'py: cache key memakai sidik jari model');
-  ok(/KARAOKE_DSP_VERSION = 13/.test(pyCode(cacheSrc)) && cacheSrc.includes('def _persist_matches') && pySepMain.includes('_persist_matches('), 'py: cache lama otomatis regarded stale');
+  ok(/KARAOKE_DSP_VERSION = 24/.test(pyCode(cacheSrc)) && cacheSrc.includes('def _persist_matches') && pySepMain.includes('_persist_matches('), 'py: cache lama otomatis regarded stale');
   ok(pySepMain.includes('_drop_stale_persist(') && !pySepMain.includes('rglob("no_vocals.wav")'), 'py: cache basi dibuang, tidak ada rglob tebakan');
   ok(pySepMain.includes('out_dir = td_p / "sep"'), 'py: pisah di direktori job, bukan folder musik');
   ok(!pySepMain.includes("fd.append('vocal_kill'") && !src.includes("fd.append('centre_kill'"), 'py: UI tidak lagi mengirim parameter tuning (masking dihapus)');
   ok(!pySepMain.includes('Coba quality=standard + device=cuda'), 'py: pesan gagal tidak menyarankan Best lama');
   const htmlCuda = fs.readFileSync(path.join(root, 'src/index.html'), 'utf8');
   ok(htmlCuda.includes('id="cudaConnDot"') && htmlCuda.includes('id="karaokeCudaStatus"'), 'dot + teks CUDA ada di Settings');
-  ok(/<option value="karaoke_aufr33"/.test(htmlCuda) && /<option value="cpu_inst_hq"/.test(htmlCuda), 'label quality: Best + CPU');
+  ok(/<option value="karaoke_aufr33"/.test(htmlCuda) && /<option value="karaoke_full"/.test(htmlCuda) && /<option value="cpu_inst_hq"/.test(htmlCuda), 'label quality: Best + Full + CPU');
   ok(!htmlCuda.includes('id="karaokeVocalKill"') && !htmlCuda.includes('id="karaokeCentreKill"'), 'slider tuning karaoke dihapus dari Settings');
   const pyDspTest = fs.readFileSync(path.join(root, 'python-engine/tests/test_karaoke_dsp.py'), 'utf8');
   ok(pyDspTest.includes('finish: match-lufs mengikuti referensi') && pyDspTest.includes('finish: true peak di bawah -1 dBTP'), 'ada self-check DSP karaoke (loudness match + true peak)');
@@ -2439,6 +2485,10 @@ try {
   const py = fs.readFileSync(path.join(root, 'python-engine/vx_search.py'), 'utf8');
   ok(py.includes('src_filter') && py.includes('::src='), 'backend filter + cache per source');
   ok(py.includes('per_sp = limit if _only'), 'satu source = limit penuh');
+  ok(py.includes('def _lucene_escape'), 'search: escape Lucene ada (tanpa merusak backend)');
+  ok(py.includes('/web/rest/v1_2/files') && py.includes('"search": query') || py.includes("'search': query"), 'search: 4shared via REST JSON (scraping markup mati)');
+  ok(py.includes('preview_only') && py.includes('page_only'), 'search: flag preview-only/page-only untuk hasil parsial');
+  ok(['en', 'id', 'jv'].every((L) => { const s = fs.readFileSync(path.join(root, `src/js/i18n/${L}.js`), 'utf8'); return s.includes('se.pageOnly') && s.includes('se.previewOnly') && s.includes('se.openPage'); }), 'UI: label badge hasil parsial ada di semua bahasa');
 } catch (e) {
   ok(false, `search resource :: ${e.message}`);
 }

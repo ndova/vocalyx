@@ -2,7 +2,9 @@
 
 Pipeline karaoke sekarang SESEDERHANA mungkin, dan itu disengaja.
 
-Stem "Instrumental" dari model dipakai APA ADANYA, lalu hanya ditambah:
+Stem "Instrumental" dari model dipakai APA ADANYA (tahap dereverb terpisah di
+``vx_karaoke_sep`` membersihkan sisa reverb vokal SEBELUM file sampai sini),
+lalu hanya ditambah: clarity EQ lembut (default nyala, lihat ``clarity_chain``),
 high-pass opsional (default mati), limiter, dan loudness-match ke lagu asli.
 
 Kenapa tidak ada masking. Versi sebelumnya menjalankan tiga tahap:
@@ -55,6 +57,40 @@ SALIENCE_REF = 8.0
 # mengikuti loudness lagu aslinya karena itu membuat hasil antar lagu tidak
 # konsisten (ada yang terasa jauh lebih pelan dari yang lain).
 TARGET_LUFS = -13.0
+
+# Clarity EQ lembut (v14): menaikkan keterbacaan mid/treble yang oleh mask
+# model cenderung ditekan, TANPA mengembalikan "suara air".
+#
+# Bedanya dengan boost HF +12 dB yang dulu dihapus: nilai di sini kecil
+# (v17: presence +1.0 dB, air +0.5 dB, de-mud -1.0 dB — diturunkan dari
+# +1.8/+1.0 karena EQ ikut mengangkat pecahan sisa vokal +0.6 dB di atas mix),
+# satu lapis saja (bukan dua
+# mask multiplicatif berturut-turut), dan ada GUARD terhadap lagu asli: band
+# air/presence hasil tidak boleh melebihi lagu asli +1 dB, kalau melebihi
+# filternya dilucuti otomatis (lihat _guard_clarity). High-pass 18 Hz 1-pole
+# dipakai di dalam chain ini karena yang 30 Hz 2-pole terbukti menggeser fase
+# bass (korelasi 0.986 -> 0.871); flag --highpass-hz eksplisit tetap menang.
+CLARITY_HP_HZ = 18.0
+CLARITY_DEMUD_DB = -1.0
+CLARITY_PRESENCE_DB = 1.0
+CLARITY_AIR_DB = 1.5
+CLARITY_AIR_F = 11000.0
+# Bite (v22): bell +1 dB @3.2 kHz Q1 untuk gigit gitar/tepi instrumen.
+# Tinggal serumah dengan sisa vokal -> dijaga presence-guard (3-8 kHz) +
+# penjaga quiet_residual (pecah "radio" tidak boleh naik >1 dB vs mix).
+CLARITY_BITE_DB = 1.0
+CLARITY_BITE_F = 3200.0
+CLARITY_BITE_Q = 1.0
+CLARITY_RESIDUAL_GUARD_DB = 1.0
+# v20 pernah memasang low-shelf bass -1 dB (premis: bass kepanasan). Premis
+# salah — bass hasil justru kurang nendang (soal transient, bukan level);
+# shelf + tilt-guard-nya dicabut total di v21. Jangan pasang EQ bass tanpa
+# bukti pengukuran baru.
+CLARITY_GUARD_DB = 1.0
+# Porsi stem hasil dereverb saat di-blend dengan instrumental mentah (v14).
+# 0.65 cukup membersihkan ekor reverb hantu vokal tapi musik/aslinya tetap
+# dominan; blend selalu di-level-match dulu (lihat blend_with_clean).
+DEREVERB_BLEND = 0.65
 
 def log(msg: str) -> None:
     sys.stderr.write(f"[KaraokeDSP] {msg}\n")
@@ -173,6 +209,202 @@ def true_peak(data: np.ndarray) -> float:
 
 
 # --------------------------------------------------------------------------
+# clarity EQ + dereverb blend (v14, lembut + ber-guard)
+# --------------------------------------------------------------------------
+
+def clarity_chain(with_hp: bool = True) -> list:
+    """Rantai filter clarity: de-mud, presence, air, (+ HP fase-aman).
+
+    Satu lapis EQ statis kecil — BUKAN mask adaptif, jadi tidak ada error
+    multiplicatif yang menumpuk seperti dulu. Guard spektral ada di
+    ``_guard_clarity``.
+    """
+    fx = [
+        f"equalizer=f=280:t=q:w=1:g={CLARITY_DEMUD_DB:.1f}",
+        f"highshelf=f=4500:g={CLARITY_PRESENCE_DB:.1f}",
+        f"equalizer=f={CLARITY_BITE_F:.0f}:t=q:w={CLARITY_BITE_Q:.1f}:g={CLARITY_BITE_DB:.1f}",
+        f"highshelf=f={CLARITY_AIR_F:.0f}:g={CLARITY_AIR_DB:.1f}",
+    ]
+    if with_hp:
+        fx.insert(0, f"highpass=f={CLARITY_HP_HZ:.1f}:poles=1")
+    return fx
+
+
+def _band_db(data: np.ndarray, lo_hz: float, hi_hz: float) -> float | None:
+    """Energi band (dB, relatif) dari sinyal (2, N) via FFT Hann penuh."""
+    try:
+        d = to_stereo(np.asarray(data, dtype=np.float32))
+        m = ((d[0] + d[1]) * 0.5).astype(np.float64)
+        if m.size < 1024:
+            return None
+        n_fft = 1 << (int(m.size - 1).bit_length() - 1)
+        n_fft = max(4096, min(n_fft, 1 << 18))
+        seg = m[:n_fft] * np.hanning(n_fft)
+        spec = np.abs(np.fft.rfft(seg))
+        freqs = np.fft.rfftfreq(n_fft, 1.0 / SAMPLE_RATE)
+        e = float((spec[(freqs >= lo_hz) & (freqs <= hi_hz)] ** 2).sum())
+        return 10.0 * float(np.log10(max(e, 1e-20)))
+    except Exception:
+        return None
+
+
+def _render_fx_tmp(src, fx: list, tag: str):
+    """Render ``src`` lewat rantai filter ffmpeg ke wav sementara (atau None)."""
+    import tempfile
+
+    ff = ffmpeg_bin()
+    if not ff or not fx:
+        return None, None
+    try:
+        td = tempfile.TemporaryDirectory()
+        p = Path(td.name) / f"{tag}.wav"
+        r = subprocess.run([ff, "-y", "-v", "error", "-i", str(src), "-af", ",".join(fx),
+                            "-c:a", "pcm_f32le", "-ar", str(SAMPLE_RATE), "-ac", "2", str(p)],
+                           capture_output=True, timeout=1800)
+        if r.returncode != 0 or not p.is_file() or p.stat().st_size <= 1024:
+            td.cleanup()
+            return None, None
+        return p, td
+    except Exception as ex:
+        log(f"render clarity {tag} gagal: {ex}")
+        return None, None
+
+
+def _quiet_residual_db(x: np.ndarray, ref: np.ndarray) -> float | None:
+    """Sisa di frame sepi (dB): energi x vs ref saat ref < persentil 10.
+
+    Proksi pecah "radio" (sisa vokal yang muncul di jeda). Positif = hasil
+    lebih berisik dari aslinya di bagian sepi.
+    """
+    try:
+        def frames(a: np.ndarray) -> np.ndarray:
+            m = ((to_stereo(np.asarray(a, dtype=np.float32))[0]
+                  + to_stereo(np.asarray(a, dtype=np.float32))[1]) * 0.5)
+            n = 1 + (len(m) - N_FFT) // HOP
+            if n < 4:
+                return np.array([])
+            spec = np.abs(np.fft.rfft(
+                np.stack([m[i * HOP:i * HOP + N_FFT] * np.hanning(N_FFT) for i in range(n)]),
+                axis=1))
+            return (spec ** 2).sum(axis=0)
+        ex, er = frames(x), frames(ref)
+        if ex.size == 0 or er.size == 0:
+            return None
+        n = min(ex.size, er.size)
+        ex, er = ex[:n], er[:n]
+        thr = float(np.percentile(er, 10.0))
+        q = er <= max(thr, 1e-20)
+        if not bool(q.any()):
+            return 0.0
+        r = float(np.mean(ex[q]) / max(float(np.mean(er[q])), 1e-20))
+        return float(10 * np.log10(max(r, 1e-20)))
+    except Exception:
+        return None
+
+
+def _guard_clarity(src, fx: list, reference) -> list:
+    """Lucuti filter clarity yang menaikkan HF melebihi lagu asli.
+
+    Aturan: band air (12-16 kHz) dan presence (3-8 kHz) hasil render tidak
+    boleh melebihi band yang sama pada ``reference`` + CLARITY_GUARD_DB.
+    Tanpa referensi, rantai dipakai apa adanya (nilainya memang kecil).
+    Urutan pelucutan: air dulu, lalu presence diturunkan separuh.
+    Penjaga residual (v22): quiet_residual vs mix tidak boleh > +1 dB;
+    bila melanggar, filter bite dilucuti (bite tinggal serumah sisa vokal).
+    """
+    if not fx or not reference:
+        return list(fx)
+    try:
+        ref = load_audio(reference)
+    except Exception as ex:
+        log(f"guard clarity: referensi tidak terbaca ({ex}); pakai rantai penuh")
+        return list(fx)
+    ref_air = _band_db(ref, 12000.0, 16000.0)
+    ref_pres = _band_db(ref, 3000.0, 8000.0)
+    if ref_air is None or ref_pres is None:
+        return list(fx)
+
+    cur = list(fx)
+    for step in ("air", "presence"):
+        p, td = _render_fx_tmp(src, cur, f"guard_{step}")
+        if p is None:
+            break
+        try:
+            got = load_audio(p)
+        finally:
+            try:
+                td.cleanup()
+            except Exception:
+                pass
+        if step == "air":
+            got_air = _band_db(got, 12000.0, 16000.0)
+            if got_air is not None and got_air > ref_air + CLARITY_GUARD_DB:
+                log(f"guard clarity: air {got_air - ref_air:+.1f}dB vs asli, filter air dilucuti")
+                cur = [f for f in cur
+                       if not f.startswith(f"highshelf=f={CLARITY_AIR_F:.0f}")]
+                continue
+            continue
+        else:
+            got_pres = _band_db(got, 3000.0, 8000.0)
+            if got_pres is not None and got_pres > ref_pres + CLARITY_GUARD_DB:
+                log(f"guard clarity: presence {got_pres - ref_pres:+.1f}dB vs asli, diturunkan separuh")
+                cur = [(f"highshelf=f=4500:g={CLARITY_PRESENCE_DB / 2.0:.1f}"
+                        if f.startswith("highshelf=f=4500") else f) for f in cur]
+            break
+    # Penjaga residual (v22): render rantai final, ukur sisa di frame sepi vs
+    # mix. > +1 dB berarti EQ ikut mengangkat pecahan sisa vokal -> lucuti
+    # filter bite (biang yang paling mungkin, serumah sisa vokal).
+    if any(f.startswith(f"equalizer=f={CLARITY_BITE_F:.0f}") for f in cur):
+        p, td = _render_fx_tmp(src, cur, "guard_residual")
+        if p is not None:
+            try:
+                got = load_audio(p)
+            finally:
+                try:
+                    td.cleanup()
+                except Exception:
+                    pass
+            rq = _quiet_residual_db(got, ref)
+            if rq is not None and rq > CLARITY_RESIDUAL_GUARD_DB:
+                log(f"guard residual: sisa sepi {rq:+.1f}dB vs mix, filter bite dilucuti")
+                cur = [f for f in cur if not f.startswith(f"equalizer=f={CLARITY_BITE_F:.0f}")]
+            elif rq is not None:
+                log(f"guard residual: sisa sepi {rq:+.1f}dB vs mix, bite dipakai")
+    return cur
+
+
+def blend_with_clean(raw: np.ndarray, cleaned: np.ndarray,
+                     amount: float = DEREVERB_BLEND) -> np.ndarray:
+    """Blend instrumental mentah dengan versi bersih-dereverb.
+
+    ``cleaned`` di-level-match (RMS) ke ``raw`` dulu supaya blend tidak
+    mengubah loudness, lalu ``out = amount*cleaned + (1-amount)*raw``.
+    Korelasi dicatat: kalau < 0.90, model dereverb kemungkinan merusak musik
+    (bukan sekadar mengeringkan reverb) — panggilannya yang memutuskan
+    fallback ke mentah.
+    """
+    amt = float(np.clip(amount, 0.0, 1.0))
+    r = to_stereo(raw).astype(np.float64)
+    c = to_stereo(fit_length(cleaned, r.shape[-1])).astype(np.float64)
+    rr = float(np.sqrt((r ** 2).mean()) + 1e-12)
+    cc = float(np.sqrt((c ** 2).mean()) + 1e-12)
+    if cc > 1e-9:
+        c = c * (rr / cc)
+    out = (amt * c + (1.0 - amt) * r).astype(np.float32)
+    try:
+        a = out.ravel().astype(np.float64)
+        b = r.ravel().astype(np.float64)
+        a -= a.mean()
+        b -= b.mean()
+        denom = float(np.sqrt((a ** 2).sum() * (b ** 2).sum()))
+        corr = float((a * b).sum() / denom) if denom > 0 else 0.0
+    except Exception:
+        corr = 0.0
+    log(f"dereverb blend {amt:.2f}: corr vs mentah {corr:.4f}")
+    return out
+
+
+# --------------------------------------------------------------------------
 # stem math
 # --------------------------------------------------------------------------
 
@@ -237,7 +469,8 @@ def _measure_after_filter(src, af: str) -> tuple[float | None, float | None]:
 
 
 def finish(src, dst, reference=None, true_peak_db: float = -1.0,
-           target_lufs: float = TARGET_LUFS, highpass_hz: float = 0.0) -> Path:
+           target_lufs: float = TARGET_LUFS, highpass_hz: float = 0.0,
+           clarity: bool = True) -> Path:
     """Loudness match + limiter (TP paling akhir). High-pass opsional.
 
     Urutan filter penting: ``volume`` harus di SEBELUM ``alimiter``, kalau tidak
@@ -255,14 +488,26 @@ def finish(src, dst, reference=None, true_peak_db: float = -1.0,
     ff = ffmpeg_bin()
     # alimiter membatasi *sample* peak, padahal true peak (inter-sample) bisa
     # sampai ~0.9 dB lebih tinggi pada transien tajam (terbukti: margin 0.5 dB
-    # memberi TP -1.15 di satu lagu tapi -0.61 di lagu lain). Margin tetap
-    # tidak bisa menjamin semua materi, jadi kontrak true_peak_db ditegakkan
-    # dengan verifikasi-dan-koreksi di bawah: ukur TP hasil akhir, dan bila
-    # melanggar, turunkan tepat sebesar kelebihan + 0.3 dB lalu limit ulang.
-    # Koreksi hanya terjadi bila perlu dan hanya sebesar yang perlu.
+    # memberi TP -1.15 di satu lagu tapi -0.61 di lagu lain). Sejak v19 dua
+    # lapis pertahanan: (1) margin awal ADAPTIF terhadap gain match — master
+    # padat butuh gain besar sehingga plafon awal langsung direndahkan supaya
+    # lolos sekali jalan; (2) bila verifikasi masih melanggar, render ulang
+    # dari SUMBER dengan plafon limiter diturunkan (bukan volume dipotong
+    # rata seperti dulu — loudness tetap di target, hanya puncak ditekan
+    # lebih keras), maks 2 iterasi. Koreksi hanya bila perlu.
     _TP_MARGIN_DB = 0.5
     _TP_CORR_PAD_DB = 0.3
-    limit = min(0.999, max(0.0625, 10.0 ** ((float(true_peak_db) - _TP_MARGIN_DB) / 20.0)))
+    _TP_MAX_ITER = 2
+
+    def _ceil_to_limit(ceil_db: float) -> float:
+        return min(0.999, max(0.0625, 10.0 ** (float(ceil_db) / 20.0)))
+
+    def _render_chain(chain, dest_path) -> bool:
+        cmd = [ff, "-y", "-i", str(src), "-af", ",".join(chain),
+               "-c:a", "pcm_f32le", "-ar", str(SAMPLE_RATE), "-ac", "2", str(dest_path)]
+        r = subprocess.run(cmd, capture_output=True, timeout=1800)
+        return r.returncode == 0 and dest_path.is_file() and dest_path.stat().st_size > 1024
+
     dst = Path(dst)
     dst.parent.mkdir(parents=True, exist_ok=True)
     # TIDAK ADA high-pass. Versi sebelumnya memakai
@@ -274,13 +519,26 @@ def finish(src, dst, reference=None, true_peak_db: float = -1.0,
     # Pipeline yang menghasilkan file bagus tidak memakai high-pass sama
     # sekali, jadi dijalankan ulang lewat --highpass-hz kalau memang perlu.
     hp = f"highpass=f={float(highpass_hz):.1f}:poles=2" if highpass_hz and float(highpass_hz) > 0 else ""
-    limiter = f"alimiter=limit={limit:.4f}:level=false:attack=5:release=50"
     if not ff:
         shutil.copy(src, dst)
         return dst
 
+    # Clarity EQ lembut (v14, default nyala): de-mud + presence + air dengan
+    # guard terhadap lagu asli. Bukan mask adaptif — satu lapis EQ statis
+    # kecil, jadi tidak menumpuk error seperti masking yang dulu dihapus.
+    # High-pass eksplisit (--highpass-hz) tetap menang atas HP bawaan chain.
+    clarity_fx: list = []
+    if clarity:
+        clarity_fx = _guard_clarity(src, clarity_chain(with_hp=not bool(hp)),
+                                    reference)
+        if clarity_fx:
+            log(f"clarity nyala: {', '.join(clarity_fx)}")
+        else:
+            log("clarity dilucuti guard sepenuhnya; lanjut tanpa EQ")
+
     gain = None
-    probe = hp or "anull"
+    base = list(clarity_fx) + ([hp] if hp else [])
+    probe = ",".join(base) if base else "anull"
     cur_i, cur_tp = _measure_after_filter(src, probe)
     # Kalau ada file referensi (lagu asli), samakan loudness ke ITU-R BS.1770
     # file itu -- inilah yang dilakukan pipeline yang menghasilkan file karaoke
@@ -311,48 +569,62 @@ def finish(src, dst, reference=None, true_peak_db: float = -1.0,
             tp_note = f", TP {cur_tp:+.2f} dBTP" if cur_tp is not None else ""
             log(f"loudness {cur_i:.1f} -> {target:.1f} LUFS ({g:+.2f}dB){ref_note}{tp_note}")
 
-    filters = [hp] if hp else []
+    # Margin awal adaptif: gain match besar (master padat) -> plafon limiter
+    # awal langsung lebih rendah supaya lolos verifikasi sekali jalan dan
+    # loudness akhir tidak perlu dipotong. Rumus: +0.75 dB margin tiap dB
+    # gain di atas 3 dB, dibatasi 2.5 dB.
+    extra = max(0.0, (gain - 3.0) if gain is not None else 0.0) * 0.75
+    margin = _TP_MARGIN_DB + min(2.0, extra)
+    ceil_db = float(true_peak_db) - margin
+    limiter = f"alimiter=limit={_ceil_to_limit(ceil_db):.4f}:level=false:attack=5:release=50"
+    if margin > _TP_MARGIN_DB + 1e-9:
+        log(f"margin TP adaptif {margin:.2f}dB (gain {gain:+.2f}dB, master padat)")
+
+    filters = list(base)
     if gain is not None:
         filters.append(f"volume={gain:.2f}dB")
     filters.append(limiter)
 
-    cmd = [ff, "-y", "-i", str(src), "-af", ",".join(filters),
-           "-c:a", "pcm_f32le", "-ar", str(SAMPLE_RATE), "-ac", "2", str(dst)]
-    r = subprocess.run(cmd, capture_output=True, timeout=1800)
-    if r.returncode != 0 or not dst.is_file() or dst.stat().st_size <= 1024:
-        log(f"finish gagal ({(r.stderr or b'')[-300:]!r}); pakai sumber apa adanya")
+    if not _render_chain(filters, dst):
+        log("finish gagal; pakai sumber apa adanya")
         shutil.copy(src, dst)
         return dst
 
-    # Tegakkan kontrak true peak: ukur hasil akhir, koreksi bila melanggar.
-    # Satu iterasi cukup secara matematis — atenuasi menggeser TP turun tepat
-    # sebesar koreksi, dan sampel sudah corr dB di bawah plafon limiter.
+    # Tegakkan kontrak true peak: ukur hasil akhir; bila melanggar, render
+    # ulang DARI SUMBER dengan plafon limiter diturunkan sebesar kelebihan +
+    # pad (loudness dipertahankan, bukan dipotong rata). Maksimal iterasi
+    # _TP_MAX_ITER; yang gagal render mempertahankan hasil sebelumnya.
     try:
-        out_i, out_tp = measure_loudness(dst)
-        note = f"hasil akhir {out_i:.2f} LUFS" if out_i is not None else "hasil akhir"
-        if out_tp is not None:
-            note += f", TP {out_tp:+.2f} dBTP"
-        log(note)
-        if out_tp is not None and out_tp > float(true_peak_db):
-            corr = (out_tp - float(true_peak_db)) + _TP_CORR_PAD_DB
-            log(f"true peak {out_tp:+.2f} > {float(true_peak_db):.1f} dBTP, koreksi {-corr:.2f}dB")
-            tmp = dst.with_name("_tpcorr_" + dst.name)
-            r2 = subprocess.run(
-                [ff, "-y", "-i", str(dst), "-af", f"volume={-corr:.2f}dB,{limiter}",
-                 "-c:a", "pcm_f32le", "-ar", str(SAMPLE_RATE), "-ac", "2", str(tmp)],
-                capture_output=True, timeout=1800)
-            if r2.returncode == 0 and tmp.is_file() and tmp.stat().st_size > 1024:
-                tmp.replace(dst)
-                fin_i, fin_tp = measure_loudness(dst)
-                if fin_i is not None or fin_tp is not None:
-                    log(f"setelah koreksi {fin_i if fin_i is not None else '?'} LUFS, "
-                        f"TP {fin_tp if fin_tp is not None else '?'} dBTP")
-            else:
-                log(f"koreksi TP gagal ({(r2.stderr or b'')[-200:]!r}); hasil Pass-1 dipakai")
+        for _try in range(1 + _TP_MAX_ITER):
+            out_i, out_tp = measure_loudness(dst)
+            note = f"hasil akhir {out_i:.2f} LUFS" if out_i is not None else "hasil akhir"
+            if out_tp is not None:
+                note += f", TP {out_tp:+.2f} dBTP"
+            log(note)
+            if out_tp is None or out_tp <= float(true_peak_db):
+                break
+            over = (out_tp - float(true_peak_db)) + _TP_CORR_PAD_DB
+            ceil_db -= over
+            log(f"true peak {out_tp:+.2f} > {float(true_peak_db):.1f} dBTP, "
+                f"render ulang plafon limiter {ceil_db:.2f}dB")
+            limiter = f"alimiter=limit={_ceil_to_limit(ceil_db):.4f}:level=false:attack=5:release=50"
+            filters2 = list(base)
+            if gain is not None:
+                filters2.append(f"volume={gain:.2f}dB")
+            filters2.append(limiter)
+            tmp = dst.with_name("_tpretry_" + dst.name)
+            if not _render_chain(filters2, tmp):
+                log("render ulang TP gagal; hasil sebelumnya dipakai")
                 try:
                     tmp.unlink()
                 except Exception:
                     pass
+                break
+            tmp.replace(dst)
+        fin_i, fin_tp = measure_loudness(dst)
+        if fin_i is not None or fin_tp is not None:
+            log(f"final {fin_i if fin_i is not None else '?'} LUFS, "
+                f"TP {fin_tp if fin_tp is not None else '?'} dBTP")
     except Exception as ex:
         log(f"verifikasi TP dilewati: {ex}")
     return dst
@@ -378,9 +650,20 @@ def main(argv=None) -> int:
     ap.add_argument("--match-lufs", default="", help="file referensi untuk samakan loudness")
     ap.add_argument("--true-peak-db", type=float, default=-1.0)
     ap.add_argument("--highpass-hz", type=float, default=0.0,
-                    help="0 = matikan (default). Filter high-pass merusak fase bass "
-                         "dan menurunkan korelasi ke file karaoke referensi dari 0.986 jadi 0.871")
+                     help="0 = matikan (default). Filter high-pass merusak fase bass "
+                          "dan menurunkan korelasi ke file karaoke referensi dari 0.986 jadi 0.871")
+    ap.add_argument("--clarity", default="",
+                     help="on/off: EQ lembut de-mud + presence + air dengan guard "
+                          "spektral (default on; VOCALYX_NO_CLARITY=1 memaksa off)")
     args = ap.parse_args(argv)
+    no_clarity_env = (os.environ.get("VOCALYX_NO_CLARITY") or "").strip().lower() in ("1", "true", "on", "yes")
+    clarity_raw = str(args.clarity or "").strip().lower()
+    if no_clarity_env:
+        clarity_on = False
+    elif clarity_raw in ("off", "0", "false", "no"):
+        clarity_on = False
+    else:
+        clarity_on = True
 
     inst = load_audio(args.inst)
 
@@ -397,7 +680,8 @@ def main(argv=None) -> int:
     log("masking dimatikan; instrumental dipakai apa adanya")
 
     out = finish(args.inst, args.out, reference=(args.match_lufs or None),
-                 true_peak_db=args.true_peak_db, highpass_hz=args.highpass_hz)
+                 true_peak_db=args.true_peak_db, highpass_hz=args.highpass_hz,
+                 clarity=clarity_on)
     emit_progress(93, "dsp:done")
     print(json.dumps({"vocals": "", "instrumental": str(out), "model": "karaoke-dsp"}))
     return 0

@@ -229,6 +229,180 @@ export async function initGpuPython() {
   applyDeviceHint('checking', null);
   await loadCudaAvailabilityFromDisk();
   await syncEngineConfig();
+  try { initCudaSetup(); } catch {}
+}
+
+let cudaSetupListening = false;
+let cudaSetupBusy = false;
+
+function cudaSetupEls() {
+  return {
+    box: el('cudaSetupBox'),
+    status: el('cudaSetupStatus'),
+    btn: el('cudaSetupBtn'),
+    cancel: el('cudaSetupCancelBtn'),
+    barWrap: el('cudaSetupBarWrap'),
+    bar: el('cudaSetupBar'),
+    pct: el('cudaSetupPct'),
+  };
+}
+
+function fmtGb(b) {
+  const gb = Number(b) / 1e9;
+  return (gb >= 10 ? gb.toFixed(0) : gb.toFixed(1)) + ' GB';
+}
+
+function cudaSetupStageLabel(stage) {
+  const s = String(stage || '');
+  if (s === 'venv') return t('set.cudaSetupStageVenv');
+  if (s === 'pip') return t('set.cudaSetupStagePip');
+  if (s === 'torch') return t('set.cudaSetupStageTorch');
+  if (s === 'deps') return t('set.cudaSetupStageDeps');
+  if (s === 'verify') return t('set.cudaSetupStageVerify');
+  if (s === 'done') return t('set.cudaSetupStageDone');
+  if (s === 'failed') return t('set.cudaSetupStageFailed');
+  if (s === 'precheck') return t('set.cudaSetupStagePrecheck');
+  if (s === 'extract') return t('set.cudaSetupStagePrecheck');
+  return s || t('set.cudaSetupStageWorking');
+}
+
+let lastCudaProg = null;
+let lastCudaEventAt = 0;
+
+function paintCudaSetup(st, prog) {
+  const { box, status, btn, cancel, barWrap, bar, pct } = cudaSetupEls();
+  if (!box) return;
+  const state = String((st && st.state) || 'missing');
+  if (prog && typeof prog.percent !== 'undefined') {
+    lastCudaProg = prog;
+    lastCudaEventAt = Date.now();
+  }
+  const show = state === 'missing' || state === 'failed' || state === 'installing';
+  box.style.display = show ? '' : 'none';
+  if (!show) {
+    lastCudaProg = null;
+    return;
+  }
+  if (status) {
+    status.textContent = state === 'installing'
+      ? t('set.cudaSetupInstalling')
+      : state === 'failed'
+        ? t('set.cudaSetupFailed')
+        : t('set.cudaSetupMissing');
+  }
+  const busy = state === 'installing' || cudaSetupBusy;
+  if (btn) btn.style.display = busy ? 'none' : '';
+  if (cancel) cancel.style.display = busy ? '' : 'none';
+  const eff = prog || (state === 'installing' ? lastCudaProg : null);
+  const stale = state === 'installing' && (!eff || (Date.now() - lastCudaEventAt) >= 15000);
+  if (barWrap) barWrap.style.display = (eff || state === 'installing') ? '' : 'none';
+  if (bar) {
+    bar.classList.toggle('pulsing', state === 'installing' && (stale || !eff));
+    if (eff) {
+      const v = Math.max(state === 'installing' ? 6 : 0, Math.min(100, Number(eff.percent) || 0));
+      bar.style.width = v.toFixed(1) + '%';
+    } else if (state === 'installing') {
+      bar.style.width = '12%';
+    }
+  }
+  const shown = eff || (state === 'installing' && lastCudaProg);
+  if (shown && pct) {
+    const base = eff || lastCudaProg || {};
+    const r = Number(base.received) || 0;
+    const tot = Number(base.total) || 0;
+    pct.textContent = `${fmtGb(r)}${tot ? ' / ' + fmtGb(tot) : ''} — ${cudaSetupStageLabel(base.stage)}`;
+  } else if (pct) {
+    pct.textContent = state === 'installing' ? cudaSetupStageLabel('precheck') : '';
+  }
+}
+
+async function refreshCudaSetup(paint = true) {
+  if (!isTauri()) return null;
+  try {
+    const st = await invokeTauri('cuda_setup_status');
+    const state = String((st && st.state) || '');
+    if (paint && (state === 'ready' || state === 'failed' || state === 'missing' || (Date.now() - lastCudaEventAt) >= 3000)) {
+      paintCudaSetup(st, null);
+    }
+    return st;
+  } catch { return null; }
+}
+
+async function startCudaSetup() {
+  if (!isTauri() || cudaSetupBusy) return;
+  cudaSetupBusy = true;
+  try { paintCudaSetup({ state: 'installing' }, { received: 0, total: 0, percent: 0, stage: 'precheck' }); } catch {}
+  try {
+    const pre = await invokeTauri('cuda_setup_precheck');
+    if (pre && !pre.ok) {
+      const msg = (pre.errors || []).join(' ') || t('set.cudaSetupPrecheckFail');
+      try { showToast(msg, 8000); } catch {}
+      cudaSetupBusy = false;
+      await refreshCudaSetup();
+      return;
+    }
+    const warns = (pre && pre.warnings) || [];
+    if (warns.length) { try { showToast(warns.join(' '), 6000); } catch {} }
+    await invokeTauri('cuda_setup_start');
+    pollCudaSetupDone();
+  } catch (e) {
+    try { showToast(String((e && e.message) || e), 7000); } catch {}
+    cudaSetupBusy = false;
+    await refreshCudaSetup();
+  }
+}
+
+async function pollCudaSetupDone() {
+  for (let i = 0; i < 1800; i++) {
+    await new Promise((r) => setTimeout(r, 2000));
+    const st = await refreshCudaSetup();
+    const state = String((st && st.state) || '');
+    if (state === 'ready' || state === 'failed' || state === 'missing') break;
+    if (state !== 'installing') break;
+  }
+  cudaSetupBusy = false;
+  await refreshCudaSetup();
+  try {
+    cached = false;
+    await detect(true);
+  } catch {}
+}
+
+async function initCudaSetup() {
+  if (!isTauri()) return;
+  if (!cudaSetupListening) {
+    cudaSetupListening = true;
+    try {
+      const { listen } = await import('@tauri-apps/api/event');
+      await listen('cuda-setup://progress', (e) => {
+        try {
+          const p = e.payload || {};
+          if (p.stage === 'done') {
+            paintCudaSetup({ state: 'ready' }, null);
+            cudaSetupBusy = false;
+            refreshCudaSetup().catch(() => {});
+            cached = false;
+            detect(true).catch(() => {});
+            return;
+          }
+          if (p.stage === 'failed') {
+            paintCudaSetup({ state: 'failed' }, null);
+            cudaSetupBusy = false;
+            refreshCudaSetup().catch(() => {});
+            return;
+          }
+          paintCudaSetup({ state: 'installing' }, p);
+        } catch {}
+      });
+    } catch {}
+  }
+  el('cudaSetupBtn')?.addEventListener('click', () => startCudaSetup());
+  el('cudaSetupCancelBtn')?.addEventListener('click', async () => {
+    try { await invokeTauri('cuda_setup_cancel'); } catch {}
+    cudaSetupBusy = false;
+    await refreshCudaSetup();
+  });
+  await refreshCudaSetup();
 }
 
 export async function setDeviceWithEngine(device, gpuPython) {

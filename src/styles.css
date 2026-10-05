@@ -1232,6 +1232,14 @@ input[type="range"].wfill.hfill::-moz-range-track { height: 6px; }
 .topbar-support:active { transform: scale(.97); }
 .topbar-support:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .topbar-support img { display: block; height: 34px; width: 136px; border-radius: 6px; }
+.topbar-saweria {
+  width: 136px; height: 34px; box-sizing: border-box;
+  align-items: center; justify-content: center; gap: 6px;
+  background: #FFDD00; border: 1px solid #000000; border-radius: 6px;
+  color: #000000; font-size: 14px; font-weight: 700; line-height: 1;
+}
+.topbar-saweria:hover { opacity: .88; }
+.topbar-saweria:active { transform: scale(.97); }
 [data-theme="dark"] .about-val.is-new { color: #6cb8ff; }
 [data-theme="dark"] .about-rows { background: #1c1c1f; border-color: rgba(255, 255, 255, 0.07); }
 
@@ -1301,6 +1309,8 @@ input[type="range"].wfill.hfill::-moz-range-track { height: 6px; }
   font-size: 11px; color: var(--muted); font-weight: 400;
   line-height: 1.4;
 }
+#cudaSetupBar.pulsing { animation: cudapulse 1.2s ease-in-out infinite; }
+@keyframes cudapulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
 .settings-warn {
   font-size: 11px; color: #e5484d; font-weight: 600;
   line-height: 1.4; flex-basis: 100%;

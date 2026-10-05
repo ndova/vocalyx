@@ -644,6 +644,12 @@ pub fn detect() -> Vec<PythonInfo> {
     if let Ok(custom) = std::env::var("VOCALYX_PYTHON") {
         cands.push(PathBuf::from(custom));
     }
+    // Venv CUDA milik app (Opsi B): kandidat prioritas bila instalasinya
+    // selesai. Dipakai otomatis saat device=cuda; sorting cuda-dulu di bawah
+    // menempatkannya di depan tanpa logika khusus.
+    if let Some(v) = crate::cuda_setup::cuda_venv_python() {
+        cands.push(v);
+    }
     if let Some(b) = super::bundled_python() {
         cands.push(b);
     }

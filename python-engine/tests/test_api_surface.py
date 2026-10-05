@@ -52,9 +52,13 @@ def main():
           cache.BEST_MODEL_ROFORMER[0])
     check("KARAOKE_DSP_VERSION ada", isinstance(cache.KARAOKE_DSP_VERSION, int),
           str(cache.KARAOKE_DSP_VERSION))
-    check("KARAOKE_PRESETS punya 2 preset", set(cache.KARAOKE_PRESETS) ==
-          {"karaoke_aufr33", "cpu_inst_hq"},
+    check("KARAOKE_PRESETS punya 3 preset", set(cache.KARAOKE_PRESETS) ==
+          {"karaoke_aufr33", "karaoke_full", "cpu_inst_hq"},
           str(list(cache.KARAOKE_PRESETS)))
+    check("karaoke_full = ensemble Kim + Inst_HQ_4",
+          set(dict(cache.KARAOKE_ENSEMBLE.get("karaoke_full", ())).keys()) ==
+          {"Kim_Vocal_2.onnx", "UVR-MDX-NET-Inst_HQ_4.onnx"},
+          str(cache.KARAOKE_ENSEMBLE.get("karaoke_full")))
     check("MIN_FREE_VRAM_GB = 0.5", sep.MIN_FREE_VRAM_GB == 0.5,
           str(sep.MIN_FREE_VRAM_GB))
     check("quality aufr33 diterima (default)",
@@ -92,7 +96,7 @@ def main():
               caps.get("dsp_version") == cache.KARAOKE_DSP_VERSION,
               repr(caps.get("dsp_version")))
         q = caps.get("quality") or []
-        check("quality caps berisi 2 preset", set(q) == {"karaoke_aufr33", "cpu_inst_hq"}, str(q))
+        check("quality caps berisi 3 preset", set(q) == {"karaoke_aufr33", "karaoke_full", "cpu_inst_hq"}, str(q))
         check("min_free_vram_gb = 0.5", caps.get("min_free_vram_gb") == 0.5,
               str(caps.get("min_free_vram_gb")))
         check("formats berisi flac/ogg/wav",

@@ -1,0 +1,8 @@
+# Kunci versi untuk venv CUDA (lihat requirements-cuda.txt).
+#
+# Wajib dipakai dengan flag `-c` pada perintah pip instalasi deps, supaya
+# dependensi turunan (onnx2torch -> torchvision>=0.9.0) tidak mengganti torch
+# CUDA dengan wheel CPU dari PyPI. Pasangan resmi torch 2.5.1 <-> torchvision
+# 0.20.1 (varian +cu121 dari index PyTorch).
+torch==2.5.1+cu121
+torchvision==0.20.1+cu121
