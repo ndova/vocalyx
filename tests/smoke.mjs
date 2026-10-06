@@ -90,8 +90,17 @@ ok(Array.from(document.querySelectorAll('.brand-logo')).every((el) => el.getAttr
 ok($('#trackList') && $('#trackList').textContent.includes('No songs yet'), 'empty library message');
   {
     const libSrc = fs.readFileSync(path.join(root, 'src/js/library.js'), 'utf8');
-    ok(/strictSources\s*=\s*\{[^}]*spotify\s*:\s*true/.test(libSrc), 'migrasi: default strict spotify true untuk install baru');
-    ok(/strictV\s*!==\s*2/.test(libSrc) && /strictV\s*=\s*2/.test(libSrc), 'migrasi: strictV berjalan sekali untuk profil lama');
+    // Install baru: hanya source tanpa akun yang default ON. Spotify butuh
+    // Premium creds dan Deezer butuh ARL.
+    ok(/strictSources\s*=\s*\{[^}]*spotify\s*:\s*false[^}]*deezer\s*:\s*false/.test(libSrc),
+      'migrasi: default strict spotify+deezer false untuk install baru');
+    ok(/strictSources\s*=\s*\{[^}]*soundcloud\s*:\s*true[^}]*archive\s*:\s*true[^}]*'4shared'\s*:\s*true/.test(libSrc),
+      'migrasi: default strict soundcloud+archive+4shared true');
+    ok(/strictV\s*!==\s*3/.test(libSrc) && /strictV\s*=\s*3/.test(libSrc), 'migrasi: strictV berjalan sekali untuk profil lama');
+    // Blok versi lama memaksa spotify:true ke semua orang, termasuk yang sudah
+    // menyetel sendiri. Penanda versi harus naik tanpa menulis ulang peta.
+    ok(!/strictV\s*!==\s*3[\s\S]{0,220}?strictSources\s*=/.test(libSrc),
+      'migrasi: naikkan strictV tanpa menimpa peta pilihan user');
   }
   {
     const stateMod = await import('../src/js/state.js');
@@ -440,8 +449,8 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
     const rtKeys = Object.keys(i18nEn).filter((k) => k.startsWith('runtime.'));
     ok(rtKeys.length >= 10, `rt: minimal 10 key runtime (dapat ${rtKeys.length})`);
   }
-  ok(/runtime\/engine\/server\.py|runtime"\.join\("engine"\)|engine\/server\.py/.test(bundler + rsEngine),
-    'bundler/engine: lokasi runtime/engine/server.py dikenali');
+  ok(/engine[\\/]server\.py|engine"\.join\("engine"\)|runtime[\\/]engine/.test(bundler + rsEngine),
+    'bundler/engine: lokasi engine di runtime dikenali');
   ok(/fn bundled_runtime_root\(\)/.test(rsEngine), 'rust: deteksi folder runtime portable');
   {
     const pthFile = path.join(root, 'build/runtime/python311._pth');
@@ -463,14 +472,20 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
   ok(!reqCpu.includes('soundfile') === false, 'bundler: soundfile ikut terpasang');
   if (fs.existsSync(stagePath)) {
     const staged = fs.readdirSync(stagePath);
-    ok(staged.includes('server.py') && staged.includes('vx_karaoke_dsp.py') && staged.includes('win_nowindow.py'),
-      `bundler: staging engine berisi entry+modul (${staged.length} file)`);
+    // Staging berisi BYTECODE, bukan source: `build_runtime.py` mengompilasi
+    // lalu membuang `.py` supaya installer tidak memuat source Python plaintext.
+    ok(staged.includes('server.pyc') && staged.includes('vx_karaoke_dsp.pyc') && staged.includes('win_nowindow.pyc'),
+      `bundler: staging engine berisi entry+modul bytecode (${staged.length} file)`);
     ok(!staged.some((f) => ['__pycache__', '.pytest_cache', 'tests', 'cig.dll', '.gain-cache.json'].includes(f)),
       'bundler: staging engine bebas junk dev');
-    ok(fs.existsSync(path.join(stagePath, 'scripts/karaoke_best.py')), 'bundler: karaoke_best.py ikut di staging');
-    ok(fs.existsSync(path.join(stagePath, 'vx_download.py'))
-      && fs.readFileSync(path.join(stagePath, 'vx_download.py'), 'utf8').includes('def _yt_dlp_cmd()'),
-      'bundler: staging pakai source terbaru (bukan file lama)');
+    ok(!staged.some((f) => f.endsWith('.py')), 'bundler: staging engine bebas source .py plaintext');
+    ok(fs.existsSync(path.join(stagePath, 'scripts/karaoke_best.pyc')), 'bundler: karaoke_best.pyc ikut di staging');
+    // Nama fungsi tetap ada di bytecode sebagai konstanta code object, jadi
+    // kesegaran staging masih bisa dicek tanpa membuka source.
+    const dlPyc = path.join(stagePath, 'vx_download.pyc');
+    ok(fs.existsSync(dlPyc)
+      && fs.readFileSync(dlPyc).includes(Buffer.from('_yt_dlp_cmd', 'latin1')),
+    'bundler: staging pakai source terbaru (bukan file lama)');
   } else {
     ok(true, 'bundler: staging belum dibuat (jalankan build_runtime.py --staging-only)');
   }
@@ -862,17 +877,47 @@ ok(document.getElementById('lyrOffsetWrap')?.style.display === 'none', 'lyric of
 ok(document.querySelectorAll('[data-lyr-off]').length === 7, 'lyric offset buttons');
 ok(!!document.getElementById('lyrOffSlider'), 'lyric offset slider');
 ok(!!document.getElementById('lyrOffToggle'), 'lyric offset toggle');
-document.getElementById('lyrOffToggle')?.click();
-await sleep(50);
 {
-  const body = document.getElementById('lyrOffBody');
-  const collapsedOk = body?.classList.contains('lyr-hidden') || body?.style.display === 'none';
-  ok(!!collapsedOk, 'lyric offset autohide');
+  // Panel offset hanya boleh muncul kalau user menekan tombol jam, BAHKAN saat
+  // liriknya sinkron. Sebelumnya visibilitas hanya bergantung pada isSynced(),
+  // jadi panel muncul otomatis tiap kali lagu punya lirik sinkron.
+  const lyrMod = await import('../src/js/lyrics.js');
+  const stateMod0 = await import('../src/js/state.js');
+  const lrcOff = await import('../src/js/lrc.js');
+  const wrapEl = document.getElementById('lyrOffsetWrap');
+  const bodyEl = document.getElementById('lyrOffBody');
+  const badgeEl = document.getElementById('lyrOffBadge');
+  const toggleEl = document.getElementById('lyrOffToggle');
+
+  localStorage.removeItem('vocalyx_lyricOffsetUI_v1');
+  stateMod0.S.lyricLines = lrcOff.parseLRC('[00:01.00]baris satu\n[00:05.00]baris dua');
+  lyrMod.renderLyrics();
+  ok(lrcOff.isSynced(stateMod0.S.lyricLines), 'lyric offset: fixture lirik benar-benar sinkron');
+  ok(wrapEl?.style.display === 'block', 'lyric offset: kontainer tampil saat sinkron');
+  ok(bodyEl?.style.display === 'none', 'lyric offset: panel TERSEMBUNYI saat sinkron tanpa klik');
+  ok(!!bodyEl?.classList.contains('lyr-hidden'), 'lyric offset: animasi collapse aktif saat default');
+  ok(toggleEl?.style.display === 'inline-flex', 'lyric offset: tombol jam tetap ada saat sinkron');
+  ok(!!badgeEl && /\+\d+ms|-?\d+ms/.test(badgeEl.textContent), 'lyric offset: badge nilai tetap tampil');
+
+  toggleEl?.click();
+  await sleep(50);
+  ok(localStorage.getItem('vocalyx_lyricOffsetUI_v1') === '1', 'lyric offset: klik menyimpan status tampil');
+  ok(bodyEl?.style.display === 'block', 'lyric offset: panel muncul setelah diklik');
+  ok(!bodyEl?.classList.contains('lyr-hidden'), 'lyric offset: collapse dilepas setelah diklik');
+
+  // Ganti lagu (renderLyrics dipanggil ulang) tidak boleh memunculkan panel
+  // sendiri - flag harus dibaca ulang tiap render, bukan state sekali pakai.
+  stateMod0.S.lyricLines = lrcOff.parseLRC('[00:02.00]baris lain\n[00:09.00]baris lain dua');
+  lyrMod.renderLyrics();
+  ok(bodyEl?.style.display === 'block', 'lyric offset: tetap tampil setelah render ulang (pilihan user dihormati)');
+
+  toggleEl?.click();
+  await sleep(50);
+  ok(localStorage.getItem('vocalyx_lyricOffsetUI_v1') === '0', 'lyric offset: klik kedua menyembunyikan + persist');
+  ok(bodyEl?.style.display === 'none', 'lyric offset: panel kembali tersembunyi');
+  stateMod0.S.lyricLines = [];
+  lyrMod.renderLyrics();
 }
-ok(localStorage.getItem('vocalyx_lyricOffsetUI_v1') === '1', 'lyric offset collapse persists');
-document.getElementById('lyrOffToggle')?.click();
-await sleep(50);
-ok(localStorage.getItem('vocalyx_lyricOffsetUI_v1') === '0', 'lyric offset expand persists');
 
 ok(document.querySelector('[data-nav="albums"]') === null, 'nav albums dihapus');
 ok(document.querySelector('[data-nav="artists"]') === null, 'nav artists dihapus');
@@ -1039,10 +1084,15 @@ try {
   ok(i18nCore.t('eng.vramLow', { free: '0.4', need: '0.5' }).includes('0.4') && i18nCore.t('eng.vramLow', { free: '0.4', need: '0.5' }).includes('0.5'), 'UI: pesan VRAM membawa angka VRAM');
   ok(/KARAOKE_DSP_VERSION = 24/.test(pySepCache), 'py: versi cache naik ke 24 (overlap otomatis VRAM)');
   ok(pySepMain.includes('def karaoke_caps(device: str = "auto")'), 'py: endpoint terima device');
-  ok(pySepMain.includes('BEST_SCRIPT = SCRIPTS_DIR / "karaoke_best.py"') && pySepBest.includes('weights = ((model, 1.0),)'), 'py: Best = SATU model per preset (bukan ensemble)');
+  ok(pySepMain.includes('BEST_SCRIPT = _resolve_script(SCRIPTS_DIR, "karaoke_best")') && pySepBest.includes('weights = ((model, 1.0),)'), 'py: Best = SATU model per preset (bukan ensemble)');
   ok(!pySepMain.includes('attempts.append((ENSEMBLE_SCRIPT,'), 'py: ensemble 2-model tidak lagi dipakai (2x lambat + max-spec tahan bleed)');
   ok(pySepBest.includes('allow_download=True'), 'py: model Best auto-unduh bila belum ada');
-  ok(pySepMain.includes('_run_dsp(job_id, wav_inst, wav_voc') && pySepMain.includes('DSP_SCRIPT = ENGINE_DIR / "vx_karaoke_dsp.py"'), 'py: karaoke lewat tahap post-processing');
+  ok(pySepMain.includes('_run_dsp(job_id, wav_inst, wav_voc') && pySepMain.includes('DSP_SCRIPT = _resolve_script(ENGINE_DIR, "vx_karaoke_dsp")'), 'py: karaoke lewat tahap post-processing');
+  // Rilis mengirim bytecode, jadi sub-script harus ditemukan baik sebagai `.py`
+  // (dev) maupun `.pyc` (rilis). Kalau hanya salah satu, DSP/preset Best diam-diam
+  // dilewati karena `.exists()` False.
+  ok(/def _resolve_script\(/.test(pySepMain) && /for ext in \("\.py", "\.pyc"\)/.test(pySepMain),
+    'py: sub-script karaoke dikenali di mode .py maupun .pyc');
   const pySep = fs.readFileSync(path.join(root, 'python-engine/vx_karaoke_sep.py'), 'utf8');
   const pyDsp = fs.readFileSync(path.join(root, 'python-engine/vx_karaoke_dsp.py'), 'utf8');
   const pyBest = fs.readFileSync(path.join(root, 'python-engine/scripts/karaoke_best.py'), 'utf8');
@@ -1081,6 +1131,7 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
     const stagedSrc = path.join(root, 'build/engine');
     if (fs.existsSync(stagedSrc)) {
       const junk = [];
+      const leaked = [];
       (function walk(d) {
         for (const e of fs.readdirSync(d, { withFileTypes: true })) {
           const full = path.join(d, e.name);
@@ -1088,23 +1139,90 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
             if (['__pycache__', '.pytest_cache', 'tests'].includes(e.name)) junk.push(`${e.name}/`);
             else walk(full);
           } else if (['cig.dll', '.gain-cache.json'].includes(e.name)) junk.push(e.name);
+          else if (e.name.endsWith('.py')) leaked.push(path.relative(stagedSrc, full));
         }
       })(stagedSrc);
       ok(junk.length === 0, `4: sumber resource build/engine bebas junk (${junk.join(', ') || 'bersih'})`);
+      ok(leaked.length === 0,
+        `4: staging bebas source .py plaintext (${leaked.join(', ') || 'bersih'}) - sisanya harus .pyc`);
     } else {
       ok(true, '4: build/engine belum dibuat (jalankan build_runtime.py)');
     }
+    // Tauri MERGE resource (tidak replace), jadi build sebelumnya yang menyalin
+    // source .py akan terbawa ke build bytecode berikutnya. Pembersihannya
+    // ada di beforeBuildCommand; test ini jaga hasil akhirnya.
+    const cleaner = fs.readFileSync(path.join(root, 'scripts/clean_release_stage.py'), 'utf8');
+    ok(/def clean\(/.test(cleaner) && /def check\(/.test(cleaner) && /shutil\.rmtree/.test(cleaner),
+      '4: pembersih resource engine ada (shutil.rmtree + verifikasi)');
+    ok(/stage:clean/.test(JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).scripts || {})
+      || /stage:clean/.test(tconf.build.beforeBuildCommand),
+      '4: pembersih hooked ke beforeBuildCommand Tauri');
     const stagedRes = path.join(root, 'src-tauri/target/release/python-engine');
     if (fs.existsSync(stagedRes)) {
       const files = fs.readdirSync(stagedRes);
-      ok(files.includes('server.py') && files.includes('requirements-cuda.txt') && files.includes('constraints-cuda.txt') && files.length <= 24,
-        `4: resource installer berisi staging engine + pin CUDA (${files.length} file)`);
+      const leaked = files.filter((f) => f.endsWith('.py'));
+      ok(leaked.length === 0,
+        `4: resource installer bebas source .py plaintext${leaked.length ? ` (bocor: ${leaked.join(', ')})` : ''}`);
+      ok(files.includes('server.pyc') && files.includes('requirements-cuda.txt') && files.includes('constraints-cuda.txt') && files.length <= 24,
+        `4: resource installer berisi bytecode engine + pin CUDA (${files.length} file)`);
     } else {
       ok(true, '4: resource installer belum dibangun (jalankan tauri build)');
     }
     const staleUp = path.join(root, 'src-tauri/target/release/_up_');
     ok(!fs.existsSync(staleUp) || !fs.existsSync(path.join(staleUp, 'python-engine/cig.dll')),
       '3a: tidak ada resource basi berisi cig.dll');
+
+    // Hardening binary + frontend. Tanpa profile.release, Cargo menyisakan nama
+    // fungsi di dalam exe dan Ghidra bisa membaca `vocalyx_lib::engine::start`.
+    const cargoToml = fs.readFileSync(path.join(root, 'src-tauri/Cargo.toml'), 'utf8');
+    const relProfile = cargoToml.split('[profile.release]')[1] || '';
+    ok(/strip\s*=\s*"symbols"/.test(relProfile), 'rel: strip = "symbols" aktif (nama fungsi hilang dari exe)');
+    ok(/lto\s*=\s*"fat"/.test(relProfile) && /codegen-units\s*=\s*1/.test(relProfile),
+      'rel: LTO fat + 1 codegen unit');
+    ok(/^\s*debug\s*=\s*false/m.test(relProfile), 'rel: debug = false');
+    // panic="abort" sengaja TIDAK diaktifkan: tiga call site spawn_blocking
+    // (spawn_ensure_and_start, gpu::detect_cached, gpu::record_active) akan
+    // membunuh seluruh aplikasi kalau satu panic. engine.rs masih menangai
+    // mutex poisoning, jadi semantik unwinding memang dibutuhkan.
+    ok(!/panic\s*=\s*"abort"/.test(relProfile),
+      'rel: panic TIDAK di-set abort (spawn_blocking butuh unwind)');
+
+    const viteCfg = fs.readFileSync(path.join(root, 'vite.config.js'), 'utf8');
+    ok(/minify:\s*'terser'/.test(viteCfg), 'rel: minify terser aktif');
+    ok(/sourcemap:\s*false/.test(viteCfg), 'rel: sourcemap dimatikan (peta modul tidak bocor)');
+    ok(!/target:\s*'esnext'/.test(viteCfg), 'rel: bukan esnext (harus ada transformasi)');
+    // console.warn/error ditahan: downloads.js menangkap error render yang tidak
+    // muncul di UI. Kalau ikut drop, produksi tidak punya jejak error sama sekali.
+    ok(/drop_console:\s*\[[^\]]*'log'/.test(viteCfg) && !/drop_console:\s*true/.test(viteCfg),
+      'rel: drop_console selektif (log dibuang, warn/error dipertahankan)');
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+    ok(!!(pkg.devDependencies || {}).terser, 'rel: terser ada di devDependencies');
+
+    // Bukti nyata di binary & bundle hasil build, kalau sudah ada.
+    const releaseExe = path.join(root, 'src-tauri/target/release/vocalyx.exe');
+    if (fs.existsSync(releaseExe)) {
+      const raw = fs.readFileSync(releaseExe).toString('latin1');
+      const fnLeaks = ['apply_runtime_env', 'find_engine_script', 'spawn_ensure_and_start']
+        .filter((n) => raw.includes(n));
+      ok(fnLeaks.length === 0,
+        `rel: exe rilis bebas nama fungsi${fnLeaks.length ? ` (bocor: ${fnLeaks.join(', ')})` : ''}`);
+      ok(!raw.includes('src-tauri\\src'), 'rel: exe rilis bebas path source VocaLyx');
+    } else {
+      ok(true, 'rel: exe rilis belum dibangun (lewati cek simbol)');
+    }
+    const distJs = path.join(root, 'dist');
+    if (fs.existsSync(distJs)) {
+      const jsFiles = fs.readdirSync(distJs).filter((f) => f.endsWith('.js'));
+      ok(fs.readdirSync(distJs).every((f) => !f.endsWith('.map')), 'rel: dist tanpa .map');
+      const distText = jsFiles.map((f) => fs.readFileSync(path.join(distJs, f), 'utf8')).join('');
+      ok(!/console\.log\(/.test(distText), 'rel: dist tanpa console.log');
+      const idLeaks = ['requestDlRender', 'sweepEnhance', 'applyGridWidths', 'refreshCudaStatus']
+        .filter((n) => distText.includes(n));
+      ok(idLeaks.length === 0,
+        `rel: dist tanpa nama fungsi lokal${idLeaks.length ? ` (bocor: ${idLeaks.join(', ')})` : ''}`);
+    } else {
+      ok(true, 'rel: dist belum dibangun (lewati cek bundle)');
+    }
 
     const rtRs = fs.readFileSync(path.join(root, 'src-tauri/src/runtime.rs'), 'utf8');
     const libRs = fs.readFileSync(path.join(root, 'src-tauri/src/lib.rs'), 'utf8');

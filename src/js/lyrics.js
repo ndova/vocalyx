@@ -158,6 +158,10 @@ function syncLyrics(cur) {
 }
 const LYROFF_KEY = 'vocalyx_lyricOffset_v1';
 const LYROFF_UI_KEY = 'vocalyx_lyricOffsetUI_v1';
+function isLyricOffsetShown(){ return readFlag(LYROFF_UI_KEY); }   // '1' = panel tampil, default tersembunyi
+function readFlag(key){
+  try { return localStorage.getItem(key) === '1'; } catch { return false; }
+}
 function getLyricOffsets(){ try { return JSON.parse(localStorage.getItem(LYROFF_KEY) || '{}'); } catch { return {}; } }
 function saveLyricOffsets(m){ try { localStorage.setItem(LYROFF_KEY, JSON.stringify(m)); } catch {} }
 function migrateLyricOffset(oldP, newP){
@@ -191,16 +195,15 @@ function syncLyricOffsetUI(){
   const synced = isSynced(S.lyricLines);
   if (wrap) wrap.style.display = synced ? 'block' : 'none';
   const body = document.getElementById('lyrOffBody');
-  let collapsed = false;
-  try { collapsed = localStorage.getItem(LYROFF_UI_KEY) === '1'; } catch {}
+  const open = isLyricOffsetShown();   // synced = ada lirik sinkron; open = user menekan tombol jam
   if (body) {
-    body.style.display = synced ? 'block' : 'none';
-    body.classList.toggle('lyr-hidden', synced && collapsed);
+    body.style.display = synced && open ? 'block' : 'none';
+    body.classList.toggle('lyr-hidden', synced && !open);
   }
   const toggle = document.getElementById('lyrOffToggle');
   if (toggle) {
     toggle.style.display = synced ? 'inline-flex' : 'none';
-    toggle.title = collapsed ? t('lyr.showOffsetCtl') : t('lyr.hideOffsetCtl');
+    toggle.title = open ? t('lyr.hideOffsetCtl') : t('lyr.showOffsetCtl');
   }
   const badge = document.getElementById('lyrOffBadge');
   if (badge) {
@@ -225,9 +228,7 @@ document.getElementById('lyrOffSlider')?.addEventListener('input', (e)=>{
   setLyricOffset(parseInt(e.target.value, 10) || 0);
 });
 document.getElementById('lyrOffToggle')?.addEventListener('click', ()=>{
-  let collapsed = false;
-  try { collapsed = localStorage.getItem(LYROFF_UI_KEY) === '1'; } catch {}
-  try { localStorage.setItem(LYROFF_UI_KEY, collapsed ? '0' : '1'); } catch {}
+  try { localStorage.setItem(LYROFF_UI_KEY, isLyricOffsetShown() ? '0' : '1'); } catch {}
   syncLyricOffsetUI();
 });
 
