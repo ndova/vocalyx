@@ -2,12 +2,13 @@ import { t } from './i18n/core.js';
 
 const HELP_TOPICS = [
   { id: 'local', steps: 4 },
-  { id: 'search', steps: 5 },
+  { id: 'engine', steps: 5 },
+  { id: 'search', steps: 6 },
   { id: 'playlist', steps: 3 },
-  { id: 'iphone', steps: 4 },
-  { id: 'karaoke', steps: 4 },
+  { id: 'iphone', steps: 5 },
+  { id: 'karaoke', steps: 6 },
   { id: 'eqlyrics', steps: 4 },
-  { id: 'settings', steps: 6 },
+  { id: 'settings', steps: 7 },
   { id: 'cred', steps: 5 },
 ];
 

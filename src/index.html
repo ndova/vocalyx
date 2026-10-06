@@ -422,7 +422,7 @@
 
             <div class="settings-group">
               <div class="settings-group-title" data-t="set.karaoke">Karaoke</div>
-              <div class="settings-group-hint" data-t="set.karaokeHint">Dua preset: Best = MelBand RoFormer Karaoke (Aufr33/Viperx) untuk GPU, dan UVR-MDX-NET-Inst_HQ_4 untuk CPU. Device default ke CPU; di PC tanpa CUDA preset CPU dipilih otomatis, dan memilih CUDA tanpa dukungan CUDA akan memakai CPU. Klik Karaoke lagi untuk Batal.</div>
+              <div class="settings-group-hint" data-t="set.karaokeHint">Tiga preset: Best = MelBand RoFormer Karaoke (Aufr33/Viperx) untuk GPU, Full = Kim_Vocal_2 + Inst_HQ_4 untuk menghapus semua vokal di GPU atau CPU, dan UVR-MDX-NET-Inst_HQ_4 untuk CPU. Device hanya berisi CPU (bawaan) dan CUDA; di PC tanpa CUDA preset dipilih otomatis, dan memilih CUDA tanpa dukungan CUDA akan memakai CPU. Gunakan Install CUDA dependencies di bawah untuk menyiapkan GPU. Klik Karaoke lagi untuk Batal.</div>
 
               <div class="settings-row">
                 <label class="settings-select"><span data-t="set.device">Device</span>
@@ -446,7 +446,7 @@
                   </select>
                 </label>
               </div>
-              <div class="settings-group-hint" data-t="set.karaokeTuningHint">Stem instrumental dari model dipakai apa adanya (tanpa masking). Pasca proses: limiter -1 dBTP dan penyamaan loudness ke lagu asli. High-pass mati secara bawaan dan hanya dipakai bila flag --highpass-hz disetel.</div>
+              <div class="settings-group-hint" data-t="set.karaokeTuningHint">Stem instrumental dari model dipakai apa adanya (tanpa masking). Pasca proses: clarity EQ ber-guard, limiter -1 dBTP, dan penyamaan loudness ke lagu asli. High-pass mati secara bawaan dan hanya dipakai bila flag --highpass-hz disetel.</div>
               <div class="settings-row" style="align-items:center">
                 <span id="cudaConnDot" style="width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none"></span>
                 <div id="karaokeCudaStatus" class="settings-desc" data-t="set.cuDA" style="flex:1">CUDA: checking…</div>

@@ -19,7 +19,7 @@ export function karaokeCudaLabel(caps) {
     return `CUDA terdeteksi: ${caps.device || 'GPU'}${vram}${kim}`;
   }
   const prov = (caps.providers && caps.providers.length) ? caps.providers.join(',') : 'tanpa provider GPU';
-  return `CUDA tidak aktif — runtime bawaan memakai PyTorch CPU (${prov}). Untuk memakai GPU, atur "Python CUDA" di Settings › Karaoke.`;
+  return `CUDA tidak aktif — runtime bawaan memakai PyTorch CPU (${prov}). Untuk memakai GPU, klik "Install CUDA dependencies" di Settings › Karaoke.`;
 }
 
 function autoRefreshCudaStatus(engineOnline) {
