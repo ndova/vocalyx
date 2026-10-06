@@ -294,7 +294,7 @@ def zip_runtime(version: str, dry: bool = False) -> Path | None:
     with open(out, "rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
-    sha = out.with_suffix(".sha256")
+    sha = out.with_suffix(".zip.sha256")
     sha.write_text(f"{h.hexdigest()}  {out.name}\n", encoding="ascii")
     bundle = BUILD / "runtime-bundle.zip"
     shutil.copy2(out, bundle)
