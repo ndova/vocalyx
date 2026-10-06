@@ -171,7 +171,7 @@ pub fn start(app: &AppHandle) {
     }
 
     let Some(script) = find_engine_script(app) else {
-        log_line!("GAGAL: python-engine/server.py tidak ditemukan");
+        log_line!("GAGAL: python-engine/server.pyc tidak ditemukan");
         return;
     };
     let Some(py) = find_python(Some(app)) else {
@@ -407,33 +407,48 @@ fn bundled_python() -> Option<PathBuf> {
     None
 }
 
-/// Lokasi `server.py`: resource bundle dulu, lalu relatif ke exe.
+/// Lokasi entry engine: resource bundle dulu, lalu relatif ke exe.
 /// `_up_` dipakai Tauri untuk resource yang keluar dari folder `target`, dan
 /// `../../` kena saat dev/`cargo run` dari dalam repo.
+///
+/// Rilis mengirim BYTECODE, bukan source: `scripts/build_runtime.py` mengompilasi
+/// staging ke `.pyc` lalu membuang `.py`, jadi `server.pyc`才是 nama yangCEPAT ada
+/// di resource. `server.py` tetap dicoba sebagai fallback supaya `npm run dev:all`
+/// dari repo (yang memakai folder `python-engine` apa adanya) tetap jalan tanpa
+/// harus menjalankan bundler dulu.
 fn find_engine_script(app: &AppHandle) -> Option<PathBuf> {
     let mut cands: Vec<PathBuf> = Vec::new();
-    if let Ok(p) = app.path().resolve("python-engine/server.py", BaseDirectory::Resource) {
-        cands.push(p);
+    // Sumber bytecode lebih dulu supaya rilis tidak pernah tertukar ke folder
+    // `python-engine` milik repo ketika aplikasi dijalankan dari dalam repo.
+    for name in ["server.pyc", "server.py"] {
+        if let Ok(p) = app.path().resolve(
+            format!("python-engine/{name}"),
+            BaseDirectory::Resource,
+        ) {
+            cands.push(p);
+        }
     }
     // Runtime portable (Fase 2 bundler) membawa engine-nya sendiri di dalam
     // runtime/engine, karena `._pth` membuat Python mengabaikan PYTHONPATH
     // sehingga folder script tidak otomatis masuk sys.path.
     if let Some(rt) = bundled_runtime_root() {
-        cands.push(rt.join("engine").join("server.py"));
-        cands.push(rt.join("engine").join("scripts").join("server.py"));
+        cands.push(rt.join("engine").join("server.pyc"));
+        cands.push(rt.join("engine").join("scripts").join("server.pyc"));
     }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             for base in ["", "_up_/", "../", "../../"] {
                 let b = dir.join(base);
+                cands.push(b.join("python-engine/server.pyc"));
                 cands.push(b.join("python-engine/server.py"));
-                cands.push(b.join("runtime/engine/server.py"));
+                cands.push(b.join("runtime/engine/server.pyc"));
             }
         }
     }
     if let Ok(cwd) = std::env::current_dir() {
+        cands.push(cwd.join("python-engine/server.pyc"));
         cands.push(cwd.join("python-engine/server.py"));
-        cands.push(cwd.join("build/runtime/engine/server.py"));
+        cands.push(cwd.join("build/runtime/engine/server.pyc"));
     }
     cands.into_iter().find(|p| p.is_file())
 }

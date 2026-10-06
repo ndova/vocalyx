@@ -16,9 +16,14 @@ Pemakaian:
   python scripts/build_runtime.py                 # rakitan penuh (unduh ~1 GB)
   python scripts/build_runtime.py --staging-only # hanya staging source engine
   python scripts/build_runtime.py --dry-run      # rencana saja, tanpa unduh
+  python scripts/build_runtime.py --keep-source  # staging tetap .py (debug saja)
+
+Staging `build/engine/` berisi BYTECODE `.pyc`, bukan source `.py`, jadi installer
+dan runtime zip tidak memuat source Python plaintext. Gunakan `--keep-source`
+hanya untuk debugging, jangan untuk rilis.
 
 Keluaran:
-  build/engine/            source engine bersih (dipakai juga untuk Tauri resources)
+  build/engine/            bytecode engine (dipakai juga untuk Tauri resources)
   build/runtime/           runtime portable (Python + deps + ffmpeg + model)
   dist-runtime/runtime-cpu-<versi>.zip  +  .sha256
 """
@@ -44,6 +49,7 @@ DIST = ROOT / "dist-runtime"
 CACHE = BUILD / "cache"
 
 PY_VERSION = "3.11.9"
+PY_MAJOR_MINOR = (3, 11)
 PY_EMBED_URL = f"https://www.python.org/ftp/python/{PY_VERSION}/python-{PY_VERSION}-embed-amd64.zip"
 GET_PIP_URL = "https://bootstrap.pypa.io/get-pip.py"
 TORCH_CPU_INDEX = "https://download.pytorch.org/whl/cpu"
@@ -60,6 +66,12 @@ CPU_MODEL = "UVR-MDX-NET-Inst_HQ_4.onnx"
 
 ENGINE_ENTRY = "server.py"
 ENGINE_EXTRA_SCRIPTS = ("scripts/karaoke_best.py",)
+# Source `.py` TIDAK ikut dikirim. Staging dikompilasi ke bytecode `.pyc` dulu
+# (lihat `compile_engine_stage`) supaya installer/runtime tidak memuat source
+# Python plaintext. Bytecode 3.11 belum bisa di-decompile oleh decompiler
+# mainstream (uncompyle6/decompyle3 mentok di 3.10), jadi ini menutup kebocoran
+# paling serius yang dulu ada di `python-engine/`.
+KEEP_SOURCE = "--keep-source"
 EXCLUDE_NAMES = {
     "__pycache__", ".pytest_cache", ".mypy_cache", "tests", "tmp",
     ".gain-cache.json", "import_attr.json", "cig.dll", "cig.obj", "cig_wrapper.obj",
@@ -188,6 +200,71 @@ def clean_engine_stage(dry: bool = False) -> int:
     return copied
 
 
+def engine_python(dry: bool = False) -> Path | None:
+    """Interpreter yang WAJIB dipakai untuk kompilasi staging.
+
+    Bytecode punya magic number versi, jadi `.pyc` yang dikompilasi Python 3.13
+    tidak akan dimuat runtime 3.11 (`ImportError: bad magic number`). Karena itu
+    kompilasi selalu memakai interpreter yang sama persis dengan runtime:
+    `build/runtime/python.exe` (embeddable 3.11.9).
+
+    Kalau runtime belum dirakit, `prepare_python()` harus jalan lebih dulu;
+    kompilasi tidak boleh diam-diam jatuh ke Python sistem karena itu menghasilkan
+    bytecode yang tidak bisa dipakai.
+    """
+    py = RUNTIME_DIR / "python.exe"
+    if py.is_file():
+        return py
+    if dry:
+        return None
+    log("GAGAL: runtime python.exe belum ada, jalankan build_runtime.py tanpa --staging-only dulu")
+    return None
+
+
+def compile_engine_stage(py: Path, dry: bool = False) -> int:
+    """Kompilasi staging ke `.pyc` lalu buang source `.py`.
+
+    `compileall -b` menaruh `.pyc` di samping `.py` (bukan `__pycache__/`),
+    yang memang yang dibutuhkan engine: `vx_separate.py` mencari
+    `Path(__file__).parent / "scripts"` dan `vx_sep_run._run_script` menjalankan
+    sub-script via `subprocess.Popen([sys.executable, "-u", str(script)])`, jadi
+    bytecode harus punya nama `.pyc` yang bisa dipanggil sebagai file.
+
+    Struktur folder sengaja dipertahankan (bukan zipapp): di dalam zipapp
+    `__file__` menunjuk ke file archive, bukan folder, sehingga `.exists()` dan
+    spawn sub-script semuanya pecah.
+    """
+    if dry:
+        log("[dry-run] kompilasi staging -> .pyc dan hapus source")
+        return 0
+    log(f"kompilasi staging dengan {py}")
+    proc = subprocess.run(
+        [str(py), "-m", "compileall", "-q", "-b", str(STAGE_ENGINE)],
+        capture_output=True, text=True,
+    )
+    # compileall keluar non-nol kalau ada file yang gagal dikompilasi, tapi
+    # `-q` tidak mencetak detail ke stdout; stderr tetap membawa alasannya.
+    if proc.stderr.strip():
+        for ln in proc.stderr.strip().splitlines():
+            log(f"  compileall: {ln}")
+    removed = 0
+    for src in sorted(STAGE_ENGINE.rglob("*.py")):
+        pyc = src.with_suffix(".pyc")
+        if not pyc.is_file():
+            log(f"GAGAL: {src.name} gagal dikompilasi (tidak ada .pyc) - source dibiarkan")
+            continue
+        src.unlink()
+        removed += 1
+    # `__pycache__` tidak dipakai dengan -b, tapi bersihkan kalau ada sisa.
+    for cache in sorted(STAGE_ENGINE.rglob("__pycache__"), reverse=True):
+        shutil.rmtree(cache, ignore_errors=True)
+    left = sorted(p.relative_to(STAGE_ENGINE).as_posix() for p in STAGE_ENGINE.rglob("*.py"))
+    log(f"staging: {removed} source dibuang, sisa .py = {left or 'tidak ada'}")
+    if left:
+        log("PERINGATAN: masih ada source plaintext di staging, installer akan membocorkannya")
+    return removed
+
+
 def stage_ffmpeg(dry: bool = False) -> bool:
     dest_bin = RUNTIME_DIR / "ffmpeg" / "bin"
     if (dest_bin / "ffmpeg.exe").is_file() and (dest_bin / "ffprobe.exe").is_file():
@@ -308,12 +385,40 @@ def main() -> int:
     ap.add_argument("--staging-only", action="store_true", help="hanya staging source engine")
     ap.add_argument("--repack", action="store_true", help="stage ulang engine + zip, tanpa unduh ulang")
     ap.add_argument("--dry-run", action="store_true", help="tampilkan rencana tanpa mengunduh")
+    ap.add_argument(KEEP_SOURCE, dest="keep_source", action="store_true",
+                    help="jangan kompilasi ke .pyc (source .py ikut terkbundel; hanya untuk debug)")
     args = ap.parse_args()
 
     version = app_version()
     log(f"runtime versi {version} {'[dry-run]' if args.dry_run else ''}")
 
     clean_engine_stage(args.dry_run)
+
+    compiled = False
+
+    def ensure_compiled(py: Path | None) -> bool:
+        """Kompilasi sekali saja; True kalau staging benar-benar bebas source."""
+        nonlocal compiled
+        if args.keep_source:
+            if not compiled:
+                log(f"{KEEP_SOURCE}: staging dibiarkan sebagai source .py (jangan dipakai untuk rilis)")
+                compiled = True
+            return False
+        if compiled:
+            return True
+        if not py:
+            log("GAGAL: interpreter runtime tidak ada, staging TIDAK dikompilasi dan source akan ikut terkbundel")
+            return False
+        compile_engine_stage(py, args.dry_run)
+        compiled = True
+        return True
+
+    if args.staging_only or args.repack:
+        # `--repack`/`--staging-only` dijalankan berulang pada runtime yang sudah
+        # ada, jadi interpreter 3.11 harus sudah tersedia dari rakitan sebelumnya.
+        ok = ensure_compiled(engine_python(args.dry_run))
+        if not ok and not args.dry_run:
+            return 1
     if args.staging_only:
         return 0
 
@@ -332,6 +437,11 @@ def main() -> int:
         log("dry-run selesai")
         return 0
     if not py:
+        return 1
+    # Build penuh: interpreter baru siap setelah `prepare_python()`, jadi staging
+    # baru bisa dikompilasi di sini. Kalau dilewati, `.py` plaintext ikut masuk
+    # installer - kebocoran yang justru sedang ditutup di sini.
+    if not ensure_compiled(py):
         return 1
     if not install_python_deps(py):
         return 1

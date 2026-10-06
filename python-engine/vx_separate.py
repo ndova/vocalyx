@@ -45,10 +45,26 @@ from vx_sep_run import _device_info, _free_engine_vram, _run_script
 
 router = APIRouter()
 
+
+def _resolve_script(base: Path, stem: str) -> Path:
+    """Cari sub-script `stem` di `base`, untuk mode dev (.py) dan rilis (.pyc).
+
+    Rilis memakai bytecode: `build_runtime.py` mengompilasi staging ke `.pyc` dan
+    membuang source-nya, jadi kedua nama harus tetap dikenali. `.py` dicari lebih
+    dulu supaya pesan log pada akhirnya masih menunjuk nama yang diharapkan.
+    """
+    for ext in (".py", ".pyc"):
+        p = base / f"{stem}{ext}"
+        if p.is_file():
+            return p
+    # Kembalikan `.py` apa adanya supaya pesan log menyebut nama yang diharapkan.
+    return base / f"{stem}.py"
+
+
 SCRIPTS_DIR = Path(__file__).parent / "scripts"
 ENGINE_DIR = Path(__file__).parent
-BEST_SCRIPT = SCRIPTS_DIR / "karaoke_best.py"
-DSP_SCRIPT = ENGINE_DIR / "vx_karaoke_dsp.py"
+BEST_SCRIPT = _resolve_script(SCRIPTS_DIR, "karaoke_best")
+DSP_SCRIPT = _resolve_script(ENGINE_DIR, "vx_karaoke_dsp")
 
 DEFAULT_VOCAL_KILL = 1.0
 DEFAULT_CENTRE_KILL = 1.0

@@ -137,8 +137,12 @@ fn site_packages_ok(root: &Path) -> bool {
     root.join(PY_MARKER).is_dir()
 }
 
+/// Rilis mengirim bytecode `.pyc`, bukan source `.py` (lihat `compile_engine_stage`
+/// di `scripts/build_runtime.py`), jadi keduanya dikenali supaya runtime hasil
+/// build lama yang masih membawa `server.py` tidak dianggap rusak.
 fn engine_ok(root: &Path) -> bool {
-    root.join("engine").join("server.py").is_file()
+    let e = root.join("engine");
+    e.join("server.pyc").is_file() || e.join("server.py").is_file()
 }
 
 fn cuda_available(root: &Path) -> bool {
@@ -595,7 +599,7 @@ mod tests {
             &[
                 "runtime/python.exe",
                 "runtime/python311._pth",
-                "runtime/engine/server.py",
+                "runtime/engine/server.pyc",
                 "runtime/Lib/site-packages/torch/__init__.py",
             ],
         );
@@ -603,7 +607,7 @@ mod tests {
         let n = extract_zip(&zip_path, &out).unwrap();
         assert_eq!(n, 4, "semua file harus ikut terekstrak");
         assert!(out.join("python.exe").is_file(), "prefix harus dilepas");
-        assert!(out.join("engine/server.py").is_file());
+        assert!(out.join("engine/server.pyc").is_file());
         assert!(out.join("Lib/site-packages/torch/__init__.py").is_file());
         assert!(
             !out.join("runtime").exists(),
