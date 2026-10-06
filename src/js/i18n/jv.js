@@ -499,7 +499,7 @@ export default {
   'set.premiumDesc': 'Kabeh dhukungan — manual User/Pass utawa Connect liwat Zeroconf (VocaLyx-XXXX, tanpa nyimpen sandi).',
 
   'ab.title': 'Babagan VocaLyx',
-  'ab.desc': 'VocaLyx iku manajer musik desktop kanggo Windows. Atur koleksi lokal, goleki lan unduh lagu saka Spotify, Deezer, SoundCloud, Archive.org, 4shared, lan YouTube, banjur gawé trek karaoke kanthi telu preset pamisah vokal: MelBand RoFormer Aufr33 ing CUDA, Kim_Vocal_2 + UVR-MDX-NET-Inst_HQ_4 kanggo mbusak kabeh vokal ing CPU uga CUDA, lan jalur cepet UVR-MDX-NET-Inst_HQ_4 ing CPU. Audio engine bawaan mlaku ing CPU; dhukungan GPU cukup sajalo klik ing Setelan (Install CUDA dependencies, kira-kira 4-5 GB) tanpa setup Python manual. Engine nyiapake awake nalika aplikasi dibukak kanggo pisanan. Dilengkapi EQ 10-band, padané loudness VolumeGain, Pembersih Audio (declip lan normalisasi volume), lirik sinkron karo editor, tema sing nuturake Windows langsung, sarta transfer lagu nèntara loro arah karo iPhone (butuh Apple Mobile Device Support sing wis dipasang): import saka PC menyang iPhone, export saka iPhone menyang PC.',
+  'ab.desc': 'Manajer musik desktop all-in-one kanggo Windows. Atur koleksi lokal, unduh lagu saka macem-macem platform, gawé trek karaoke basis AI, lan sinkronake musik langsung menyang iPhone Anda.<br><strong>Multi-Platform:</strong> YouTube, Spotify, Deezer, SoundCloud, Archive.org, 4shared.<br><strong>AI Karaoke:</strong> 3 preset pamisah vokal (CPU &amp; CUDA sajalo klik).<br><strong>Pro Audio:</strong> EQ 10-band, VolumeGain, &amp; Audio Cleaner.<br><strong>Liya:</strong> Lirik sinkron, tema otomatis Windows, &amp; transfer iOS nèntara loro arah.',
   'ab.version': 'Versi',
   'ab.update': 'Anyaran',
   'ab.device': 'Piranti',

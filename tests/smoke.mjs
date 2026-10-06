@@ -796,8 +796,8 @@ ok(!document.getElementById('dlSearchBox')?.classList.contains('open'), 'downloa
   document.querySelectorAll('#menuPortal .more-menu.open').forEach((m) => m.classList.remove('open'));
 }
 const iphoneNote = $('#aboutDesc');
-ok(/import from PC to iPhone/.test(iphoneNote?.textContent || ''), 'about: kalimat transfer iPhone import PC ke iPhone');
-ok(/export from iPhone to PC/.test(iphoneNote?.textContent || ''), 'about: kalimat transfer iPhone export ke PC');
+ok(/straight to your iPhone/.test(iphoneNote?.textContent || ''), 'about: kalimat sinkron musik langsung ke iPhone');
+ok(/two-way iOS transfer/.test(iphoneNote?.textContent || ''), 'about: kalimat transfer iOS dua arah');
 {
   const sup = document.getElementById('btnSupport');
   const supImg = sup?.querySelector('img');

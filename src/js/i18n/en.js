@@ -499,7 +499,7 @@ export default {
   'set.premiumDesc': 'Both are supported — manual User/Pass or Connect via Zeroconf (VocaLyx-XXXX, the password is never stored).',
 
   'ab.title': 'About VocaLyx',
-  'ab.desc': 'VocaLyx is a desktop music manager for Windows. Organize your local collection, search and download songs from Spotify, Deezer, SoundCloud, Archive.org, 4shared, and YouTube, and make karaoke tracks with three vocal-removal presets: MelBand RoFormer Aufr33 on CUDA, Kim_Vocal_2 plus UVR-MDX-NET-Inst_HQ_4 to remove all vocals on CPU or CUDA, and the fast UVR-MDX-NET-Inst_HQ_4 path on CPU. The bundled audio engine runs on CPU; GPU support is one click away in Settings (Install CUDA dependencies, about 4-5 GB) and no manual Python setup is needed. The engine prepares itself on the first launch. It also packs a 10-band EQ, VolumeGain loudness matching, an Audio Cleaner (declip and volume normalize), synced lyrics with an editor, a theme that follows Windows live, and two-way track transfer with the iPhone (which needs Apple Mobile Device Support installed): import from PC to iPhone, export from iPhone to PC.',
+  'ab.desc': 'All-in-one desktop music manager for Windows. Organize your local collection, download songs from any platform, create AI-powered karaoke tracks, and sync music straight to your iPhone.<br><strong>Multi-Platform:</strong> YouTube, Spotify, Deezer, SoundCloud, Archive.org, 4shared.<br><strong>AI Karaoke:</strong> 3 vocal-removal presets (CPU &amp; CUDA, one click).<br><strong>Pro Audio:</strong> 10-band EQ, VolumeGain, &amp; Audio Cleaner.<br><strong>Also:</strong> Synced lyrics, automatic Windows theme, &amp; two-way iOS transfer.',
   'ab.version': 'Version',
   'ab.update': 'Update',
   'ab.device': 'Device',
