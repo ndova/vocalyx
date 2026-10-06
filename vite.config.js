@@ -5,7 +5,26 @@ export default defineConfig({
   build: {
     outDir: '../dist',
     emptyOutDir: true,
-    target: 'esnext'
+    // `esnext` membiarkan Vite meneruskan apa adanya tanpa transformasi, jadi
+    // struktur dan nama di bundle tetap persis seperti source. `es2020` memaksa
+    // transformasi sehingga tidak ada yang lolos apa adanya.
+    target: 'es2020',
+    minify: 'terser',
+    cssMinify: true,
+    // Source map frontend hanya Fassung ke-syntaks TS dan berguna saat debug,
+    // tapi di rilis justru memberi peta lengkap modul + nama fungsi asli.
+    sourcemap: false,
+    terserOptions: {
+      compress: {
+        passes: 3,
+        // Buang log/debug/info saja. `warn`/`error` sengaja ditahan:
+        // `downloads.js` menangkap error render yang tidak muncul di UI, jadi
+        // kalau ikut dibuang, produksi jadi tanpa jejak sama sekali.
+        drop_console: ['log', 'debug', 'info'],
+        drop_debugger: true,
+      },
+      mangle: true,
+    },
   },
   server: {
     port: 1420,

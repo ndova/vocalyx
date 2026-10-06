@@ -39,3 +39,29 @@ raw-window-handle = "0.6"
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+
+# Hardening binary rilis. Tanpa section ini, Cargo memakai default yang menyisakan
+# nama fungsi/variabel dan debug info di dalam exe, sehingga Ghidra/IDA langsung
+# menampilkan `vocalyx_lib::engine::start` alih-alih `FUN_0000012345` dan analisis
+# jauh lebih murah.
+[profile.release]
+# Buang simbol + debug info. Ini satu-satunya baris yang benar-benar menutup
+# "peta nama fungsi" dari binary.
+strip = "symbols"
+# LTO fat + satu codegen unit: seluruh crate di-inline silang, struktur modul
+# hilang dari binary.
+lto = "fat"
+codegen-units = 1
+# "z" (ukuran) alih-alih "s" (kecepatan) - frontend JS sudah dipaket terpisah,
+# jadi ukuran exe lebih penting daripada biaya startup.
+opt-level = "z"
+debug = false
+debug-assertions = false
+overflow-checks = false
+incremental = false
+# panic sengaja TIDAK disetel ke "abort". Tiga call site memakai spawn_blocking
+# (runtime.rs::spawn_ensure_and_start, engine.rs::gpu::detect_cached, dan
+# gpu::record_active), dan startup engine adalah tempat paling mungkin panic.
+# Dengan abort, satu panic akan membunuh seluruh aplikasi, bukan jadi JoinError
+# yang bisa ditangani. engine.rs juga masih menangai mutex poisoning, jadi
+# semantik unwinding memang diharapkan di sini.

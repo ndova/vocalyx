@@ -14,6 +14,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "stage:clean": "python scripts/clean_release_stage.py",
+    "stage:check": "python scripts/clean_release_stage.py --check",
     "tauri": "tauri",
     "engine": "python -u python-engine/server.py",
     "dev:all": "concurrently -k \"python -u python-engine/server.py\" \"tauri dev\"",
@@ -25,6 +27,7 @@
     "@tauri-apps/cli": "^2.0.0",
     "concurrently": "^9.2.4",
     "jsdom": "^30.0.1",
+    "terser": "^5.51.2",
     "vite": "^5.4.0"
   },
   "dependencies": {
