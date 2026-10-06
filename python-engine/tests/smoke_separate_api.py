@@ -5,6 +5,7 @@
 """
 import json
 import sys
+import tempfile
 import time
 import urllib.request
 import uuid
@@ -134,7 +135,8 @@ def main():
         except Exception as ex:
             print("log error:", ex)
         return 1
-    out = Path("C:/Users/Nirmala/AppData/Local/Temp/opencode/apptest/api_out." + FMT)
+    out = Path(tempfile.gettempdir()) / "vocalyx-apptest" / ("api_out." + FMT)
+    out.parent.mkdir(parents=True, exist_ok=True)
     fetch_result(job["job_id"], out)
     size = out.stat().st_size
     print(f"result {out} {size} bytes ({size/1024/1024:.2f} MB)")
