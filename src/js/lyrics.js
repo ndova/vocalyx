@@ -157,7 +157,19 @@ function syncLyrics(cur) {
   }
 }
 const LYROFF_KEY = 'vocalyx_lyricOffset_v1';
-const LYROFF_UI_KEY = 'vocalyx_lyricOffsetUI_v1';
+const LYROFF_UI_KEY = 'vocalyx_lyricOffsetUI_v2';
+const LYROFF_UI_OLD_KEY = 'vocalyx_lyricOffsetUI_v1';
+function migrateLyricOffsetUI(){   // semantik v1 dibalik tanpa pindah nilai, jadi nilai lama harus dibalik
+  let old = null;
+  try { old = localStorage.getItem(LYROFF_UI_OLD_KEY); } catch {}
+  if (old === null) return;
+  const shown = old === '0';   // v1: '1' = collapsed, jadi dibalik -> '1' = tampil
+  try {
+    localStorage.setItem(LYROFF_UI_KEY, shown ? '1' : '0');
+    localStorage.removeItem(LYROFF_UI_OLD_KEY);
+  } catch {}
+}
+migrateLyricOffsetUI();
 function isLyricOffsetShown(){ return readFlag(LYROFF_UI_KEY); }   // '1' = panel tampil, default tersembunyi
 function readFlag(key){
   try { return localStorage.getItem(key) === '1'; } catch { return false; }
@@ -204,12 +216,14 @@ function syncLyricOffsetUI(){
   if (toggle) {
     toggle.style.display = synced ? 'inline-flex' : 'none';
     toggle.title = open ? t('lyr.hideOffsetCtl') : t('lyr.showOffsetCtl');
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
   }
   const badge = document.getElementById('lyrOffBadge');
   if (badge) {
     const v = S.lyricOffsetMs;
     badge.textContent = (v > 0 ? '+' : '') + v + 'ms';
     badge.title = v === 0 ? t('lyr.onBeat') : (v > 0 ? t('lyr.early') : t('lyr.late'));
+    badge.style.display = open ? '' : 'none';   // badge ikut disembunyikan sampai panel dibuka
   }
   const slider = document.getElementById('lyrOffSlider');
   if (slider && document.activeElement !== slider) slider.value = String(Math.max(-10000, Math.min(10000, S.lyricOffsetMs)));
@@ -232,4 +246,4 @@ document.getElementById('lyrOffToggle')?.addEventListener('click', ()=>{
   syncLyricOffsetUI();
 });
 
-export { fetchFromLrclib, fetchAndSaveLrclib, renderLyrics, syncLyrics, seekLyric, capLimit, LYROFF_KEY, LYROFF_UI_KEY, getLyricOffsets, saveLyricOffsets, migrateLyricOffset, pruneLyricOffset, loadLyricOffset, setLyricOffset, syncLyricOffsetUI };
+export { fetchFromLrclib, fetchAndSaveLrclib, renderLyrics, syncLyrics, seekLyric, capLimit, LYROFF_KEY, LYROFF_UI_KEY, LYROFF_UI_OLD_KEY, getLyricOffsets, saveLyricOffsets, migrateLyricOffset, migrateLyricOffsetUI, pruneLyricOffset, loadLyricOffset, setLyricOffset, syncLyricOffsetUI };

@@ -889,7 +889,8 @@ ok(!!document.getElementById('lyrOffToggle'), 'lyric offset toggle');
   const badgeEl = document.getElementById('lyrOffBadge');
   const toggleEl = document.getElementById('lyrOffToggle');
 
-  localStorage.removeItem('vocalyx_lyricOffsetUI_v1');
+  localStorage.removeItem(lyrMod.LYROFF_UI_KEY);
+  localStorage.removeItem(lyrMod.LYROFF_UI_OLD_KEY);
   stateMod0.S.lyricLines = lrcOff.parseLRC('[00:01.00]baris satu\n[00:05.00]baris dua');
   lyrMod.renderLyrics();
   ok(lrcOff.isSynced(stateMod0.S.lyricLines), 'lyric offset: fixture lirik benar-benar sinkron');
@@ -898,12 +899,14 @@ ok(!!document.getElementById('lyrOffToggle'), 'lyric offset toggle');
   ok(!!bodyEl?.classList.contains('lyr-hidden'), 'lyric offset: animasi collapse aktif saat default');
   ok(toggleEl?.style.display === 'inline-flex', 'lyric offset: tombol jam tetap ada saat sinkron');
   ok(!!badgeEl && /\+\d+ms|-?\d+ms/.test(badgeEl.textContent), 'lyric offset: badge nilai tetap tampil');
+  ok(badgeEl?.style.display === 'none', 'lyric offset: badge ikut tersembunyi saat panel tertutup');
 
   toggleEl?.click();
   await sleep(50);
-  ok(localStorage.getItem('vocalyx_lyricOffsetUI_v1') === '1', 'lyric offset: klik menyimpan status tampil');
+  ok(localStorage.getItem(lyrMod.LYROFF_UI_KEY) === '1', 'lyric offset: klik menyimpan status tampil');
   ok(bodyEl?.style.display === 'block', 'lyric offset: panel muncul setelah diklik');
   ok(!bodyEl?.classList.contains('lyr-hidden'), 'lyric offset: collapse dilepas setelah diklik');
+  ok(badgeEl?.style.display !== 'none', 'lyric offset: badge muncul lagi saat panel dibuka');
 
   // Ganti lagu (renderLyrics dipanggil ulang) tidak boleh memunculkan panel
   // sendiri - flag harus dibaca ulang tiap render, bukan state sekali pakai.
@@ -913,9 +916,42 @@ ok(!!document.getElementById('lyrOffToggle'), 'lyric offset toggle');
 
   toggleEl?.click();
   await sleep(50);
-  ok(localStorage.getItem('vocalyx_lyricOffsetUI_v1') === '0', 'lyric offset: klik kedua menyembunyikan + persist');
+  ok(localStorage.getItem(lyrMod.LYROFF_UI_KEY) === '0', 'lyric offset: klik kedua menyembunyikan + persist');
   ok(bodyEl?.style.display === 'none', 'lyric offset: panel kembali tersembunyi');
+  ok(badgeEl?.style.display === 'none', 'lyric offset: badge kembali tersembunyi');
   stateMod0.S.lyricLines = [];
+  lyrMod.renderLyrics();
+}
+{
+  // Migrasi flag UI: semantik v1 dibalik ('1' = collapsed -> '1' = tampil) tanpa
+  // memindahkan nilai lama, jadi user yang tadinya menyembunyikan panel malah
+  // mendapatkannya terbuka. Migrasi sekali jalan membalik nilainya.
+  const lyrMod = await import('../src/js/lyrics.js');
+  const stateMod1 = await import('../src/js/state.js');
+  const lrcMig = await import('../src/js/lrc.js');
+  const bodyEl = document.getElementById('lyrOffBody');
+  stateMod1.S.lyricLines = lrcMig.parseLRC('[00:03.00]satu\n[00:07.00]dua');
+
+  localStorage.setItem(lyrMod.LYROFF_UI_OLD_KEY, '1');   // lama: user menyembunyikan panel
+  localStorage.removeItem(lyrMod.LYROFF_UI_KEY);
+  lyrMod.migrateLyricOffsetUI();
+  ok(localStorage.getItem(lyrMod.LYROFF_UI_KEY) === '0', 'lyric offset migrasi: v1 "1" -> tersembunyi');
+  ok(localStorage.getItem(lyrMod.LYROFF_UI_OLD_KEY) === null, 'lyric offset migrasi: key lama dihapus');
+  lyrMod.renderLyrics();
+  ok(bodyEl?.style.display === 'none', 'lyric offset migrasi: panel lama tersembunyi TIDAK terbuka sendiri');
+
+  localStorage.setItem(lyrMod.LYROFF_UI_OLD_KEY, '0');   // lama: user membiarkannya tampil
+  localStorage.removeItem(lyrMod.LYROFF_UI_KEY);
+  lyrMod.migrateLyricOffsetUI();
+  ok(localStorage.getItem(lyrMod.LYROFF_UI_KEY) === '1', 'lyric offset migrasi: v1 "0" -> tampil');
+  lyrMod.renderLyrics();
+  ok(bodyEl?.style.display === 'block', 'lyric offset migrasi: pilihan lama "tampil" dihormati');
+
+  localStorage.removeItem(lyrMod.LYROFF_UI_KEY);
+  localStorage.removeItem(lyrMod.LYROFF_UI_OLD_KEY);
+  lyrMod.renderLyrics();
+  ok(bodyEl?.style.display === 'none', 'lyric offset migrasi: install baru tetap tersembunyi');
+  stateMod1.S.lyricLines = [];
   lyrMod.renderLyrics();
 }
 
