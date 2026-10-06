@@ -1246,6 +1246,85 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
     } else {
       ok(true, 'rel: exe rilis belum dibangun (lewati cek simbol)');
     }
+
+    // Artefak library/debug di target/release/ tidak pernah masuk installer tapi
+    // bocorkan peta simbol jauh lebih baik daripada exe: libvocalyx_lib.rlib punya
+    // `detect_pythons` 619 hit, vocalyx_lib.lib punya `spawn_ensure_and_start` 85
+    // hit. Membersihkannya ~340 MB dan harus lewat `npm run protect:release`.
+    // Tidak di-hook ke beforeBuildCommand karena Tauri tidak punya
+    // afterBuildCommand - artefaknya belum ada saat itu.
+    const cleanerArt = fs.readFileSync(path.join(root, 'scripts/clean_release_artifacts.py'), 'utf8');
+    ok(/RELEASE_DIR_JUNK|vocalyx_lib\.lib|libvocalyx_lib\.rlib/.test(cleanerArt)
+      && /def clean\(/.test(cleanerArt) && /def check\(/.test(cleanerArt),
+      'rel: pembersih artefak release ada (def clean + def check)');
+    ok(/strip_codeview/.test(cleanerArt) && /RSDS/.test(cleanerArt),
+      'rel: pembersih entri CodeView (RSDS) di exe ada');
+    const pkgProt = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).scripts || {};
+    ok(!!pkgProt['protect:release'] && /clean_release_artifacts\.py/.test(pkgProt['protect:release']),
+      'rel: protect:release hooked ke package.json');
+    ok(!!pkgProt['protect:check'],
+      'rel: protect:check (verifikasi tanpa hapus) tersedia');
+
+    // crate-type staticlib/cdylib hanya dipakai Tauri untuk target mobile, dan
+    // VocaLyx ini Windows-only (bundle targets msi+nsis, tanpa config mobile).
+    // Ketiganya cuma menghasilkan vocalyx_lib.dll yang tak pernah dipakai.
+    // Komentar di blok itu menyebut staticlib/cdylib sebagai alasannya, jadi
+    // baris komentar dibuang dulu sebelum dites.
+    const libSection = (cargoToml.split('[lib]')[1] || '').split('[dependencies]')[0]
+      .split('\n').filter((l) => !l.trim().startsWith('#')).join('\n');
+    ok(/crate-type\s*=\s*\["rlib"\]/.test(libSection) && !/staticlib|cdylib/.test(libSection),
+      'rel: crate-type hanya rlib (tidak menghasilkan cdylib sia-sia)');
+
+    // Satu sumber kebenaran untuk audit proteksi. check_symbols.py dan
+    // audit_release.py dulu punya daftar probe masing-masing yang tidak identik.
+    const auditProt = fs.readFileSync(path.join(root, 'tools/audit_protection.py'), 'utf8');
+    ok(/--exe/.test(auditProt) && /--release-dir/.test(auditProt) && /--installer/.test(auditProt),
+      'rel: audit_protection punya tiga target (exe, release-dir, installer)');
+    ok(/TAURI_COMMANDS/.test(auditProt),
+      'rel: audit_protection memeriksa nama command Tauri (bocor, tapi MINOR)');
+    // MSI bukan arsip biasa: 7z x menghasilkan stream PathFile_I* tanpa pohon
+    // folder, jadi audit lama selalu gagal dengan 4 error yang menyesatkan.
+    ok(/msiexec/.test(auditProt) && /_extract/.test(auditProt),
+      'rel: audit_protection bentangkan MSI lewat msiexec (bukan 7z x)');
+    ok(/rglob\("python-engine"\)/.test(auditProt),
+      'rel: audit cari python-engine rekursif (NSIS root vs MSI PFiles)');
+    for (const w of ['tools/check_symbols.py', 'tools/audit_release.py']) {
+      const wSrc = fs.readFileSync(path.join(root, w), 'utf8');
+      ok(/from audit_protection import/.test(wSrc), `rel: ${path.basename(w)} jadi wrapper audit_protection`);
+    }
+
+    // Bukti nyata folder release, kalau sudah dibangun DAN sudah dibersihkan.
+    const releaseDir = path.join(root, 'src-tauri/target/release');
+    if (fs.existsSync(path.join(releaseDir, 'vocalyx.exe'))) {
+      const junk = ['vocalyx_lib.lib', 'libvocalyx_lib.rlib', 'vocalyx.pdb',
+        'vocalyx_lib.pdb', 'vocalyx_lib.dll']
+        .filter((n) => fs.existsSync(path.join(releaseDir, n)));
+      ok(junk.length === 0,
+        `rel: folder release bebas artefak bocor${junk.length ? ` (masih ada: ${junk.join(', ')})` : ''}`);
+      const dotd = fs.existsSync(releaseDir)
+        ? fs.readdirSync(releaseDir).filter((f) => f.endsWith('.d'))
+        : [];
+      ok(dotd.length === 0,
+        `rel: folder release bebas dependency .d${dotd.length ? ` (masih ada: ${dotd.join(', ')})` : ''}`);
+
+      // Bocoran yang lebih besar bersembunyi di deps/: Cargo menaruh intermediate
+      // dengan nama ber-hash, jadi pola polos root ("libvocalyx_lib.rlib") tak
+      // pernah kena. Rlib 65 MB itu punya `detect_pythons` 227 hit - jauh lebih
+      // terbaca daripada exe yang sudah di-strip.
+      const depsDir = path.join(releaseDir, 'deps');
+      if (fs.existsSync(depsDir)) {
+        const depNames = fs.readdirSync(depsDir);
+        const depJunk = depNames.filter((f) =>
+          /^libvocalyx_lib-.*\.(rlib|rmeta)$/.test(f) || f === 'vocalyx.pdb' || f === 'vocalyx.exe');
+        ok(depJunk.length === 0,
+          `rel: deps/ bebas artefak VocaLyx bocor${depJunk.length ? ` (masih ada: ${depJunk.join(', ')})` : ''}`);
+      } else {
+        ok(true, 'rel: deps/ belum ada (lewati)');
+      }
+    } else {
+      ok(true, 'rel: folder release belum dibangun (lewati cek artefak)');
+    }
+
     const distJs = path.join(root, 'dist');
     if (fs.existsSync(distJs)) {
       const jsFiles = fs.readdirSync(distJs).filter((f) => f.endsWith('.js'));

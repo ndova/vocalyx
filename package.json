@@ -16,6 +16,8 @@
     "preview": "vite preview",
     "stage:clean": "python scripts/clean_release_stage.py",
     "stage:check": "python scripts/clean_release_stage.py --check",
+    "protect:release": "python scripts/clean_release_artifacts.py",
+    "protect:check": "python scripts/clean_release_artifacts.py --check",
     "tauri": "tauri",
     "engine": "python -u python-engine/server.py",
     "dev:all": "concurrently -k \"python -u python-engine/server.py\" \"tauri dev\"",
