@@ -23,6 +23,10 @@ function syncWaveHeight(){
 let gradW = -1, grad = null;
 let hgradW = -1, hgrad = null;
 let idleDirty = true;
+const hs = new Float64Array(64);
+const bx = new Float64Array(64);
+const bidx = new Int32Array(64);
+let layW = -1, layDpr = -1, layN = 0, layBarW = 0, layDisjoint = true;
 
 function fitCanvas() {
   const r = canvas.getBoundingClientRect();
@@ -66,6 +70,20 @@ function buildHorizonGradient(W) {
   return g;
 }
 
+function layoutBars(W, dpr) {
+  const N = W < 360 * dpr ? 40 : 64;
+  const bw = W / N;
+  const barW = Math.max(2 * dpr, bw * 0.58);
+  const half = (N - 1) / 2;
+  for (let i = 0; i < N; i++) {
+    const d = Math.abs(i - half) / half;
+    bidx[i] = Math.min(BARS - 1, Math.floor(Math.pow(d, 0.7) * (BARS - 1)));
+    bx[i] = i * bw + (bw - barW) / 2;
+  }
+  layW = W; layDpr = dpr; layN = N; layBarW = barW;
+  layDisjoint = barW <= bw;
+}
+
 function paintIdle() {
   const W = canvas.width, H = canvas.height;
   const dpr = window.devicePixelRatio || 1;
@@ -84,7 +102,6 @@ function drawWave() {
   if (!canvas) return;
   if (document.hidden) { idleDirty = true; return; }
   if (vizEl && vizEl.classList.contains('viz-hidden')) { idleDirty = true; return; }
-  if (!canvas.offsetParent) return;
   if (!S.analyser || audio.paused || !audio.src) {
     if (idleDirty) { try { paintIdle(); } catch {} }
     return;
@@ -92,6 +109,7 @@ function drawWave() {
 
   const W = canvas.width, H = canvas.height;
   const dpr = window.devicePixelRatio || 1;
+  if (layW !== W || layDpr !== dpr) layoutBars(W, dpr);
   ctx.clearRect(0, 0, W, H);
 
   S.analyser.getByteFrequencyData(freqData);
@@ -101,34 +119,35 @@ function drawWave() {
   for (let i = 0; i < 10; i++) bass += vals[i];
   bass = Math.max(0, Math.min(1, bass / (10 * 255)));
 
-  const N = W < 360 * dpr ? 40 : 64;
-  const bw = W / N;
+  const N = layN, barW = layBarW;
   const horizon = H * 0.52;
   const maxH = H * 0.46;
-  const barW = Math.max(2 * dpr, bw * 0.58);
   ctx.fillStyle = buildGradient(W);
-  const hs = [];
   for (let i = 0; i < N; i++) {
-    const d = Math.abs(i - (N - 1) / 2) / ((N - 1) / 2);
-    const v = vals[Math.min(BARS - 1, Math.floor(Math.pow(d, 0.7) * (BARS - 1)))] || 0;
-    const h = Math.max(2 * dpr, (v / 255) * maxH);
-    const x = i * bw + (bw - barW) / 2;
-    hs.push(h);
-    ctx.fillRect(x, horizon - h, barW, h);
+    const v = vals[bidx[i]] || 0;
+    hs[i] = Math.max(2 * dpr, (v / 255) * maxH);
   }
-  ctx.save();
-  ctx.globalAlpha = 0.22;
-  for (let i = 0; i < N; i++) {
-    const x = i * bw + (bw - barW) / 2;
-    ctx.fillRect(x, horizon, barW, hs[i] * 0.8);
-  }
-  ctx.restore();
+  ctx.beginPath();
+  for (let i = 0; i < N; i++) ctx.rect(bx[i], horizon - hs[i], barW, hs[i]);
+  ctx.fill();
 
-  ctx.save();
+  if (layDisjoint) {
+    ctx.globalAlpha = 0.22;
+    ctx.beginPath();
+    for (let i = 0; i < N; i++) ctx.rect(bx[i], horizon, barW, hs[i] * 0.8);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  } else {
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    for (let i = 0; i < N; i++) ctx.fillRect(bx[i], horizon, barW, hs[i] * 0.8);
+    ctx.restore();
+  }
+
   ctx.globalAlpha = 0.6 + bass * 0.4;
   ctx.fillStyle = buildHorizonGradient(W);
   ctx.fillRect(0, horizon - dpr, W, 2 * dpr);
-  ctx.restore();
+  ctx.globalAlpha = 1;
 }
 drawWave();
 document.addEventListener('visibilitychange', () => {

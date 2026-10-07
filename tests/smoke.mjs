@@ -2876,9 +2876,16 @@ try {
   // --- guard perf: visualizer tidak boleh menggambar terus-menerus saat idle ---
   const vizSrc = fs.readFileSync(path.join(root, 'src/js/viz.js'), 'utf8');
   const drawBody = (vizSrc.match(/function drawWave\(\)\s*\{([\s\S]*?)\n\}/) || [, ''])[1];
-  ok(/if \(document\.hidden\)[\s\S]*?return;[\s\S]*?if \(!canvas\.offsetParent\) return;/.test(drawBody)
+  ok(/if \(document\.hidden\)[\s\S]*?return;[\s\S]*?if \(vizEl && vizEl\.classList\.contains\('viz-hidden'\)\)[\s\S]*?return;/.test(drawBody)
     && /!S\.analyser \|\| audio\.paused \|\| !audio\.src[\s\S]*?return;/.test(drawBody),
-  'viz: drawWave berhenti saat window disembunyikan / tidak di-layout / tidak ada audio diputar');
+  'viz: drawWave berhenti saat window disembunyikan / visualizer disembunyikan / tidak ada audio diputar');
+  ok(!/offsetParent/.test(vizSrc),
+    'viz: offsetParent dihapus dari jalur frame (memaksa layout sinkron tiap frame, dan tak pernah null di layout ini)');
+  ok(!/Math\.pow\(/.test(drawBody), 'viz: Math.pow dipindah dari drawFrame ke layoutBars (dihitung sekali per resize, bukan 64x per frame)');
+  ok(!/= \[\]/.test(drawBody) && !/\.push\(/.test(drawBody), 'viz: tidak ada alokasi array baru per frame');
+  ok(/ctx\.beginPath\(\)/.test(drawBody), 'viz: batang digambar lewat satu path, bukan 128 fillRect terpisah');
+  ok((drawBody.match(/ctx\.fillRect\(/g) || []).length <= 2,
+    'viz: maksimal 2 fillRect per frame (fallback non-disjoint + garis horizon)');
   ok(!/shadowBlur/.test(drawBody), 'viz: tidak ada shadowBlur per frame (blur full-width itu mahal)');
   ok((drawBody.match(/createLinearGradient/g) || []).length === 0,
     'viz: tidak ada createLinearGradient di dalam drawWave');
