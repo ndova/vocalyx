@@ -251,8 +251,6 @@ button .ico { pointer-events: none; }
   display: flex; align-items: center; gap: 6px;
   background: var(--btn-liquid-bg);
   border: 1px solid var(--btn-liquid-bd);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
   padding: 0 8px; border-radius: 7px; min-width: 190px; font-size: 12px;
   box-shadow: var(--btn-liquid-shadow);
   height: 28px;
@@ -279,12 +277,10 @@ button .ico { pointer-events: none; }
 .win-btn:hover {
   background: var(--btn-liquid-bg);
   border-color: var(--btn-liquid-bd);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
   box-shadow: var(--btn-liquid-shadow);
   color: var(--txt);
 }
-.win-btn.close:hover { background: var(--close-hover); border-color: transparent; color: #fff; backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; }
+.win-btn.close:hover { background: var(--close-hover); border-color: transparent; color: #fff; box-shadow: none; }
 .win-btn.close:hover .ico { color: #fff; stroke: #fff; }
 #btnMin { color: var(--muted); }
 #btnMax { color: var(--muted); }
@@ -323,13 +319,11 @@ button .ico { pointer-events: none; }
   background: var(--card);
   border: 1px solid rgba(255, 255, 255, 0.85);
   border-radius: 10px;
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.9),
     0 8px 24px rgba(30, 80, 120, 0.12);
 }
-.sidebar { display: flex; flex-direction: column; justify-content: space-between; padding: 10px 8px; background: rgba(255,255,255,0.42); border: 1px solid rgba(255,255,255,0.75); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+.sidebar { display: flex; flex-direction: column; justify-content: space-between; padding: 10px 8px; background: rgba(255,255,255,0.42); border: 1px solid rgba(255,255,255,0.75); }
 .now-playing { padding: 10px 2px 0; display: flex; flex-direction: column; align-items: stretch; gap: 2px; }
 .nav { display: flex; flex-direction: column; gap: 6px; }
 .nav-toggle { display: none; color: var(--muted) !important; place-items: center; }
@@ -366,8 +360,6 @@ button .ico { pointer-events: none; }
   flex-wrap: nowrap;
   background: linear-gradient(180deg, rgba(255,255,255,0.92) 0%, rgba(232,242,250,0.82) 100%);
   border: 1px solid rgba(43,155,245,0.18);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
   border-radius: 999px;
   padding: 4px 6px;
   width: 100%;
@@ -441,8 +433,6 @@ input[type="range"]:disabled { opacity: .4; cursor: not-allowed; }
   border: 0;
   border-radius: 0;
   box-shadow: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
   padding: 0;
   overflow: visible;
 }
@@ -471,7 +461,7 @@ input[type="range"]:disabled { opacity: .4; cursor: not-allowed; }
 .playlist-head > .playlist-tools { order: 1; }
 .playlist-head > h2, .playlist-head > h4 { order: 2; margin-left: auto; }
 #btnBackPlaylists, #btnBackAlbums, #btnBackArtists { order: 3; }
-.playlist-tools button { background: var(--btn-liquid-bg); border: 1px solid var(--btn-liquid-bd); color: var(--muted); font-size: 15px; cursor: pointer; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); box-shadow: var(--btn-liquid-shadow); transition: background 0.15s ease, border-color 0.15s ease; }
+.playlist-tools button { background: var(--btn-liquid-bg); border: 1px solid var(--btn-liquid-bd); color: var(--muted); font-size: 15px; cursor: pointer; box-shadow: var(--btn-liquid-shadow); transition: background 0.15s ease, border-color 0.15s ease; }
 .playlist-tools button.active-sel, .btn-add-folder.active-sel { color: var(--txt) !important; border-color: var(--muted) !important; background: var(--btn-liquid-hover) !important; }
 .playlist-tools button:hover, .btn-add-folder:hover { color: var(--txt); }
 .playlist-tools button:hover { background: var(--btn-liquid-hover); border-color: rgba(255, 255, 255, 0.95); }
@@ -514,8 +504,6 @@ input[type="range"]:disabled { opacity: .4; cursor: not-allowed; }
   font-size: 11.5px !important;
   line-height: 1;
   cursor: pointer;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
   box-shadow: var(--btn-liquid-shadow);
   vertical-align: middle;
   transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
@@ -612,8 +600,7 @@ select.btn-add-folder { transition: background 0.15s ease, border-color 0.15s ea
   padding: 9px 16px; border-radius: 10px; font-size: 12.5px; max-width: 82vw;
   box-shadow: 0 10px 30px rgba(30,80,120,0.2); z-index: 2000; opacity: 0;
   pointer-events: none; transition: opacity 0.25s, transform 0.25s; text-align: center;
-  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-}
+  }
 #appToast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .spinner { width:34px; height:34px; border:4px solid var(--ring); border-top-color: var(--accent); border-radius:50%; animation: spin 0.8s linear infinite; margin:0 auto; }
 .spinner.small { width:20px; height:20px; border-width:3px; }
@@ -725,8 +712,6 @@ select.btn-add-folder { transition: background 0.15s ease, border-color 0.15s ea
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
   box-shadow: var(--btn-liquid-shadow);
   transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
 }
@@ -763,8 +748,7 @@ select.btn-add-folder { transition: background 0.15s ease, border-color 0.15s ea
   border-radius: 8px; box-shadow: 0 12px 28px rgba(30,80,120,0.2); display: none; flex-direction: column;
   min-width: 170px; max-height: min(300px, 70vh); z-index: 200;
   overflow-x: hidden; overflow-y: auto;
-  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
-}
+  }
 .more-menu.open { display: flex; }
 #menuPortal { position: fixed; inset: 0; z-index: 500; pointer-events: none; }
 #menuPortal .more-menu { pointer-events: auto; }
@@ -796,7 +780,7 @@ select.btn-add-folder { transition: background 0.15s ease, border-color 0.15s ea
 #modalFormWrap .t-title > span:first-child { flex: 1; min-width: 0; }
 #modalFormWrap .src-badge { flex: none; }
 #modalFormWrap .c-more { justify-content: flex-end; }
-.pl-card { background: rgba(255,255,255,0.62); border: 1px solid rgba(255,255,255,0.88); border-radius: 10px; padding: 10px; cursor: pointer; transition: background-color 0.15s ease, border-color 0.15s ease; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); box-shadow: 0 4px 14px rgba(30,80,120,0.10); }
+.pl-card { background: rgba(255,255,255,0.62); border: 1px solid rgba(255,255,255,0.88); border-radius: 10px; padding: 10px; cursor: pointer; transition: background-color 0.15s ease, border-color 0.15s ease; box-shadow: 0 4px 14px rgba(30,80,120,0.10); }
 .pl-card:hover { background: var(--card2); }
 .pl-cover-stack {
   display: grid;
@@ -835,14 +819,12 @@ select.btn-add-folder { transition: background 0.15s ease, border-color 0.15s ea
   border: 1px solid rgba(255, 255, 255, 0.30);
   color: rgba(255, 255, 255, 0.70);
   cursor: pointer;
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
   transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
 }
 .cover-play svg { width: 26px; height: 26px; display: block; }
 .pl-card:hover .cover-play { background: rgba(0, 0, 0, 0.62); color: #fff; transform: scale(1.06); }
 .pl-cover-stack > .pl-cover-tools { position: absolute; top: 6px; right: 6px; display: flex; gap: 6px; width: auto; height: auto; z-index: 2; }
-.cover-tool { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; padding: 0; background: rgba(0, 0, 0, 0.30); border: 1px solid rgba(255, 255, 255, 0.30); color: rgba(255, 255, 255, 0.70); cursor: pointer; backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease; }
+.cover-tool { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; padding: 0; background: rgba(0, 0, 0, 0.30); border: 1px solid rgba(255, 255, 255, 0.30); color: rgba(255, 255, 255, 0.70); cursor: pointer; transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease; }
 .cover-tool svg { width: 14px; height: 14px; display: block; margin: 0; }
 .pl-card:hover .cover-tool { background: rgba(0, 0, 0, 0.62); color: #fff; }
 .pl-cover-stack > .pl-cover-quad { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px; width: 100%; height: 100%; }
@@ -861,8 +843,8 @@ select.btn-add-folder { transition: background 0.15s ease, border-color 0.15s ea
 .wave-card { padding: 8px 12px 6px; }
 .wave-tools { display: flex; justify-content: flex-end; gap: 6px; }
 .wave-tools button {
-  background: var(--btn-liquid-bg);
-  border: 1px solid var(--btn-liquid-bd);
+  background: none;
+  border: 0;
   color: var(--muted);
   cursor: pointer;
   font-size: 14px;
@@ -874,14 +856,9 @@ select.btn-add-folder { transition: background 0.15s ease, border-color 0.15s ea
   justify-content: center;
   padding: 0 6px;
   border-radius: 7px;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  box-shadow: var(--btn-liquid-shadow);
-  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+  transition: color 0.15s ease, transform 0.1s ease;
 }
 .wave-tools button:hover {
-  background: var(--btn-liquid-hover);
-  border-color: rgba(255, 255, 255, 0.95);
   color: var(--txt);
 }
 .wave-tools button:active { transform: scale(0.97); }
@@ -899,7 +876,7 @@ select.btn-add-folder { transition: background 0.15s ease, border-color 0.15s ea
 .wave-tools button[title="Settings"]:hover { text-shadow: none; color: var(--txt); }
 #btnDeleteSelected { color: var(--muted) !important; }
 #btnDeleteSelected:hover { text-shadow: none; color: var(--txt) !important; }
-#waveCanvas { width: 100%; height: 125px; display: block; }
+#waveCanvas { width: 100%; height: 127px; display: block; }
 .wave-viz {
   overflow: hidden;
   max-height: 480px;
@@ -985,8 +962,6 @@ input[type="range"].wfill.hfill::-moz-range-track { height: 6px; }
   padding: 0 8px !important;
   font-size: 11px;
   cursor: pointer;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
   box-shadow: var(--btn-liquid-shadow);
   transition: background 0.15s ease, border-color 0.15s ease;
 }
@@ -1018,8 +993,6 @@ input[type="range"].wfill.hfill::-moz-range-track { height: 6px; }
   padding: 0 8px !important;
   font-size: 11px;
   cursor: pointer;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
   box-shadow: var(--btn-liquid-shadow);
   transition: background 0.15s ease, border-color 0.15s ease;
 }
@@ -1051,8 +1024,6 @@ input[type="range"].wfill.hfill::-moz-range-track { height: 6px; }
   padding: 0 8px !important;
   cursor: pointer;
   font-size: 12px;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
   box-shadow: var(--btn-liquid-shadow);
   transition: background 0.15s ease, border-color 0.15s ease;
 }
@@ -1094,15 +1065,13 @@ input[type="range"].wfill.hfill::-moz-range-track { height: 6px; }
   border-radius: 7px;
   font-size: 11px;
   cursor: pointer;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
   box-shadow: var(--btn-liquid-shadow);
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 .preset-btn:hover { border-color: rgba(255, 255, 255, 0.95); background: var(--btn-liquid-hover); color: var(--txt); }
 .preset-btn:disabled { opacity: .4; cursor: not-allowed; }
 .eq-band input:disabled { opacity: .35; cursor: not-allowed; }
-.preset-menu { position: absolute; bottom: calc(100% + 6px); right: 0; background: var(--card2); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 -8px 20px rgba(30,80,120,0.16); display: none; flex-direction: column; min-width: 140px; z-index: 40; overflow: hidden; max-height: min(260px, 50vh); overflow-y: auto; }
+.preset-menu { position: absolute; bottom: calc(100% + 6px); right: 0; background: var(--card2); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 -8px 20px rgba(30,80,120,0.16); display: none; flex-direction: column; min-width: 140px; z-index: 40; overflow: hidden; max-height: min(260px, 50vh); overflow-y: auto; }
 .preset-menu.open { display: flex; }
 .preset-menu button { background: transparent; border: 0; color: var(--txt); text-align: left; padding: 6px 10px; font-size: 11.5px; cursor: pointer; }
 .preset-menu button:hover { background: var(--menu-hover); color: var(--txt); }
@@ -1147,12 +1116,10 @@ input[type="range"].wfill.hfill::-moz-range-track { height: 6px; }
 
 .modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 1000; }
 .modal.open { display: flex; }
-.modal-backdrop { position: absolute; inset: 0; background: rgba(180, 210, 235, 0.55); backdrop-filter: blur(6px); }
+.modal-backdrop { position: absolute; inset: 0; background: rgba(180, 210, 235, 0.55); }
 .modal-card {
   position: relative; width: 380px; max-width: 92vw;
   background: linear-gradient(180deg, rgba(255,255,255,0.92) 0%, rgba(232,242,250,0.88) 100%);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255,255,255,0.9);
   border-radius: 14px;
   box-shadow: 0 20px 50px rgba(30,80,120,0.25), inset 0 1px 0 rgba(255,255,255,0.95);
@@ -1176,8 +1143,6 @@ input[type="range"].wfill.hfill::-moz-range-track { height: 6px; }
   font-size: 12.5px;
   outline: 0;
   width: 100%;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
   box-shadow: var(--btn-liquid-shadow);
   transition: background 0.15s ease, border-color 0.15s ease;
 }
@@ -1262,8 +1227,6 @@ input[type="range"].wfill.hfill::-moz-range-track { height: 6px; }
   background: rgba(255, 255, 255, 0.55);
   border: 1px solid rgba(255, 255, 255, 0.85);
   border-radius: 10px;
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
   box-shadow: 0 4px 16px rgba(30,80,120,0.08);
   padding: 12px 14px;
   display: flex; gap: 12px; align-items: flex-start;
@@ -1283,8 +1246,6 @@ input[type="range"].wfill.hfill::-moz-range-track { height: 6px; }
   background: rgba(255, 255, 255, 0.55);
   border: 1px solid rgba(255, 255, 255, 0.85);
   border-radius: 10px;
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
   box-shadow: 0 4px 16px rgba(30,80,120,0.08);
   padding: 12px 14px;
   display: flex; flex-direction: column; gap: 10px;

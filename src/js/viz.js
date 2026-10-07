@@ -3,157 +3,50 @@ import { canvas, ctx, audio } from './dom.js';
 import { paintEqKnobs } from './eq.js';
 import { t } from './i18n/core.js';
 
-function syncWaveHeight(){
-  try {
-    if (S.eqAnimating) return;
-    const viz = document.getElementById('waveViz');
-    if (viz && viz.classList.contains('viz-hidden')) return;
-    const ac = document.querySelector('.audio-card');
-    if (ac && ac.classList.contains('eq-hidden')) return;
-    const wc = document.querySelector('.wave-card');
-    if (!ac || !wc || !canvas || !ac.offsetHeight) return;
-    const chrome = wc.offsetHeight - canvas.offsetHeight;
-    const target = Math.max(60, ac.offsetHeight - chrome);
-    if (Math.abs(canvas.offsetHeight - target) > 1) {
-      canvas.style.height = target + 'px';
-      fitCanvas();
-    }
-  } catch {}
-}
-let gradW = -1, grad = null;
-let hgradW = -1, hgrad = null;
-let idleDirty = true;
-const hs = new Float64Array(64);
-const bx = new Float64Array(64);
-const bidx = new Int32Array(64);
-let layW = -1, layDpr = -1, layN = 0, layBarW = 0, layDisjoint = true;
-
 function fitCanvas() {
   const r = canvas.getBoundingClientRect();
   canvas.width = Math.max(300, Math.floor(r.width * devicePixelRatio));
-  canvas.height = Math.max(40, Math.floor((r.height || 110) * devicePixelRatio));
-  grad = null; gradW = -1;
-  hgrad = null; hgradW = -1;
+  canvas.height = Math.floor(127 * devicePixelRatio);
 }
-window.addEventListener('resize', ()=>{ syncWaveHeight(); });
+window.addEventListener('resize', fitCanvas);
 fitCanvas();
-syncWaveHeight();
-try {
-  const _ro = new ResizeObserver(()=>{ syncWaveHeight(); });
-  const _ac0 = document.querySelector('.audio-card');
-  if (_ac0) _ro.observe(_ac0);
-} catch {}
 
 const freqData = new Uint8Array(128);
 const BARS = 90;
 const vals = new Uint8Array(BARS);
 const vizEl = document.getElementById('waveViz');
 
-function buildGradient(W) {
-  if (grad && gradW === W) return grad;
-  const g = ctx.createLinearGradient(0, 0, W, 0);
-  g.addColorStop(0, '#2b9bf5');
-  g.addColorStop(0.35, '#00d4ff');
-  g.addColorStop(0.7, '#1ee39a');
-  g.addColorStop(1, '#3ef08a');
-  grad = g; gradW = W;
-  return g;
-}
-
-function buildHorizonGradient(W) {
-  if (hgrad && hgradW === W) return hgrad;
-  const g = ctx.createLinearGradient(0, 0, W, 0);
-  g.addColorStop(0, 'rgba(43,155,245,0)');
-  g.addColorStop(0.5, 'rgba(0,212,255,1)');
-  g.addColorStop(1, 'rgba(62,240,138,0)');
-  hgrad = g; hgradW = W;
-  return g;
-}
-
-function layoutBars(W, dpr) {
-  const N = W < 360 * dpr ? 40 : 64;
-  const bw = W / N;
-  const barW = Math.max(2 * dpr, bw * 0.58);
-  const half = (N - 1) / 2;
-  for (let i = 0; i < N; i++) {
-    const d = Math.abs(i - half) / half;
-    bidx[i] = Math.min(BARS - 1, Math.floor(Math.pow(d, 0.7) * (BARS - 1)));
-    bx[i] = i * bw + (bw - barW) / 2;
-  }
-  layW = W; layDpr = dpr; layN = N; layBarW = barW;
-  layDisjoint = barW <= bw;
-}
-
-function paintIdle() {
-  const W = canvas.width, H = canvas.height;
-  const dpr = window.devicePixelRatio || 1;
-  ctx.clearRect(0, 0, W, H);
-  const lg = ctx.createLinearGradient(0, 0, W, 0);
-  lg.addColorStop(0, 'rgba(43,155,245,0)');
-  lg.addColorStop(0.5, 'rgba(0,212,255,0.45)');
-  lg.addColorStop(1, 'rgba(62,240,138,0)');
-  ctx.fillStyle = lg;
-  ctx.fillRect(0, H * 0.52 - dpr, W, 2 * dpr);
-  idleDirty = false;
-}
-
 function drawWave() {
   requestAnimationFrame(drawWave);
-  if (!canvas) return;
-  if (document.hidden) { idleDirty = true; return; }
-  if (vizEl && vizEl.classList.contains('viz-hidden')) { idleDirty = true; return; }
-  if (!S.analyser || audio.paused || !audio.src) {
-    if (idleDirty) { try { paintIdle(); } catch {} }
-    return;
-  }
-
+  if (!canvas || document.hidden) return;
+  if (vizEl && vizEl.classList.contains('viz-hidden')) return;
   const W = canvas.width, H = canvas.height;
-  const dpr = window.devicePixelRatio || 1;
-  if (layW !== W || layDpr !== dpr) layoutBars(W, dpr);
+  const playing = S.analyser && !audio.paused && audio.src;
+  if (playing) {
+    S.analyser.getByteFrequencyData(freqData);
+    const last = freqData.length - 1;
+    for (let j = 0; j < BARS; j++) vals[j] = freqData[Math.round(j * last / (BARS - 1))];
+  }
+  const n = W < 360 * (window.devicePixelRatio || 1) ? 40 : 64;
+  const bw = W / n;
+  const half = (n - 1) / 2;
+  const ph = Date.now() / 700;
   ctx.clearRect(0, 0, W, H);
-
-  S.analyser.getByteFrequencyData(freqData);
-  for (let i = 0; i < BARS; i++) vals[i] = freqData[Math.min(freqData.length - 1, i * 2)];
-
-  let bass = 0;
-  for (let i = 0; i < 10; i++) bass += vals[i];
-  bass = Math.max(0, Math.min(1, bass / (10 * 255)));
-
-  const N = layN, barW = layBarW;
-  const horizon = H * 0.52;
-  const maxH = H * 0.46;
-  ctx.fillStyle = buildGradient(W);
-  for (let i = 0; i < N; i++) {
-    const v = vals[bidx[i]] || 0;
-    hs[i] = Math.max(2 * dpr, (v / 255) * maxH);
+  for (let i = 0; i < n; i++) {
+    const d = Math.abs(i - half) / half;
+    const b = Math.floor(Math.pow(d, 0.7) * (BARS - 1));
+    const v = playing ? vals[b] : 20 + 40 * Math.abs(Math.sin(b * 0.35 + ph) * Math.cos(b * 0.12 - ph));
+    const h = Math.max(4, (v / 255) * H * 0.95 + 4);
+    const g = ctx.createLinearGradient(0, 0, W, 0);
+    g.addColorStop(0, '#3b6fe0');
+    g.addColorStop(0.5, '#4aa8ff');
+    g.addColorStop(1, '#35e0a1');
+    ctx.fillStyle = g;
+    const x = i * bw + bw * 0.2;
+    ctx.fillRect(x, (H - h) / 2, Math.max(1.5, bw * 0.55), h);
   }
-  ctx.beginPath();
-  for (let i = 0; i < N; i++) ctx.rect(bx[i], horizon - hs[i], barW, hs[i]);
-  ctx.fill();
-
-  if (layDisjoint) {
-    ctx.globalAlpha = 0.22;
-    ctx.beginPath();
-    for (let i = 0; i < N; i++) ctx.rect(bx[i], horizon, barW, hs[i] * 0.8);
-    ctx.fill();
-    ctx.globalAlpha = 1;
-  } else {
-    ctx.save();
-    ctx.globalAlpha = 0.22;
-    for (let i = 0; i < N; i++) ctx.fillRect(bx[i], horizon, barW, hs[i] * 0.8);
-    ctx.restore();
-  }
-
-  ctx.globalAlpha = 0.6 + bass * 0.4;
-  ctx.fillStyle = buildHorizonGradient(W);
-  ctx.fillRect(0, horizon - dpr, W, 2 * dpr);
-  ctx.globalAlpha = 1;
 }
 drawWave();
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) return;
-  try { gradW = -1; grad = null; hgradW = -1; hgrad = null; fitCanvas(); } catch {}
-});
 
 function setVizHidden(hidden, opts = {}) {
   const btn = document.getElementById('btnHideViz');
@@ -165,22 +58,19 @@ function setVizHidden(hidden, opts = {}) {
       viz.classList.add('viz-hidden');
       btn.title = t('btn.showVisualizer');
       S.vizAutoHidden = true;
-      setTimeout(() => syncWaveHeight(), 480);
     }
     return;
   }
   if (hidden === already) return;
-  idleDirty = true; gradW = -1; grad = null; hgradW = -1; hgrad = null;
   if (hidden) {
     viz.classList.add('viz-hidden');
     btn.title = t('btn.showVisualizer');
     S.vizAutoHidden = false;
-    setTimeout(() => syncWaveHeight(), 480);
   } else {
     viz.classList.remove('viz-hidden');
     btn.title = t('btn.hideVisualizer');
     S.vizAutoHidden = false;
-    setTimeout(() => { fitCanvas(); syncWaveHeight(); }, 480);
+    fitCanvas();
   }
 }
 document.getElementById('btnHideViz')?.addEventListener('click', () => {
@@ -195,11 +85,7 @@ document.getElementById('btnHideEq')?.addEventListener('click', () => {
   if (!btn || !ac) return;
   const hidden = ac.classList.toggle('eq-hidden');
   btn.title = hidden ? t('btn.showEqualizer') : t('btn.hideEqualizer');
-  S.eqAnimating = true;
-  setTimeout(() => {
-    S.eqAnimating = false;
-    if (!hidden) { gradW = -1; grad = null; hgradW = -1; hgrad = null; idleDirty = true; fitCanvas(); syncWaveHeight(); try { paintEqKnobs(); } catch {} }
-  }, 480);
+  if (!hidden) { fitCanvas(); try { paintEqKnobs(); } catch {} }
 });
 
-export { syncWaveHeight, fitCanvas, freqData, drawWave, setVizHidden };
+export { fitCanvas, freqData, drawWave, setVizHidden };

@@ -2873,27 +2873,36 @@ try {
   ok(!srcTap.includes('const S = window.devicePixelRatio'), 'shadowing S di drawWave tak balik');
   ok(srcTap.includes('S.analyser.getByteFrequencyData'), 'jalur data spektrum visualizer intak');
 
-  // --- guard perf: visualizer tidak boleh menggambar terus-menerus saat idle ---
+  // --- guard perf: visualizer memakai resep mplayer (kanvas tetap kecil, tanpa blur) ---
   const vizSrc = fs.readFileSync(path.join(root, 'src/js/viz.js'), 'utf8');
   const drawBody = (vizSrc.match(/function drawWave\(\)\s*\{([\s\S]*?)\n\}/) || [, ''])[1];
-  ok(/if \(document\.hidden\)[\s\S]*?return;[\s\S]*?if \(vizEl && vizEl\.classList\.contains\('viz-hidden'\)\)[\s\S]*?return;/.test(drawBody)
-    && /!S\.analyser \|\| audio\.paused \|\| !audio\.src[\s\S]*?return;/.test(drawBody),
-  'viz: drawWave berhenti saat window disembunyikan / visualizer disembunyikan / tidak ada audio diputar');
+  ok(drawBody.length > 0, 'viz: drawWave ada dan bisa diekstrak untuk guard');
+  ok(/if \(!canvas \|\| document\.hidden\) return;/.test(drawBody)
+    && /if \(vizEl && vizEl\.classList\.contains\('viz-hidden'\)\) return;/.test(drawBody),
+  'viz: drawWave berhenti saat window disembunyikan / visualizer disembunyikan');
   ok(!/offsetParent/.test(vizSrc),
-    'viz: offsetParent dihapus dari jalur frame (memaksa layout sinkron tiap frame, dan tak pernah null di layout ini)');
-  ok(!/Math\.pow\(/.test(drawBody), 'viz: Math.pow dipindah dari drawFrame ke layoutBars (dihitung sekali per resize, bukan 64x per frame)');
-  ok(!/= \[\]/.test(drawBody) && !/\.push\(/.test(drawBody), 'viz: tidak ada alokasi array baru per frame');
-  ok(/ctx\.beginPath\(\)/.test(drawBody), 'viz: batang digambar lewat satu path, bukan 128 fillRect terpisah');
-  ok((drawBody.match(/ctx\.fillRect\(/g) || []).length <= 2,
-    'viz: maksimal 2 fillRect per frame (fallback non-disjoint + garis horizon)');
+    'viz: offsetParent tidak ada di jalur frame (memaksa layout sinkron tiap frame)');
+  ok(!/syncWaveHeight/.test(vizSrc) && !/canvas\.style\.height/.test(vizSrc),
+    'viz: tinggi kanvas tidak lagi tumbuh dinamis (syncWaveHeight dihapus)');
+  ok(/canvas\.height = Math\.floor\(127 \* devicePixelRatio\)/.test(vizSrc),
+    'viz: backing kanvas dikunci 127*dpr (1:1 CSS, tinggi selaras kartu EQ)');
+  ok(!/paintIdle|Horizon/i.test(vizSrc),
+    'viz: pantulan & garis horizon dihapus (resep mplayer: batang terpusat tanpa cermin)');
   ok(!/shadowBlur/.test(drawBody), 'viz: tidak ada shadowBlur per frame (blur full-width itu mahal)');
-  ok((drawBody.match(/createLinearGradient/g) || []).length === 0,
-    'viz: tidak ada createLinearGradient di dalam drawWave');
-  ok(!/Date\.now\(\)\s*\/\s*700/.test(vizSrc) && !/Array\.from\(\{\s*length:\s*90/.test(vizSrc),
-    'viz: gelombang sintetis idle dihapus (tidak ada trig per frame)');
   ok(!/\[?\.{3}freqData\]/.test(vizSrc), 'viz: spektrum tidak disalin ulang jadi array tiap frame');
-  ok(/let gradW = -1, grad = null;/.test(vizSrc) && /buildGradient\(W\)/.test(vizSrc),
-    'viz: gradient di-cache dan hanya dibuat ulang saat lebar berubah');
+  const vizCss = fs.readFileSync(path.join(root, 'src/styles.css'), 'utf8');
+  const waveCanvasRule = vizCss.match(/#waveCanvas \{[^}]*\}/);
+  ok(!!waveCanvasRule && /height:\s*127px/.test(waveCanvasRule[0]),
+    'viz: tinggi CSS kanvas 127px selaras kartu EQ (bukan 92px)');
+  ok(!/backdrop-filter/.test(vizCss),
+    'css: stylesheet bebas backdrop-filter (blur diproses ulang compositor tiap frame animasi, terbukti bikin kipas kencang)');
+  ok(!/vizmode|VX_MODE|vxParams|vxStaticDone|location\.search/.test(vizSrc),
+    'viz: instrumentasi uji sementara (?vizmode/?flat) sudah dibuang dari viz.js');
+  ok(/Math\.abs\(i - half\) \/ half/.test(vizSrc)
+    && /Math\.pow\(d, 0\.7\) \* \(BARS - 1\)/.test(vizSrc),
+    'viz: bin dipetakan simetris dari tengah (bass di tengah, treble ke tepi, kurva 0.7 seperti visualizer lama)');
+  ok(!/Math\.min\(freqData\.length - 1, i \* 2\)/.test(vizSrc),
+    'viz: sebaran bin penuh tanpa clamp (interpolasi 90 slot, tepi kiri-kanan tidak mati)');
 
   // --- guard perf: Rust cache tag, busy-loop shuffle, polling ganda, throttle ---
   const libRs = fs.readFileSync(path.join(root, 'src-tauri/src/lib.rs'), 'utf8');
@@ -3490,10 +3499,10 @@ try {
     'sisa hover var(--card) pada dropdown sudah tidak ada');
   ok(css.includes('--card2') && /\.more-menu \{[^}]*background: var\(--card2\)/.test(css),
     'latar menu tetap pakai --card2 (bertema)');
-  ok(/\.preset-menu \{[^}]*backdrop-filter: blur\(14px\)/.test(css),
-    'preset-menu pakai frosted blur seperti .more-menu');
-  ok(/\.preset-menu \{[^}]*-webkit-backdrop-filter: blur\(14px\)/.test(css),
-    'preset-menu ikut prefix -webkit-backdrop-filter');
+  ok(!/\.preset-menu \{[^}]*backdrop-filter/.test(css),
+    'preset-menu tanpa frosted blur (ikut resep bebas backdrop-filter)');
+  ok(!/\.more-menu \{[^}]*backdrop-filter/.test(css),
+    'more-menu tanpa frosted blur (ikut resep bebas backdrop-filter)');
 } catch (e) {
   ok(false, `hover dropdown :: ${e.message}`);
 }
