@@ -2437,6 +2437,21 @@ try {
   ok(false, `updater :: ${e.message}`);
 }
 try {
+  const pkgVer = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
+  const tconf = JSON.parse(fs.readFileSync(path.join(root, 'src-tauri/tauri.conf.json'), 'utf8'));
+  const cargoM = fs.readFileSync(path.join(root, 'src-tauri/Cargo.toml'), 'utf8').match(/^version = "([^"]+)"/m);
+  const draftVer = JSON.parse(fs.readFileSync(path.join(root, 'build/release-drafts/version.json'), 'utf8')).version;
+  const cargoVer = cargoM ? cargoM[1] : '';
+  ok(!!pkgVer && pkgVer === tconf.version && pkgVer === cargoVer && pkgVer === draftVer,
+    `versi seragam di semua stamp (package=${pkgVer} tauri=${tconf.version} cargo=${cargoVer} draft=${draftVer}) - kalau beda, aplikasi melapor versi salah dan updater menawarkan update terus-menerus`);
+  const wixVer = tconf.bundle && tconf.bundle.windows && tconf.bundle.windows.wix && tconf.bundle.windows.wix.version;
+  const baseVer = String(pkgVer).replace(/-.*$/, '');
+  ok(typeof wixVer === 'string' && wixVer.startsWith(baseVer + '.'),
+    `wix version (${wixVer}) ikut basis versi aplikasi (${baseVer}.x) agar upgrade MSI bersih`);
+} catch (e) {
+  ok(false, `konsistensi versi :: ${e.message}`);
+}
+try {
   const eqd = await import('../src/js/eq-data.js');
   ok(Array.isArray(eqd.EQ_FREQS) && eqd.EQ_FREQS.length === 10, 'EQ_FREQS');
   ok(eqd.EQ_PRESETS && Array.isArray(eqd.EQ_PRESETS.flat) && eqd.EQ_PRESETS.flat.length === 10, 'EQ_PRESETS');
