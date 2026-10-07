@@ -2901,6 +2901,16 @@ try {
     'rust: cache di-prune agar tidak tumbuh tanpa batas');
   ok(/sidecar: \(u64, u64\)/.test(libRs) && /fn dir_mtime\(/.test(libRs),
     'rust: signature sidecar (Lyrics/, mdx_extra/) ikut di-key supaya lirik & karaoke tidak basi');
+  const benchRs = fs.readFileSync(path.join(root, 'src-tauri/src/scan_cache_bench.rs'), 'utf8');
+  ok(/fn second_scan_reuses_cache\(\)/.test(benchRs) && /VOCLYX_BENCH_DIR/.test(benchRs),
+    'rust: ada benchmark cache scan_music (cold vs warm, isi baris harus identik)');
+  ok(/fn cache_invalidates_when_file_changes\(\)/.test(benchRs),
+    'rust: ada test invalidasi cache saat file berubah');
+  ok(/if dir\.is_empty\(\) \{\s*\n\s*println!\("skip/.test(benchRs),
+    'rust: benchmark scan cache skip kalau env var tidak diset (cargo test tetap hijau di CI)');
+  ok(/if !caps\.ok\(\)\s*\{\s*return/.test(fs.readFileSync(path.join(root, 'src/js/gpu.js'), 'utf8'))
+    || /poisoned\.into_inner\(\)/.test(libRs),
+    'rust: lock cache tolerate poisoning, tidak panic di tengah scan');
 
   const omSrc = fs.readFileSync(path.join(root, 'src/js/os-media.js'), 'utf8');
   ok(!/while \(r===pos\)|while \(r === pos\)/.test(omSrc),
@@ -3433,13 +3443,17 @@ try {
   const sClean = readSrc();
   const cssClean = fs.readFileSync(path.join(root, 'src/styles.css'), 'utf8');
   const htmlClean = fs.readFileSync(path.join(root, 'src/index.html'), 'utf8');
-  const rsClean = fs.readFileSync(path.join(root, 'src-tauri/src/lib.rs'), 'utf8');
+  const rsDir = path.join(root, 'src-tauri/src');
+  const rsGuarded = ['lib.rs', 'scan_cache_bench.rs']
+    .map((f) => ({ f, c: fs.readFileSync(path.join(rsDir, f), 'utf8') }));
+  const rsClean = rsGuarded.map((x) => x.c).join('\n');
   const pyClean = fs.readFileSync(path.join(root, 'python-engine/vx_download.py'), 'utf8');
   ok(!/(^|\n)[ \t]*\/\//.test(sClean), 'js: sumber bersih komentar //');
   ok(!/(^|\n)[ \t]*\/\*/.test(sClean), 'js: sumber bersih komentar blok /*');
   ok(!cssClean.includes('/*'), 'css: sumber bersih komentar /* */');
   ok(!htmlClean.includes('<!--'), 'html: sumber bersih komentar <!-- -->');
-  ok(!/^\s*\/\//m.test(rsClean), 'rust: sumber bersih komentar //');
+  const rsDirty = rsGuarded.filter((x) => /^\s*\/\//m.test(x.c)).map((x) => x.f);
+  ok(rsDirty.length === 0, `rust: sumber bersih komentar // (lib.rs + scan_cache_bench.rs)${rsDirty.length ? ' :: ' + rsDirty.join(',') : ''}`);
   ok(!/^\s*#/m.test(pyClean), 'python: sumber bersih komentar #');
   ok(/import \{ _redlBusy, activeDownloadIds,/.test(sClean), 'dl: activeDownloadIds di-import (regresi list kosong Tauri)');
 } catch (e) {

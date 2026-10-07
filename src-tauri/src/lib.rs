@@ -10,6 +10,8 @@ use tauri::Manager;
 
 mod cuda_setup;
 mod engine;
+#[cfg(test)]
+mod scan_cache_bench;
 mod runtime;
 mod smtc;
 
@@ -32,6 +34,7 @@ pub struct TrackMeta {
 
 const SUPPORTED: [&str; 6] = ["mp3", "m4a", "aac", "wav", "flac", "ogg"];
 
+#[derive(Clone)]
 struct ScanCacheEntry {
     mtime: u64,
     len: u64,
