@@ -22,7 +22,7 @@ function renderLocalCollection(filter, kind){
     let groups = groupArtists();
     if (f) groups = groups.filter(g => g.name.toLowerCase().includes(f));
     if (!groups.length) {
-      trackListEl.innerHTML = `<div style="padding:24px;text-align:center;color:var(--muted);font-size:14px">Tidak ada artis yang cocok<br><span style="font-size:12px">Coba kata kunci lain</span></div>`;
+      trackListEl.innerHTML = `<div style="padding:24px;text-align:center;color:var(--muted);font-size:14px">${t('tr.noArtistMatch')}<br><span style="font-size:12px">${t('tr.noArtistMatchHint')}</span></div>`;
       return;
     }
     trackListEl.innerHTML = `<div class="playlist-grid">` + groups.map(g=>{
@@ -31,7 +31,7 @@ function renderLocalCollection(filter, kind){
       const coverStack = quad.length === 4
         ? `<div class="pl-cover-quad">${quad.map(c => `<img src="${c}" alt="" loading="lazy">`).join('')}</div>`
         : collectionCoverStack(g.tracks);
-      return `<div class="pl-card" data-key="${key}"><div class="pl-cover-stack">${coverStack}<button class="cover-play" data-play-artist="${key}" aria-label="Putar artis">${ICON.play}</button></div><div class="pl-name">${escAttr(g.name)}</div><div class="pl-meta">${g.tracks.length} lagu</div></div>`;
+      return `<div class="pl-card" data-key="${key}"><div class="pl-cover-stack">${coverStack}<button class="cover-play" data-play-artist="${key}" aria-label="${t('tr.playArtist')}">${ICON.play}</button></div><div class="pl-name">${escAttr(g.name)}</div><div class="pl-meta">${t('std.songs', { n: g.tracks.length })}</div></div>`;
     }).join('') + `</div>`;
     trackListEl.querySelectorAll('[data-play-artist]').forEach(b=>{
       b.onclick=(e)=>{ e.stopPropagation(); const k2 = decodeURIComponent(b.dataset.playArtist); const g2 = groupArtists().find(x=> x.name===k2); if(!g2) return; playCollection('artist', g2.name, g2.tracks.map(t=>t.path)); };
@@ -44,13 +44,13 @@ function renderLocalCollection(filter, kind){
   let groups = groupAlbums();
   if (f) groups = groups.filter(g=> g.name.toLowerCase().includes(f) || [...g.artists].some(a=> a.toLowerCase().includes(f)));
   if (!groups.length) {
-    trackListEl.innerHTML = `<div style="padding:24px;text-align:center;color:var(--muted);font-size:14px">Tidak ada album yang cocok<br><span style="font-size:12px">Coba kata kunci lain</span></div>`;
+    trackListEl.innerHTML = `<div style="padding:24px;text-align:center;color:var(--muted);font-size:14px">${t('tr.noAlbumMatch')}<br><span style="font-size:12px">${t('tr.noArtistMatchHint')}</span></div>`;
     return;
   }
   trackListEl.innerHTML = `<div class="playlist-grid">` + groups.map(g=>{
     const key = encodeURIComponent(g.name);
     const artistTxt = [...g.artists].slice(0, 3).join(', ') + (g.artists.size > 3 ? '…' : '');
-    return `<div class="pl-card" data-key="${key}"><div class="pl-cover-stack">${collectionCoverStack(g.tracks)}<button class="cover-play" data-play-album="${key}" aria-label="Putar album">${ICON.play}</button></div><div class="pl-name">${escAttr(g.name)}</div><div class="pl-meta">${escAttr(artistTxt)} • ${g.tracks.length} lagu</div></div>`;
+    return `<div class="pl-card" data-key="${key}"><div class="pl-cover-stack">${collectionCoverStack(g.tracks)}<button class="cover-play" data-play-album="${key}" aria-label="${t('tr.playAlbum')}">${ICON.play}</button></div><div class="pl-name">${escAttr(g.name)}</div><div class="pl-meta">${escAttr(artistTxt)} • ${t('std.songs', { n: g.tracks.length })}</div></div>`;
   }).join('') + `</div>`;
   trackListEl.querySelectorAll('[data-play-album]').forEach(b=>{
     b.onclick=(e)=>{ e.stopPropagation(); const k2 = decodeURIComponent(b.dataset.playAlbum); const g2 = groupAlbums().find(x=> x.name===k2); if(!g2) return; playCollection('album', g2.name, g2.tracks.map(t=>t.path)); };
@@ -96,7 +96,7 @@ export function renderTracks(filter = '') {
     const hasLyric = tk.lyric_path ? ' ♪' : '';
     const kBadge = karaokeBadgeHtml(tk);
     const checkCell = S.selectMode.local
-      ? `<input type="checkbox" data-sel="${i}" ${S.selectedPaths.local.has(selKeyLocal(tk.path))?'checked':''} title="Pilih">`
+      ? `<input type="checkbox" data-sel="${i}" ${S.selectedPaths.local.has(selKeyLocal(tk.path))?'checked':''} title="${t('std.select')}">`
       : `<span style="color:#8b93a9">${visibleNo}</span>`;
     b.innerHTML = `
       ${checkCell}

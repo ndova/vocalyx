@@ -373,6 +373,72 @@ ok(Object.keys(i18nCore.i18nMissing()).join(',') === 'id,jv', `i18n: i18nMissing
 ok((i18nCore.i18nMissing().en || []).length === 0, 'i18n: tidak ada key Inggris yang hilang');
 ok(Object.keys(i18nId).length > 100, `i18n: kamus ID punya entri (dapat ${Object.keys(i18nId).length})`);
 {
+  // --- guardrail i18n: kunci dipakai harus ada, kamus harus simetris, teks ID keras dilarang bocor ---
+  const dicts = { en: i18nEn, id: i18nId, jv: i18nJv };
+  const enKeys = Object.keys(i18nEn);
+  ok(enKeys.length === Object.keys(i18nJv).length
+    && enKeys.every((k) => Object.prototype.hasOwnProperty.call(i18nJv, k)),
+  `i18n: kamus JV punya key yang sama persis dengan EN (en ${enKeys.length} vs jv ${Object.keys(i18nJv).length})`);
+
+  const srcFiles = [];
+  (function walk(dir) {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (e.name.endsWith('.js') || e.name.endsWith('.html')) srcFiles.push(p);
+    }
+  })(path.join(root, 'src'));
+  const isDict = (p) => /i18n[\\/](en|id|jv)\.js$/.test(p);
+
+  const missingUsed = [];
+  for (const f of srcFiles) {
+    if (isDict(f)) continue;
+    const rel = path.relative(root, f).replace(/\\/g, '/');
+    const code = fs.readFileSync(f, 'utf8');
+    for (const m of code.matchAll(/(?<![\w.])t\(\s*'([a-z][\w.]+)'/g)) {
+      if (enKeys.includes(m[1])) continue;
+      // kunci yang dirangkai ex: t('eq.' + name) / t('le.' + topic + ...) bukan literal
+      if (/'[^']*'\s*\+|\$\{/.test(code.slice(m.index, m.index + 80))) continue;
+      missingUsed.push(`${rel}:${m[1]}`);
+    }
+    for (const m of code.matchAll(/data-t(?:-html|-title|-placeholder|-aria)?="([^"${}]{2,60})"/g)) {
+      if (enKeys.includes(m[1])) continue;
+      missingUsed.push(`${rel}:data-t:${m[1]}`);
+    }
+  }
+  ok(missingUsed.length === 0, `i18n: setiap t()/data-t yang dipakai ada di kamus EN${missingUsed.length ? ' :: ' + [...new Set(missingUsed)].slice(0, 12).join(', ') : ''}`);
+
+  // Teks Indonesia yang tidak lewat t(). Pengecualian sah ditulis eksplisit di bawah.
+  const ID_ALLOW = [
+    /Bahasa Indonesia/, /Basa Jawa/,          // endonym di dropdown (core.js LANG_FALLBACK)
+    /tidak ditemukan\|auto-resolve\|not found/i, // regex pencocokan error backend, bukan teks UI
+    /localeCompare\([^)]*'id'/,                 // kollasi sortir, bukan teks UI
+    /^\s*\/\//, /^\s*\/\*/, /^\s*\*/,           // komentar
+  ];
+  const ID_WORDS = /\b(?:dan|atau|dengan|yang|tidak|belum|sudah|untuk|dari|sebagai|jika|karena|hanya|lebih|kurang|menunggu|menyimpan|memuat|memproses|diproses|tersimpan|berhasil|gagal|terhenti|dihentikan|dikembalikan|tidak\s+(?:ada|belum|cocok|sesuai)|belum\s+(?:ada|selesai|selaras)|kosong|pilihkan|cari\s+lagi|lainnya|hapus|pemilih|dipakai|terukur)\b/gi;
+  const hardcoded = [];
+  for (const f of srcFiles) {
+    if (isDict(f) || /[\\/](i18n|core\.js)$/.test(f)) continue;
+    const rel = path.relative(root, f).replace(/\\/g, '/');
+    const code = fs.readFileSync(f, 'utf8');
+    code.split('\n').forEach((line, i) => {
+      const trimmed = line.trim();
+      if (!trimmed || ID_ALLOW.some((re) => re.test(trimmed) || re.test(line))) return;
+      if (/^\s*(?:\/\/|\/\*|\*)/.test(line)) return;
+      // string literal / template literal yang memuat kata ID, di luar panggilan t()
+      const lits = [...line.matchAll(/'([^'\\]{4,})'|`([^`\\]{4,})`/g)];
+      for (const m of lits) {
+        const lit = m[1] || m[2];
+        if (!ID_WORDS.test(lit)) continue;
+        if (/^[a-z0-9._-]+$/.test(lit)) continue;          // selector, id, key, extensi
+        if (/^(https?:|127\.0\.0\.1|127,0,0,1|%APPDATA%)/.test(lit)) continue;
+        hardcoded.push(`${rel}:${i + 1} "${lit.slice(0, 60)}"`);
+      }
+    });
+  }
+  ok(hardcoded.length === 0, `i18n: tidak ada teks Indonesia keras di luar t()${hardcoded.length ? ' :: ' + hardcoded.slice(0, 12).join(' | ') : ''}`);
+}
+{
   const staleKeys = ['set.karaoke', 'set.karaokeHint', 'set.karaokeTuningHint', 'eng.karaokeDone', 'eng.bsrfFail', 'eng.offlineRun', 'iph.engineOffline'];
   const staleEn = staleKeys.filter((k) => /BS-RoFormer|npm run engine/.test(i18nEn[k] || ''));
   const staleId = staleKeys.filter((k) => /BS-RoFormer|npm run engine/.test(i18nId[k] || ''));
@@ -1589,7 +1655,7 @@ ok(/export async function ensureGpuPythonProbed\(\)/.test(
     ok(/const strict = device === 'cuda';/.test(jsGpuQ)
       && /if \(online && \(!strict \|\| active === true\)\)/.test(jsGpuQ),
       'device: hanya cuda yang menuntut CUDA aktif, cpu tidak lagi revert ke gpu');
-    ok(/if \(!matched\) \{\s*try \{ showToast\(`\$\{t\('set\.deviceSwitchFailed'\)\}: engine tidak sesuai device \$\{device\}`, 7000\); \} catch \{\}\s*return null;/.test(jsGpuQ),
+    ok(/if \(!matched\) \{\s*try \{ showToast\(`\$\{t\('set\.deviceSwitchFailed'\)\}: \$\{t\('eng\.deviceMismatch', \{ n: device \}\)\}`, 7000\); \} catch \{\}\s*return null;/.test(jsGpuQ),
       'device: kegagalan pindah device dilaporkan lewat toast, tidak lagi lewat dropdown');
     ok(/if \(caps0 && !caps0\.cuda && selDev0 === 'cuda'\) \{[\s\S]{0,200}eng\.cudaFallbackCpu/.test(jsEngineS)
       && !/eng\.cudaRequired[\s\S]{0,120}return;/.test(jsEngineS),
@@ -2505,8 +2571,8 @@ try {
 
 try {
   const src = readSrc();
-  ok(src.includes('Cover Saat Ini') && src.includes('iphone/track/cover?item_pid='), 'iphone cover saat ini ada');
-  ok(src.includes('__iphCoverFallback') && src.includes('Belum ada cover'), 'iphone cover fallback placeholder');
+  ok(src.includes("t('me.coverCurrent')") && src.includes('iphone/track/cover?item_pid='), 'iphone cover saat ini ada');
+  ok(src.includes('__iphCoverFallback') && src.includes("t('iph.noCoverYet')"), 'iphone cover fallback placeholder');
   ok(!src.includes('v=${Date.now()}'), 'probe/list/thumbnail berbagi cache (tanpa Date.now)');
 } catch (e) {
   ok(false, `iphone cover thumbnail :: ${e.message}`);
@@ -2640,7 +2706,7 @@ try {
   ok(sj.includes('function groupSearchResults()'), 'search: grup album+artis client-side');
   ok(sj.includes('function renderSearchGrouped()'), 'search: render grouped ada');
   ok(/if \(filter === 'all'\) renderSearchGrouped\(\);\s*else renderSearchPage\(\);/.test(sj), 'search: filter Semua = grouped, selainnya datar');
-  ok(sj.includes("sec('Lagu')") && sj.includes("sec('Album')") && sj.includes("sec('Artis')"), 'search: section Lagu Album Artis');
+  ok(sj.includes("sec(t('se.sectionTracks'))") && sj.includes("sec('Album')") && sj.includes("sec(t('se.sectionArtists'))"), 'search: section Lagu Album Artis');
   ok(sj.includes('function drill(kind, value)'), 'search: drill scope modul');
   ok(sj.includes('function openSearchGroupPopup(kind, g)'), 'search: popup list grup ada');
   ok(sj.includes("openSearchGroupPopup('album'") && sj.includes("openSearchGroupPopup('artist'"), 'search: klik kartu buka popup');
@@ -3259,9 +3325,9 @@ try {
 try {
   const s = readSrc();
   ok(s.includes("console.error('[dl] render error'"), 'dl: kegagalan render ditangkap + console.error');
-  ok(s.includes('⚠ Gagal render daftar download'), 'dl: error render ditampilkan di list, bukan senyap');
+  ok(s.includes("t('dl.renderFail', { n:") && /dl\.renderFail[^']*': '⚠ /.test(fs.readFileSync(path.join(root, 'src/js/i18n/id.js'), 'utf8')), 'dl: error render ditampilkan di list, bukan senyap');
   ok(s.includes('async function _renderDownloads('), 'dl: renderDownloads punya wrapper anti-senyap');
-  ok(s.includes('folder yang di-scan: ') && s.includes('file ter-scan: '), 'dl: empty-state menampilkan diagnostik folder/scan/riwayat');
+  ok(s.includes("t('dl.scanFolder', { n:") && s.includes("t('dl.scanFiles', { n:") && /dl\.scanFiles[^']*': 'file ter-scan/.test(fs.readFileSync(path.join(root, 'src/js/i18n/id.js'), 'utf8')), 'dl: empty-state menampilkan diagnostik folder/scan/riwayat');
   ok(/\} catch \{\s*\}\s*\} else if \(!d\.path/.test(s), 'dl: exists() error tidak prune riwayat permanen');
   ok(!s.includes('!rows.length && S.downloads.some(d => !d._gone)'), 'dl: fallback anti-kosong dihapus (filter folder tak dikalahkan)');
   ok(s.includes('if (d.path && seenDlPaths.has(d.path)) continue;'), 'dl: riwayat didedupe per path');

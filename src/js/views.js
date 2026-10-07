@@ -88,7 +88,7 @@ export function renderPlaylistsOverview(){
   const grid = document.getElementById('playlistGrid');
   if (!grid) return;
   if (S.playlists.length===0) {
-    grid.innerHTML = `<div style="padding:24px; text-align:center; color:var(--muted); grid-column:1/-1">Belum ada playlist<br><span style="font-size:11px">Klik ＋ New Playlist untuk buat</span></div>`;
+    grid.innerHTML = `<div style="padding:24px; text-align:center; color:var(--muted); grid-column:1/-1">${t('pl.emptyTitle')}<br><span style="font-size:11px">${t('pl.emptyHint')}</span></div>`;
     return;
   }
   grid.innerHTML = S.playlists.map(p=>{
@@ -103,13 +103,13 @@ export function renderPlaylistsOverview(){
           : `<div style="background:hsl(${Math.abs(hashStr(first.artist+first.title))%360} 55% 22%); color:hsl(${Math.abs(hashStr(first.artist+first.title))%360} 70% 85%)">${(first.title[0]||'?').toUpperCase()}</div>`)
         : `<div style="display:grid;place-items:center;color:var(--muted)">${ICON.music}</div>`);
     const songCount = tracksIn.length;
-    return `<div class="pl-card" data-id="${p.id}"><div class="pl-cover-stack">${coverStack}<button class="cover-play" data-play-pl="${p.id}" aria-label="Putar playlist">${ICON.play}</button><div class="pl-cover-tools"><button class="cover-tool" data-rename="${p.id}" title="Rename playlist">${ICON.pencil}</button><button class="cover-tool" data-del="${p.id}" title="Hapus playlist">${ICON.trash}</button></div></div><div class="pl-name">${escAttr(p.name)}</div><div class="pl-meta">${songCount} lagu</div></div>`;
+    return `<div class="pl-card" data-id="${p.id}"><div class="pl-cover-stack">${coverStack}<button class="cover-play" data-play-pl="${p.id}" aria-label="${t('pl.playPlaylist')}">${ICON.play}</button><div class="pl-cover-tools"><button class="cover-tool" data-rename="${p.id}" title="${t('pl.renameTitle')}">${ICON.pencil}</button><button class="cover-tool" data-del="${p.id}" title="${t('pl.delPlaylist')}">${ICON.trash}</button></div></div><div class="pl-name">${escAttr(p.name)}</div><div class="pl-meta">${t('std.songs', { n: songCount })}</div></div>`;
   }).join('');
   grid.querySelectorAll('[data-play-pl]').forEach(b=>{
     b.onclick=(e)=>{ e.stopPropagation(); const pl=S.playlists.find(p=>p.id===b.dataset.playPl); const first = pl && playlistTracks(pl)[0]; if(!first) return; setPlaylistPlayback(pl.id); load(trackIndexByPath(first.path),true); };
   });
   grid.querySelectorAll('[data-rename]').forEach(b=>{
-    b.onclick=(e)=>{ e.stopPropagation(); const pl=S.playlists.find(p=>p.id===b.dataset.rename); (async()=>{ const nn=await showPrompt('Rename Playlist', 'Nama baru:', pl.name); if(nn&&nn.trim()){ pl.name=nn.trim(); savePlaylists(); renderPlaylistsOverview(); } })(); };
+    b.onclick=(e)=>{ e.stopPropagation(); const pl=S.playlists.find(p=>p.id===b.dataset.rename); (async()=>{ const nn=await showPrompt(t('pl.renameTitle'), t('pl.renamePrompt'), pl.name); if(nn&&nn.trim()){ pl.name=nn.trim(); savePlaylists(); renderPlaylistsOverview(); } })(); };
   });
   grid.querySelectorAll('[data-del]').forEach(b=>{
     b.onclick=(e)=>{ e.stopPropagation(); (async()=>{ const ok=await showConfirm(t('pl.delTitle'), t('pl.delConfirm', { n: S.playlists.find((p) => p.id === b.dataset.del)?.name })); if(!ok) return; const delId=b.dataset.del; S.playlists=S.playlists.filter(p=>p.id!==delId); if(S.playlistPlayback?.id===delId) S.playlistPlayback=null; savePlaylists(); renderPlaylistsOverview(); })(); };
@@ -126,7 +126,7 @@ export function renderPlaylistDetail(pid){
   titleEl.textContent = pl.name;
   const filtered = playlistTracks(pl);
   if (filtered.length===0) {
-    listEl.innerHTML = `<div style="padding:24px; text-align:center; color:var(--muted)">Playlist kosong<br><span style="font-size:11px">Tambah lagu dari Local Music via ⋯ → Add to playlist</span></div>`;
+    listEl.innerHTML = `<div style="padding:24px; text-align:center; color:var(--muted)">${t('pl.emptyDetail')}<br><span style="font-size:11px">${t('pl.emptyDetailHint')}</span></div>`;
     return;
   }
   listEl.innerHTML = '';
@@ -186,7 +186,7 @@ export function renderAlbumDetail(key){
   if (!titleEl || !listEl) return;
   titleEl.textContent = key || 'Unknown Album';
   if (!g || !g.tracks.length) {
-    listEl.innerHTML = `<div style="padding:24px; text-align:center; color:var(--muted)">Album kosong atau lagu sudah dihapus<br><span style="font-size:11px">Kembali ke Local Music untuk lihat daftar</span></div>`;
+    listEl.innerHTML = `<div style="padding:24px; text-align:center; color:var(--muted)">${t('pl.emptyAlbum')}<br><span style="font-size:11px">${t('pl.emptyAlbumHint')}</span></div>`;
     return;
   }
   listEl.innerHTML = '';
@@ -209,7 +209,7 @@ export function renderArtistDetail(key){
   if (!titleEl || !listEl) return;
   titleEl.textContent = key || 'Unknown';
   if (!g || !g.tracks.length) {
-    listEl.innerHTML = `<div style="padding:24px; text-align:center; color:var(--muted)">Artis kosong atau lagu sudah dihapus<br><span style="font-size:11px">Kembali ke Local Music untuk lihat daftar</span></div>`;
+    listEl.innerHTML = `<div style="padding:24px; text-align:center; color:var(--muted)">${t('pl.emptyArtist')}<br><span style="font-size:11px">${t('pl.emptyAlbumHint')}</span></div>`;
     return;
   }
   listEl.innerHTML = '';

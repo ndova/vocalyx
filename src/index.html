@@ -107,8 +107,8 @@
                 <option value="title" data-t="th.title">Title</option>
                 <option value="album" data-t="topbar.album">Album</option>
               </select>
-              <select id="searchSource" class="btn-add-folder" style="min-width:120px" title="Sumber download (resource)">
-                <option value="all">Semua resource</option>
+              <select id="searchSource" class="btn-add-folder" style="min-width:120px" data-t-title="se.filterResource" title="Sumber download (resource)">
+                <option value="all" data-t="se.filterAllResource">Semua resource</option>
                 <option value="spotify">Spotify</option>
                 <option value="deezer">Deezer</option>
                 <option value="soundcloud">SoundCloud</option>
@@ -140,7 +140,7 @@
             <div class="playlist-tools">
               <button id="btnSelectLocal" data-t-title="btn.selectOne" title="Single select mode"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="checkbox"></svg></button>
               <button id="btnAddFolder" class="btn-add-folder" data-t-title="btn.addFolderTitle" title="Pick a music folder (mp3/m4a)"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="plus"></svg> <span data-t="btn.addFolder">Add Folder</span></button>
-              <select id="localSearchFilter" class="btn-add-folder" style="min-width:100px" title="Tampilan Local Music">
+              <select id="localSearchFilter" class="btn-add-folder" style="min-width:100px" data-t-title="lib.viewLocal" title="Tampilan Local Music">
                 <option value="artist" data-t="se.filterArtist">Artis</option>
                 <option value="title" selected>Title</option>
                 <option value="album" data-t="topbar.album">Album</option>
@@ -261,7 +261,7 @@
               </div>
             </div>
             <div class="device-status-body">
-              <div id="deviceStatusText" style="font-size:11px; color:var(--muted)">Mengecek...</div>
+              <div id="deviceStatusText" style="font-size:11px; color:var(--muted)" data-t="eng.cudaChecking">Mengecek...</div>
               <div id="deviceMeta" style="font-size:11px; color:var(--muted); margin-top:4px"></div>
               <span id="iphoneLibraryCount" style="font-size:11px; color:var(--muted); display:none"></span>
             </div>
@@ -329,7 +329,7 @@
               <div class="settings-block">
                 <div class="settings-label" data-t="set.dlFolder">Downloads Folder</div>
                 <div class="settings-row">
-                  <input id="dlFolder" class="modal-input settings-grow" readonly="" placeholder="Default: ./downloads">
+                  <input id="dlFolder" class="modal-input settings-grow" readonly="" data-t-placeholder="lib.defaultFolder" placeholder="Default: ./downloads">
                   <button id="btnBrowseFolder" class="btn-add-folder">Browse</button>
                 </div>
                 <div class="settings-desc" data-t="set.dlFolderHint">One folder for every download from every source.</div>
@@ -482,7 +482,7 @@
 
               <div class="settings-block">
                 <div class="settings-label" data-t="set.deezerArl">Deezer ARL</div>
-                <input id="dzArl" class="modal-input" placeholder="ARL (192+ chars, dari cookie deezer.com)" type="password" style="margin-bottom:8px">
+                <input id="dzArl" class="modal-input" data-t-placeholder="ph.arlCookie" placeholder="ARL (192+ chars, dari cookie deezer.com)" type="password" style="margin-bottom:8px">
                 <div class="settings-row">
                   <button id="btnSaveArl" class="btn-add-folder" data-t="btn.saveArl">Save</button>
                   <button id="btnTestArl" class="btn-add-folder" data-t="btn.test">Test →</button>
@@ -547,7 +547,7 @@
           <div class="wave-tools">
             <button id="btnHideViz" data-t-title="btn.hideVisualizer" title="Hide Visualizer"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="activity"></svg></button>
             <button id="btnHideEq" data-t-title="btn.hideEqualizer" title="Hide Equalizer"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="chart-bar"></svg></button>
-            <button id="btnTheme" title="Mode gelap"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="moon"></svg></button>
+            <button id="btnTheme" data-t-title="set.darkMode" title="Mode gelap"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="moon"></svg></button>
             <button id="btnHelp" data-t-title="topbar.help" title="Help"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="help"></svg></button>
           </div>
           <div class="wave-viz" id="waveViz">

@@ -33,7 +33,7 @@ function showAudioNotice(tk, notice, via) {
     msg = cap ? t('eng.cappedMax', { src, cap, kbps: actual })
               : t('eng.cappedSrc', { kbps: actual });
   } else {
-    msg = `${tk.title || t('eng.genericTrack')} selesai: ${actual} dari ${src}`;
+    msg = t('eng.doneOfSrc', { title: tk.title || t('eng.genericTrack'), actual, src });
   }
   showToast(msg);
 }
@@ -130,7 +130,7 @@ async function refreshCudaStatus(force) {
   if (dot) dot.style.background = active ? 'var(--accent)' : 'var(--muted)';
   if (el) {
     if (active) {
-      const vram = (caps.vram_free_gb != null && caps.vram_total_gb != null) ? ` • VRAM bebas ${caps.vram_free_gb}/${caps.vram_total_gb} GB` : '';
+      const vram = (caps.vram_free_gb != null && caps.vram_total_gb != null) ? ` • ${t('eng.vramFree', { a: caps.vram_free_gb, b: caps.vram_total_gb })}` : '';
       el.textContent = `${t('eng.active')}: ${caps.device || 'GPU'}${vram}`;
     } else el.textContent = t('eng.notDetected');
     el.style.color = active ? 'var(--muted)' : '#e5484d';
@@ -449,11 +449,11 @@ const caps0 = await karaokeCaps().catch(() => null);
         started = await startRes.json();
       } catch {
         try { outBlob = await startRes.blob(); } catch {}
-        if (!outBlob || !outBlob.size) throw new Error('Respons engine bukan JSON job (kemungkinan engine lama). Restart engine lalu coba lagi.');
+        if (!outBlob || !outBlob.size) throw new Error(t('eng.sepBadJson'));
       }
       if (!outBlob) {
         jobId = started.job_id;
-        if (!jobId) throw new Error('engine tidak mengembalikan job_id');
+        if (!jobId) throw new Error(t('eng.errNoJobId'));
         S.karaokeJobId = jobId;
         try { syncKaraokeBtn(); } catch {}
     const progUrl = (id) => ENG_BASE + '/separate/progress?job_id=' + encodeURIComponent(id);
@@ -495,12 +495,12 @@ const caps0 = await karaokeCaps().catch(() => null);
       const elapsed = (Date.now() - t0) / 1000;
       if (pj && pj.status === 'done') { done = true; break; }
       if (pj && (pj.status === 'failed' || pj.status === 'cancelled')) { failErr = pj.error || pj.status; break; }
-      if (elapsed > 1200) { failErr = 'timeout 20 mnt'; break; }
+      if (elapsed > 1200) { failErr = t('eng.timeout20m'); break; }
       await new Promise(r => setTimeout(r, 1000));
     }
     S.karaokeJobId = null;
     if (S.karaokeCancelled) { tk.karaoke_job = false; tk.karaoke_pct = null; tk.karaoke_stalled = false; try { renderTracks($('#globalSearch')?.value || ''); } catch {} return; }
-    if (!done) { tk.karaoke_job = false; tk.karaoke_pct = null; tk.karaoke_stalled = false; try { renderTracks($('#globalSearch')?.value || ''); } catch {} throw new Error(failErr || 'separation gagal'); }
+    if (!done) { tk.karaoke_job = false; tk.karaoke_pct = null; tk.karaoke_stalled = false; try { renderTracks($('#globalSearch')?.value || ''); } catch {} throw new Error(failErr || t('eng.separationFailed')); }
     tk.karaoke_pct = 100; tk.karaoke_stalled = false;
     try { if (!updateKaraokeBadge(tk)) rerenderTrackViews(); } catch {}
     try {
@@ -526,7 +526,7 @@ const caps0 = await karaokeCaps().catch(() => null);
     }
       }
     }
-    if (!outBlob || !outBlob.size) throw new Error('Hasil karaoke kosong');
+    if (!outBlob || !outBlob.size) throw new Error(t('eng.errEmptyResult'));
     let savePath = null;
     try {
       const b64 = await new Promise((res, rej) => {

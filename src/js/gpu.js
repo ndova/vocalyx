@@ -14,12 +14,12 @@ export function karaokeCudaLabel(caps) {
   if (!caps) return t('eng.offlineCuda');
   if (caps.cuda) {
     const vram = (caps.vram_free_gb != null && caps.vram_total_gb != null)
-      ? ` • VRAM bebas ${caps.vram_free_gb}/${caps.vram_total_gb} GB` : '';
-    const kim = caps.kim_cached ? ` • model Kim ${caps.kim_mb || '?'} MB (cached)` : ' • model Kim belum terdownload';
-    return `CUDA terdeteksi: ${caps.device || 'GPU'}${vram}${kim}`;
+      ? ` • ${t('eng.vramFree', { a: caps.vram_free_gb, b: caps.vram_total_gb })}` : '';
+    const kim = caps.kim_cached ? ` • model Kim ${caps.kim_mb || '?'} MB (cached)` : ` • ${t('eng.kimNotCached')}`;
+    return t('eng.cudaDetected', { n: `${caps.device || 'GPU'}${vram}${kim}` });
   }
-  const prov = (caps.providers && caps.providers.length) ? caps.providers.join(',') : 'tanpa provider GPU';
-  return `CUDA tidak aktif — runtime bawaan memakai PyTorch CPU (${prov}). Untuk memakai GPU, klik "Install CUDA dependencies" di Settings › Karaoke.`;
+  const prov = (caps.providers && caps.providers.length) ? caps.providers.join(',') : t('eng.noGpuProvider');
+  return t('eng.cudaNotActive', { n: prov });
 }
 
 function autoRefreshCudaStatus(engineOnline) {
@@ -109,7 +109,7 @@ async function runApplyDevice(device, gpuPython) {
       if (online && (!strict || active === true)) { matched = true; break; }
     }
     if (!matched) {
-      try { showToast(`${t('set.deviceSwitchFailed')}: engine tidak sesuai device ${device}`, 7000); } catch {}
+      try { showToast(`${t('set.deviceSwitchFailed')}: ${t('eng.deviceMismatch', { n: device })}`, 7000); } catch {}
       return null;
     }
     applyDeviceHint(cached ? 'ready' : 'checking', lastDetected);

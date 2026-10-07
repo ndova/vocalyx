@@ -44,16 +44,16 @@ export async function editDownloaded(d){
 
   const coverHtml = curCover
     ? `<img src="${escAttr(curCover)}" alt="cover" style="max-width:120px; max-height:120px; border-radius:8px; border:1px solid var(--line);">`
-    : `<div style="width:120px; height:120px; border-radius:8px; border:1px dashed var(--line); display:grid; place-items:center; color:var(--muted); font-size:11px">Belum ada cover</div>`;
+    : `<div style="width:120px; height:120px; border-radius:8px; border:1px dashed var(--line); display:grid; place-items:center; color:var(--muted); font-size:11px">${t('iph.noCoverYet')}</div>`;
 
   if (formWrap) {
     formWrap.style.display = 'block';
     formWrap.innerHTML = `
       <div style="display:flex; flex-direction:column; gap:12px;">
         <div style="display:flex; flex-direction:column; gap:8px;">
-          <label style="font-size:11px; color:var(--muted); display:flex; flex-direction:column; gap:4px">Judul<input class="modal-input" data-field="title" value="${escAttr(cur.title)}" /></label>
-          <label style="font-size:11px; color:var(--muted); display:flex; flex-direction:column; gap:4px">Artis<input class="modal-input" data-field="artist" value="${escAttr(cur.artist)}" /></label>
-          <label style="font-size:11px; color:var(--muted); display:flex; flex-direction:column; gap:4px">Album<input class="modal-input" data-field="album" value="${escAttr(cur.album)}" /></label>
+          <label style="font-size:11px; color:var(--muted); display:flex; flex-direction:column; gap:4px">${t('me.fieldTitle')}<input class="modal-input" data-field="title" value="${escAttr(cur.title)}" /></label>
+          <label style="font-size:11px; color:var(--muted); display:flex; flex-direction:column; gap:4px">${t('me.fieldArtist')}<input class="modal-input" data-field="artist" value="${escAttr(cur.artist)}" /></label>
+          <label style="font-size:11px; color:var(--muted); display:flex; flex-direction:column; gap:4px">${t('me.fieldAlbum')}<input class="modal-input" data-field="album" value="${escAttr(cur.album)}" /></label>
         </div>
         <div style="padding-top:8px; border-top:1px solid var(--line); display:flex; flex-direction:column; gap:10px;">
           <div>
@@ -63,14 +63,14 @@ export async function editDownloaded(d){
           </div>
           <div>
             <label style="font-size:11px; color:var(--muted); display:block; margin-bottom:4px;">${t('me.coverUrlManual')}</label>
-            <input type="url" id="coverUrlInput" class="modal-input" placeholder="https://...jpg atau https://...png" style="width:100%;">
+            <input type="url" id="coverUrlInput" class="modal-input" placeholder="${t('ph.coverUrl')}" style="width:100%;">
             <div style="font-size:11px; color:var(--muted); margin-top:4px;">${t('me.coverAutoResolve')}</div>
           </div>
           <div style="display:flex; align-items:center; gap:8px;">
             <input type="checkbox" id="autoResolveCover" checked>
             <label for="autoResolveCover" style="font-size:12px; cursor:pointer">${t('me.coverUrlAuto')}</label>
           </div>
-          <button id="btnRemoveCover" class="btn-more"${curCover ? '' : ' disabled'} style="flex:1; background:var(--card2); color:var(--muted); border:1px solid var(--line);"${curCover ? '' : ' title="Belum ada cover"'}>${ICON.trash} Hapus Cover</button>
+          <button id="btnRemoveCover" class="btn-more"${curCover ? '' : ' disabled'} style="flex:1; background:var(--card2); color:var(--muted); border:1px solid var(--line);"${curCover ? '' : ` title="${t('iph.noCoverYet')}"`}>${ICON.trash} ${t('me.removeCover')}</button>
         </div>
       </div>
     `;
@@ -294,15 +294,15 @@ async function editLocalTrack(tIdx){
   const escAttr2 = (s)=> String(s ?? '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const coverHtml2 = curCover
     ? `<img src="${escAttr2(curCover)}" alt="cover" style="max-width:120px; max-height:120px; border-radius:8px; border:1px solid var(--line);">`
-    : `<div style="width:120px; height:120px; border-radius:8px; border:1px dashed var(--line); display:grid; place-items:center; color:var(--muted); font-size:11px">Belum ada cover</div>`;
+    : `<div style="width:120px; height:120px; border-radius:8px; border:1px dashed var(--line); display:grid; place-items:center; color:var(--muted); font-size:11px">${t('iph.noCoverYet')}</div>`;
   if (formWrap) {
     formWrap.style.display = 'block';
     formWrap.innerHTML = `
       <div style="display:flex; flex-direction:column; gap:12px;">
         <div style="display:flex; flex-direction:column; gap:8px;">
-          <label style="font-size:11px; color:var(--muted); display:flex; flex-direction:column; gap:4px">Judul<input class="modal-input" data-field="title" value="${escAttr2(cur.title)}" /></label>
-          <label style="font-size:11px; color:var(--muted); display:flex; flex-direction:column; gap:4px">Artis<input class="modal-input" data-field="artist" value="${escAttr2(cur.artist)}" /></label>
-          <label style="font-size:11px; color:var(--muted); display:flex; flex-direction:column; gap:4px">Album<input class="modal-input" data-field="album" value="${escAttr2(cur.album)}" /></label>
+          <label style="font-size:11px; color:var(--muted); display:flex; flex-direction:column; gap:4px">${t('me.fieldTitle')}<input class="modal-input" data-field="title" value="${escAttr2(cur.title)}" /></label>
+          <label style="font-size:11px; color:var(--muted); display:flex; flex-direction:column; gap:4px">${t('me.fieldArtist')}<input class="modal-input" data-field="artist" value="${escAttr2(cur.artist)}" /></label>
+          <label style="font-size:11px; color:var(--muted); display:flex; flex-direction:column; gap:4px">${t('me.fieldAlbum')}<input class="modal-input" data-field="album" value="${escAttr2(cur.album)}" /></label>
         </div>
         <div style="padding-top:8px; border-top:1px solid var(--line); display:flex; flex-direction:column; gap:10px;">
           <div>
@@ -312,14 +312,14 @@ async function editLocalTrack(tIdx){
           </div>
           <div>
             <label style="font-size:11px; color:var(--muted); display:block; margin-bottom:4px;">${t('me.coverUrlManual')}</label>
-            <input type="url" id="coverUrlInputLocal" class="modal-input" placeholder="https://...jpg atau https://...png" style="width:100%;">
+            <input type="url" id="coverUrlInputLocal" class="modal-input" placeholder="${t('ph.coverUrl')}" style="width:100%;">
             <div style="font-size:11px; color:var(--muted); margin-top:4px;">${t('me.coverAutoResolve')}</div>
           </div>
           <div style="display:flex; align-items:center; gap:8px;">
             <input type="checkbox" id="autoResolveCoverLocal" checked>
             <label for="autoResolveCoverLocal" style="font-size:12px; cursor:pointer">${t('me.coverUrlAuto')}</label>
           </div>
-          <button id="btnRemoveCoverLocal" class="btn-more"${curCover ? '' : ' disabled'} style="flex:1; background:var(--card2); color:var(--muted); border:1px solid var(--line);"${curCover ? '' : ' title="Belum ada cover"'}>${ICON.trash} Hapus Cover</button>
+          <button id="btnRemoveCoverLocal" class="btn-more"${curCover ? '' : ' disabled'} style="flex:1; background:var(--card2); color:var(--muted); border:1px solid var(--line);"${curCover ? '' : ` title="${t('iph.noCoverYet')}"`}>${ICON.trash} ${t('me.removeCover')}</button>
         </div>
       </div>
     `;

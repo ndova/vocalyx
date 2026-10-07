@@ -22,8 +22,8 @@ export function clearSearchResults(){
   const statusEl = document.getElementById('searchStatus');
   const q = (document.getElementById('searchViewInput')?.value || '').trim();
   if (listEl) listEl.innerHTML = emptyStateHtml(q
-    ? `Hasil untuk "${escAttr(q)}" sudah dibersihkan<br><span style="font-size:11px">Tekan Enter untuk mencari lagi</span>`
-    : 'Ketik kata kunci, lalu tekan <b>Enter</b> untuk pencarian lagu<br><span style="font-size:11px">Hasil pencarian online akan muncul di sini</span>');
+    ? `${t('se.clearedTitle', { q: escAttr(q) })}<br><span style="font-size:11px">${t('se.clearedHint')}</span>`
+    : `${t('se.idleTitle')}<br><span style="font-size:11px">${t('se.idleHint')}</span>`);
   if (statusEl) statusEl.textContent = '';
   const head = document.getElementById('searchTableHead');
   if (head) head.style.display = 'none';
@@ -32,7 +32,7 @@ if (pg) { pg.style.display = 'none'; pg.innerHTML = ''; }
 }
 
 function searchLoaderHtml(big = true, q = '') {
-  const label = q ? `Mencari '${escAttr(q)}'...` : 'Mencari...';
+  const label = q ? t('se.searchingShort', { q: escAttr(q) }) : t('se.searchingDots');
   const icon = `<svg class="sl-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>`;
   if (big) {
     return `<div id="searchLoader" class="search-loading-center" role="status" aria-live="polite">
@@ -91,14 +91,14 @@ export async function renderSearchView(){
   const source = sourceEl ? sourceEl.value : 'all';
   try { localStorage.setItem('vocalyx_searchSource_v1', source); } catch {}
   if (!q) {
-    listEl.innerHTML = `<div style="padding:24px; text-align:center; color:var(--muted)">Ketik kata kunci, lalu tekan <b>Enter</b> untuk pencarian lagu<br><span style="font-size:11px">Hasil pencarian online akan muncul di sini</span></div>`;
+    listEl.innerHTML = `<div style="padding:24px; text-align:center; color:var(--muted)">${t('se.idleTitle')}<br><span style="font-size:11px">${t('se.idleHint')}</span></div>`;
     if (statusEl) statusEl.textContent = '';
     return;
   }
   if (S.searchOnlineTimer) clearTimeout(S.searchOnlineTimer);
   const myReq = ++S.searchReqId;
   const SRC_LABEL = { spotify: 'Spotify', deezer: 'Deezer', soundcloud: 'SoundCloud', archive: 'Archive.org', '4shared': '4shared' };
-  if (statusEl) statusEl.textContent = `Mencari online "${q}" di ${SRC_LABEL[source] || 'Spotify / SoundCloud / 4shared / Archive.org'}...`;
+  if (statusEl) statusEl.textContent = t('se.searching', { q, src: SRC_LABEL[source] || 'Spotify / SoundCloud / 4shared / Archive.org' });
   listEl.innerHTML = searchLoaderHtml(true, q);
   applySearchGridWidths();
   const run = async ()=>{
@@ -120,7 +120,7 @@ export async function renderSearchView(){
       listEl.querySelector('#searchLoader')?.remove();
       if (!online.length) {
         if (allFailed) {
-          listEl.innerHTML = `<div style="padding:24px; text-align:center; color:var(--muted)">Semua sumber pencarian gagal.<br><span style="font-size:11px">Cek Python engine / koneksi, lalu Enter ulang</span></div>`;
+          listEl.innerHTML = `<div style="padding:24px; text-align:center; color:var(--muted)">${t('se.allSourcesFailTitle')}<br><span style="font-size:11px">${t('se.allSourcesFailHint')}</span></div>`;
           if (statusEl) statusEl.textContent = t('se.allSourcesFail', { q, n: dbgSummary ? ' — ' + dbgSummary : '' });
         } else {
           listEl.innerHTML = `<div style="padding:24px; text-align:center; color:var(--muted)">${t('se.noResultsShort')}<br><span style="font-size:11px">${escAttr(data.saran || t('se.tryOtherKw'))}</span></div>`;
@@ -323,7 +323,7 @@ function openSearchGroupPopup(kind, g){
   formWrap.innerHTML = '';
   const head = document.createElement('div');
   head.className = 'search-popup-head';
-  head.innerHTML = `<div class="search-popup-cover">${searchCoverHtml(g.cover, g.name)}</div><div class="search-popup-meta"><div class="search-popup-name">${escAttr(g.name)}</div><div class="search-popup-sub">${escAttr(artistTxt ? artistTxt + ' • ' : '')}${g.tracks.length} lagu</div></div>`;
+  head.innerHTML = `<div class="search-popup-cover">${searchCoverHtml(g.cover, g.name)}</div><div class="search-popup-meta"><div class="search-popup-name">${escAttr(g.name)}</div><div class="search-popup-sub">${escAttr(artistTxt ? artistTxt + ' • ' : '')}${t('std.songs', { n: g.tracks.length })}</div></div>`;
   const list = document.createElement('div');
   list.className = 'search-popup-list';
   g.tracks.forEach((t, i) => list.appendChild(searchTrackRow(t, i)));
@@ -376,7 +376,7 @@ function renderSearchGrouped(){
     h.textContent = label;
     listEl.appendChild(h);
   };
-  sec('Lagu');
+  sec(t('se.sectionTracks'));
   S.searchResults.slice(0, 5).forEach((t, i) => listEl.appendChild(searchTrackRow(t, i)));
   if (albums.length) {
     sec('Album');
@@ -385,7 +385,7 @@ function renderSearchGrouped(){
     grid.className = 'playlist-grid';
     grid.innerHTML = shownAlbums.map((g, gi) => {
       const artistTxt = [...g.artists].slice(0, 3).join(', ');
-      return `<div class="pl-card" data-album="${gi}"><div class="pl-cover-stack">${searchCoverHtml(g.cover, g.name)}</div><div class="pl-name">${escAttr(g.name)}</div><div class="pl-meta">${escAttr(artistTxt)} • ${g.tracks.length} lagu</div></div>`;
+      return `<div class="pl-card" data-album="${gi}"><div class="pl-cover-stack">${searchCoverHtml(g.cover, g.name)}</div><div class="pl-name">${escAttr(g.name)}</div><div class="pl-meta">${escAttr(artistTxt)} • ${t('std.songs', { n: g.tracks.length })}</div></div>`;
     }).join('');
     listEl.appendChild(grid);
     grid.querySelectorAll('[data-album]').forEach((c) => {
@@ -393,12 +393,12 @@ function renderSearchGrouped(){
     });
   }
   if (artists.length) {
-    sec('Artis');
+    sec(t('se.sectionArtists'));
     const shownArtists = artists.slice(0, 8);
     const grid = document.createElement('div');
     grid.className = 'playlist-grid';
     grid.innerHTML = shownArtists.map((g, gi) => {
-      return `<div class="pl-card" data-artist="${gi}"><div class="pl-cover-stack">${searchCoverHtml(g.cover, g.name)}</div><div class="pl-name">${escAttr(g.name)}</div><div class="pl-meta">${g.tracks.length} lagu</div></div>`;
+      return `<div class="pl-card" data-artist="${gi}"><div class="pl-cover-stack">${searchCoverHtml(g.cover, g.name)}</div><div class="pl-name">${escAttr(g.name)}</div><div class="pl-meta">${t('std.songs', { n: g.tracks.length })}</div></div>`;
     }).join('');
     listEl.appendChild(grid);
     grid.querySelectorAll('[data-artist]').forEach((c) => {

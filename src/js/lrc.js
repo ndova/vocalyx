@@ -6,7 +6,6 @@ const WORD_RE = new RegExp(WORD_SRC, 'g');
 const HEAD_RE = /^\[(ar|ti|al|by|length|offset|re|ve):/i;
 const HEAD_ONLY_RE = /^\[[^\]]+\]\s*$/;
 const PLAIN_T = 99999;
-const NO_SYNC = t('lyr.noSynced');
 
 export function escHtml(s) {
   return String(s == null ? '' : s)
@@ -26,7 +25,8 @@ export function hasWordTags(s) {
 }
 
 export function defaultLyrics() {
-  return [{ t: 0, x: NO_SYNC, d: NO_SYNC }];
+  const noSync = t('lyr.noSynced');
+  return [{ t: 0, x: noSync, d: noSync }];
 }
 
 function fracToSec(f) {

@@ -1,7 +1,7 @@
 import { $, audio, trackListEl, lyricsEl, canvas, ctx, seek, tCur, tLeft } from './js/dom.js';
 import { EQ_FREQS, EQ_PRESETS } from './js/eq-data.js';
 export { initI18n, applyLang, lang, t, onLangChange, translateTree, syncDocument, i18nBase, i18nLangs, i18nMissing, i18nKeys } from './js/i18n/core.js';
-import { initI18n, lang, translateTree } from './js/i18n/core.js';
+import { initI18n, lang, t, translateTree } from './js/i18n/core.js';
 export { presetLabel, presetList, migrateEqState } from './js/i18n/presets.js';
 import { migrateEqState } from './js/i18n/presets.js';
 import { fmt, coverHtml, hashStr, escAttr } from './js/format.js';
@@ -112,5 +112,5 @@ setInterval(()=>{ if(S.activeView==='device') checkIPhoneConnected(); }, 3000);
     } catch {}
     await new Promise(r => setTimeout(r, 2000));
   }
-  showToast('Engine offline — cek log di %APPDATA%\\VocaLyx\\engine.log', 9000);
+  showToast(t('eng.offlineLog', { path: '%APPDATA%\\VocaLyx\\engine.log' }), 9000);
 })();

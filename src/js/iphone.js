@@ -63,14 +63,14 @@ async function checkIPhoneConnected() {
     const countEl = document.getElementById('iphoneTrackCount');
     if (connected) {
       if (dot) dot.style.background = 'var(--accent)';
-      if (statusEl) statusEl.textContent = `Terhubung: ${j.devices[0].name} • iOS ${j.devices[0].ios}`;
+      if (statusEl) statusEl.textContent = t('iph.connected', { n: `${j.devices[0].name} • iOS ${j.devices[0].ios}` });
       if (metaEl) metaEl.textContent = `${j.devices[0].model} • ${j.devices[0].identifier.slice(0,8)}…`;
       try {
         const lr = await fetch('http://127.0.0.1:8001/iphone/library');
         const lj = await lr.json();
         if (badge && lj.ok) {
           badge.style.display = '';
-          badge.textContent = `iPhone • ${lj.library_count} lagu • ${j.devices[0].ios}`;
+          badge.textContent = t('iph.libBadge', { n: t('std.songs', { n: lj.library_count }), ios: j.devices[0].ios });
         }
       } catch {}
       if (S._prevIPhoneConnected === false && S.activeView === 'device') loadIPhoneLibrary();
@@ -161,18 +161,18 @@ export async function loadIPhoneLibrary(){
   const countEl = document.getElementById('iphoneTrackCount');
   if (!listEl) return;
   setIPhoneHeadVisible(false);
-  listEl.innerHTML = `<div style="padding:12px; text-align:center; color:var(--muted); font-size:11px"><div class="spinner small"></div> Memuat...</div>`;
+  listEl.innerHTML = `<div style="padding:12px; text-align:center; color:var(--muted); font-size:11px"><div class="spinner small"></div> ${t('iph.loading')}</div>`;
   try {
     const r = await fetch('http://127.0.0.1:8001/iphone/library/tracks?limit=500');
     const j = await r.json();
-    if (!j.ok) { listEl.innerHTML = `<div style="padding:12px; text-align:center; color:var(--muted)">Gagal: ${j.error||''}</div>`; return; }
+    if (!j.ok) { listEl.innerHTML = `<div style="padding:12px; text-align:center; color:var(--muted)">${t('std.error', { n: j.error || '' })}</div>`; return; }
     S.iphoneTracks = j.tracks || [];
     sortIPhoneTracks();
     const withFile = S.iphoneTracks.filter(t => t.full_path).length;
     if (countEl) countEl.textContent = t('iph.countWithFile', { n: S.iphoneTracks.length, f: withFile });
     S.iphoneSelected.clear();
     updateIPhoneSelectionUI();
-    if (!S.iphoneTracks.length) { listEl.innerHTML = `<div style="padding:48px 12px;text-align:center;color:var(--muted)">Library kosong<div style="font-size:11px;margin-top:6px">Seret &amp; letakkan file musik ke area ini untuk import ke iPhone</div></div>`; return; }
+    if (!S.iphoneTracks.length) { listEl.innerHTML = `<div style="padding:48px 12px;text-align:center;color:var(--muted)">${t('iph.emptyLib')}<div style="font-size:11px;margin-top:6px">${t('iph.emptyLibHint')}</div></div>`; return; }
     setIPhoneHeadVisible(true);
     listEl.innerHTML = '';
     const hdrCb = document.querySelector('#iphoneTableHead [data-iphone-sel-all]');
@@ -193,7 +193,7 @@ export async function loadIPhoneLibrary(){
       const hasFile = !!tk.full_path;
       const type = iphoneTypeOf(tk);
       const sizeStr = iphoneSizeStr(tk.file_size);
-      const statusIcon = hasFile ? '' : '<span style="color:var(--muted); font-size:10px; margin-left:4px" title="File tidak ada di device">⊘</span>';
+      const statusIcon = hasFile ? '' : `<span style="color:var(--muted); font-size:10px; margin-left:4px" title="${t('iph.fileNotOnDevice')}">⊘</span>`;
       b.style.opacity = hasFile ? '1' : '0.5';
       let cov = coverHtml(tk);
       if (hasFile) {
@@ -212,7 +212,7 @@ export async function loadIPhoneLibrary(){
     setupIPhoneCoverLazy(listEl);
   } catch (e) {
     setIPhoneHeadVisible(false);
-    listEl.innerHTML = `<div style="padding:12px; text-align:center; color:var(--muted)">Gagal load: ${e.message}</div>`;
+    listEl.innerHTML = `<div style="padding:12px; text-align:center; color:var(--muted)">${t('iph.loadFail', { n: e.message })}</div>`;
   }
 }
 function updateIPhoneSelectionUI(){
@@ -300,7 +300,7 @@ async function openIPhoneEditModal(pid) {
     </div>
     <div style="padding-top:8px; border-top:1px solid var(--line); display:flex; flex-direction:column; gap:10px; margin-top:8px;">
       <div>
-        <label style="font-size:11px; color:var(--muted); display:block; margin-bottom:4px;">Cover Saat Ini</label>
+        <label style="font-size:11px; color:var(--muted); display:block; margin-bottom:4px;">${t('me.coverCurrent')}</label>
         <div id="iphCoverPrev" style="display:flex; align-items:center; gap:8px;">
           <span id="iphCoverSpin" style="font-size:11px; color:var(--muted);">${t('dl.loadingCover')}</span>
           <img src="http://127.0.0.1:8001/iphone/track/cover?item_pid=${Number(pid)}&v=${tk.file_size || 0}" alt="cover" style="max-width:120px; max-height:120px; border-radius:8px; border:1px solid var(--line);" onload="__iphCoverLoaded(this)" onerror="__iphCoverFallback(this)" />
@@ -308,15 +308,15 @@ async function openIPhoneEditModal(pid) {
         <input type="file" id="iphCoverFileInput" accept="image/jpeg,image/png,image/webp" hidden>
       </div>
       <div>
-        <label style="font-size:11px; color:var(--muted); display:block; margin-bottom:4px;">URL Cover Manual (opsional)</label>
-        <input type="url" id="iphCoverUrlInput" class="modal-input" placeholder="https://...jpg atau https://...png" style="width:100%;">
+        <label style="font-size:11px; color:var(--muted); display:block; margin-bottom:4px;">${t('me.coverUrlManual')}</label>
+        <input type="url" id="iphCoverUrlInput" class="modal-input" placeholder="${t('ph.coverUrl')}" style="width:100%;">
         <div style="font-size:11px; color:var(--muted); margin-top:4px;">${t('me.coverAutoResolve')}</div>
       </div>
       <div style="display:flex; align-items:center; gap:8px;">
         <input type="checkbox" id="iphAutoResolveCover" checked>
         <label for="iphAutoResolveCover" style="font-size:12px; cursor:pointer">${t('me.coverUrlAuto')}</label>
       </div>
-      <button id="iphBtnRemoveCover" class="btn-more" style="background:var(--card2); color:var(--muted); border:1px solid var(--line);">${ICON.trash} Hapus Cover</button>
+      <button id="iphBtnRemoveCover" class="btn-more" style="background:var(--card2); color:var(--muted); border:1px solid var(--line);">${ICON.trash} ${t('me.removeCover')}</button>
     </div>`, async (cleanup) => {
     const title = document.getElementById('iphEditTitle')?.value?.trim() || '';
     const artist = document.getElementById('iphEditArtist')?.value?.trim() || '';
@@ -332,7 +332,7 @@ async function openIPhoneEditModal(pid) {
       });
       const j = await r.json();
       if (!j.ok) throw new Error(j.error || '');
-      if (j.changed !== false) showToast('Info lagu diperbarui', 3000);
+      if (j.changed !== false) showToast(t('iph.infoUpdated'), 3000);
       const coverData = pendingIphDrop || undefined;
       if (url || auto || coverData) {
         const rc = await fetch('http://127.0.0.1:8001/iphone/track/cover', {
@@ -350,7 +350,7 @@ async function openIPhoneEditModal(pid) {
     } catch (e) {
       const msg = String(e.message || e);
       const stale = !!pendingIphDrop && /tidak ditemukan|auto-resolve|not found/i.test(msg);
-      showToast(t('iph.saveFail', { n: err?.message || err }), 5000);
+      showToast(t('iph.saveFail', { n: e?.message || e }), 5000);
     }
   });
   setTimeout(() => document.getElementById('iphEditTitle')?.focus(), 50);
@@ -438,7 +438,7 @@ function pollExportJob(jobId) {
         clearInterval(S._exportPollTimer); S._exportPollTimer = null; S._exportJobId = null;
         const ok = (j.results || []).filter(r => r.ok).length;
         const fail = (j.results || []).filter(r => !r.ok).length;
-        setExportProgress(100, `Selesai: ${ok} berhasil${fail ? `, ${fail} gagal` : ''}`);
+        setExportProgress(100, t('iph.exportDone', { ok, extra: fail ? t('iph.exportFailedCount', { n: fail }) : '' }));
         showToast(t('iph.exportDone', { n: ok }), 5000);
         setTimeout(() => setExportProgress(-1, ''), 4000);
       } else if (j.status === 'error') {
@@ -446,7 +446,7 @@ function pollExportJob(jobId) {
         setExportProgress(0, t('std.error', { n: j.error || t('dl.unknownErr') }));
       } else if (j.status === 'cancelled') {
         clearInterval(S._exportPollTimer); S._exportPollTimer = null; S._exportJobId = null;
-        setExportProgress(0, 'Dibatalkan');
+        setExportProgress(0, t('std.cancelled'));
         setTimeout(() => setExportProgress(-1, ''), 2000);
       } else {
         const total = j.total || 1, done = j.done || 0;
@@ -467,9 +467,9 @@ async function exportBatchToDir(pids, dir) {
       body: JSON.stringify({ pids, output_dir: dir })
     });
     const j = await r.json();
-    if (!j.ok) { setExportProgress(0, 'Gagal: ' + (j.error || '')); return; }
+    if (!j.ok) { setExportProgress(0, t('std.error', { n: j.error || '' })); return; }
     pollExportJob(j.job_id);
-  } catch (e) { setExportProgress(0, 'Error: ' + e.message); }
+  } catch (e) { setExportProgress(0, t('std.error', { n: e.message })); }
 }
 
 document.getElementById('btnCancelExport')?.addEventListener('click', async () => {
@@ -479,7 +479,7 @@ document.getElementById('btnCancelExport')?.addEventListener('click', async () =
 });
 
 document.getElementById('btnDeviceExportAll')?.addEventListener('click', async () => {
-  if (!S.iphoneTracks.length) { showToast('Library kosong', 3000); return; }
+  if (!S.iphoneTracks.length) { showToast(t('iph.emptyLib'), 3000); return; }
   try {
     const { open } = await import('@tauri-apps/plugin-dialog');
     const dir = await open({ directory: true, title: t('dl.pickFolderExport') });
@@ -556,7 +556,7 @@ document.getElementById('btnDeviceDeleteSelected')?.addEventListener('click', as
       if (!paths.length) { showToast(t('iph.noAudioInFolder'), 4000); return; }
       await handleLibraryDrop(paths);
     } catch (e) {
-      showToast(t('iph.folderImportFail', { n: err?.message || err }), 5000);
+      showToast(t('iph.folderImportFail', { n: e?.message || e }), 5000);
     }
   });
 }

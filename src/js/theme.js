@@ -4,7 +4,7 @@ import { ico } from './icons-tabler.js';
 import { applyLang, lang, translateTree, t } from './i18n/core.js';
 import { renderTracks, renderDownloads } from '../app.js';
 import { showModal, showAlert } from './modal.js';
-import { _rgGainCache, rgTargetDb, ensureVolumeGain, applyEnhanceState, saveDownloadOptions, renderMainView, renderSearchView, tauriWin, refreshCudaStatus } from '../app.js';
+import { _rgGainCache, rgTargetDb, ensureVolumeGain, applyEnhanceState, saveDownloadOptions, renderMainView, renderSearchView, tauriWin, refreshCudaStatus, loadIPhoneLibrary } from '../app.js';
 
 $('#btnMin').onclick = () => tauriWin((w) => w.minimize());
 async function syncMaxBtn(){
@@ -72,6 +72,9 @@ function setAppLang(langCode) {
   try { renderMainView(); } catch {}
   try { renderTracks($('#globalSearch')?.value || ''); } catch {}
   try { renderDownloads(); } catch {}
+  try { refreshCudaStatus(); } catch {}
+  try { renderSearchView(); } catch {}
+  if (S.activeView === 'device') { try { loadIPhoneLibrary(); } catch {} }
 }
 document.getElementById('setLang')?.addEventListener('change', (e)=>{
   setAppLang(e.target.value);
@@ -326,9 +329,9 @@ document.getElementById('vgBulk')?.addEventListener('click', async ()=>{
       if (j.complete || !j.nextOffset || j.nextOffset <= offset) break;
       offset = j.nextOffset;
     }
-    let msg = `Selesai: ${measured} terukur, ${skipped} cache, ${failed} gagal (total ${total}).`;
-    if (errors.length) msg += `\nContoh gagal: ${errors.slice(0, 3).join('; ')}`;
-    await showAlert('Gain Massal', msg);
+    let msg = t('gain.done', { measured, skipped, failed, total });
+    if (errors.length) msg += '\n' + t('gain.errSample', { n: errors.slice(0, 3).join('; ') });
+    await showAlert(t('gain.mass'), msg);
     Object.keys(_rgGainCache).forEach(k => { if (k.endsWith('|' + target)) delete _rgGainCache[k]; });
   } catch (err) {
     await showAlert(t('gain.mass'), t('gain.failed', { n: err?.message || err }));

@@ -135,7 +135,7 @@ export async function ensureVolumeGain({ notify = false } = {}){
   const token = ++S._rgApplyToken;
   const hit0 = _rgGainCache[rgKeyOf(path)];
   if (hit0) { if (S.actx && S.normGain) applyVolumeGain(hit0.gainDb, hit0.peak); return; }
-  if (notify) showToast('Mengukur loudness…', 4000);
+  if (notify) showToast(t('ac.measuring'), 4000);
   const hit = await fetchRG(path);
   if (token !== S._rgApplyToken) return;
   if ((S.tracks[S.idx]?.path || '') !== path) return;

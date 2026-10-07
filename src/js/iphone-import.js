@@ -82,7 +82,7 @@ export async function handleLibraryDrop(paths) {
   }
   let deletePids = [];
   if (dupEntries.length) {
-    const names = dupEntries.map(f => f.title).slice(0, 3).join(', ') + (dupEntries.length > 3 ? ` dan ${dupEntries.length - 3} lainnya` : '');
+    const names = dupEntries.map(f => f.title).slice(0, 3).join(', ') + (dupEntries.length > 3 ? t('iph.andMore', { n: dupEntries.length - 3 }) : '');
     const replace = await showModal({
       title: t('dl.dupeTitle'),
       message: t('dl.dupeMsg', { n: dupEntries.length, names }),
@@ -186,7 +186,7 @@ async function startIPhoneImport(deletePids = []) {
     S.importQueue = [];
     pollImportProgress();
   } catch (e) {
-    showToast(t('iph.importFail', { n: err?.message || err }), 5000);
+    showToast(t('iph.importFail', { n: e?.message || e }), 5000);
     S.importRunning = false;
     setImportProgress(-1, '');
   }
@@ -215,7 +215,7 @@ function pollImportProgress() {
         S.importPollTimer = null;
         S.importRunning = false;
         S.importJobId = null;
-        setImportProgress(100, '100% Selesai');
+        setImportProgress(100, `100% ${t('iph.importDone')}`);
         showToast(`${j.done} ${t('dl.imported')}`, 6000);
         if (S.activeView === 'device') { try { loadIPhoneLibrary(); } catch {} }
         setTimeout(() => setImportProgress(-1, ''), 4000);
@@ -232,7 +232,7 @@ function pollImportProgress() {
         S.importPollTimer = null;
         S.importRunning = false;
         S.importJobId = null;
-        setImportProgress(0, 'Dibatalkan');
+        setImportProgress(0, t('std.cancelled'));
         showToast(t('iph.importCancelled'), 3000);
         setTimeout(() => setImportProgress(-1, ''), 2000);
       } else {
@@ -241,12 +241,12 @@ function pollImportProgress() {
         const delTotal = j.delete_total || 0;
         const delDone = j.delete_done || 0;
         if (j.phase === 'delete' && delTotal) {
-          const cur = j.current ? ` — ${j.current}` : ` — Menghapus ${delDone}/${delTotal}`;
+          const cur = j.current ? ` — ${j.current}` : t('iph.deleting', { a: delDone, b: delTotal });
           setImportProgress(pct, `${pct}%${cur}`);
         } else {
           const cur = j.current ? ` — ${j.current}` : '';
           const delPart = delTotal && delDone < delTotal
-            ? ` • hapus ${delDone}/${delTotal}` : '';
+            ? ` • ${t('iph.deleteCounter', { a: delDone, b: delTotal })}` : '';
           setImportProgress(pct, `${pct}% — Import ${done}/${total}${delPart}${cur}`);
         }
       }

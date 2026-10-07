@@ -77,7 +77,7 @@ async function collectEnhCandidates(){
 async function pollEnhance(eid, timeoutMs=420000){
   const t0 = Date.now();
   while (Date.now() - t0 < timeoutMs) {
-    if (activeDownloadIds.size > 0) return { status:'cancelled', error:'download aktif' };
+    if (activeDownloadIds.size > 0) return { status:'cancelled', error:t('enh.errDownloadActive') };
     await new Promise(r=>setTimeout(r, 1500));
     try {
       const r = await fetch(`http://127.0.0.1:8001/embed/enhance/progress?enhanceId=${encodeURIComponent(eid)}`);
@@ -85,7 +85,7 @@ async function pollEnhance(eid, timeoutMs=420000){
       if (j && (j.status === 'done' || j.status === 'failed')) return j;
     } catch {}
   }
-  return { status:'failed', error:'timeout menunggu enhance' };
+  return { status:'failed', error:t('enh.errTimeout') };
 }
 const ENH_OK_EXTS = ['mp3','m4a','flac','ogg','opus'];
 function paintEnhanceItem(btn, path, ext, ready=true) {
@@ -93,13 +93,13 @@ function paintEnhanceItem(btn, path, ext, ready=true) {
   if (!S.downloadOptions.audioEnhance && !S.downloadOptions.normalizeVolume) { btn.style.display = 'none'; return; }
   btn.style.display = '';
   const set = (html, dis) => { btn.innerHTML = html; btn.disabled = !!dis; };
-  if (!path || !ready) { set('Belum selesai', true); return; }
-  if (!ENH_OK_EXTS.includes(String(ext||'').toLowerCase())) { set('Format tak didukung', true); return; }
-  set(`${ICON.sparkles} Enhance file`, false);
+  if (!path || !ready) { set(t('pl.notDoneYet'), true); return; }
+  if (!ENH_OK_EXTS.includes(String(ext||'').toLowerCase())) { set(t('enh.unsupported'), true); return; }
+  set(`${ICON.sparkles} ${t('me.enhanceFile')}`, false);
   isEnhMarked(path).then(marked => {
     if (!btn.isConnected) return;
-    if (marked) set(`${ICON.check} Sudah di-enhance`, true);
-    else set(`${ICON.sparkles} Enhance file`, false);
+    if (marked) set(`${ICON.check} ${t('pl.alreadyEnhanced')}`, true);
+    else set(`${ICON.sparkles} ${t('me.enhanceFile')}`, false);
   }).catch(()=>{});
 }
 async function enhanceOneFile(path, label){
@@ -115,9 +115,9 @@ async function enhanceOneFile(path, label){
       await markEnhanced(path);
       try { renderDownloads(); renderTracks($('#globalSearch')?.value || ''); } catch {}
       showToast(`Enhanced${useEnh && !S.downloadOptions.audioEnhance ? ' (declip)' : ''}: ${label || path}`, 4000);
-    } else throw new Error((fin && fin.error) || 'gagal');
+    } else throw new Error((fin && fin.error) || t('enh.errGeneric'));
   } catch (err) {
-    await showAlert('Enhance', 'Gagal: ' + (err?.message || err));
+    await showAlert('Enhance', t('std.error', { n: err?.message || err }));
   }
 }
 export async function sweepEnhance(opts={}){
@@ -127,7 +127,7 @@ export async function sweepEnhance(opts={}){
   if (S._sweepRunning) { if (!silent && !noPrompt) showToast(t('enh.batchRunning'), 2500); return; }
   if (!(S.downloadOptions.audioEnhance || S.downloadOptions.normalizeVolume)) return;
   if (activeDownloadIds.size > 0) {
-    if (!silent && !noPrompt) showToast('Tunggu download selesai dulu', 2500);
+    if (!silent && !noPrompt) showToast(t('enh.waitDownload'), 2500);
     return;
   }
   const cands = await collectEnhCandidates();
@@ -138,7 +138,7 @@ export async function sweepEnhance(opts={}){
   }
   if (!todo.length) { if (!opts.quiet && !silent && !noPrompt) showToast(t('enh.allMatch'), 2500); return; }
   if (!silent && !noPrompt && todo.length > 5 && opts.auto !== false && !enhPromptBlocked()) {
-    const ok = await showModal({ title: t('enh.enhanceOld'), message: t('enh.notDone', { n: todo.length }), confirmText:'Proses', cancelText:'Batal' });
+    const ok = await showModal({ title: t('enh.enhanceOld'), message: t('enh.notDone', { n: todo.length }), confirmText:t('enh.process'), cancelText:t('modal.cancel') });
     if (!ok) { setEnhPromptBlocked(true); return; }
     setEnhPromptBlocked(false);
   }
@@ -146,7 +146,7 @@ export async function sweepEnhance(opts={}){
   let done = 0, failed = 0;
   try {
     for (let i = 0; i < todo.length; i++) {
-      if (activeDownloadIds.size > 0) { if (!silent && !noPrompt) showToast('Download aktif — sweep dihentikan', 3000); break; }
+      if (activeDownloadIds.size > 0) { if (!silent && !noPrompt) showToast(t('enh.sweepStoppedDownload'), 3000); break; }
       const c = todo[i];
       if (!silent && !noPrompt) showToast(`Enhancing ${i+1}/${todo.length}: ${c.label}`, 3000);
       const { useEnh: sEnh, useNorm: sNorm, target: sTarget } = enhanceParams();
@@ -156,12 +156,12 @@ export async function sweepEnhance(opts={}){
         const j = await r.json();
         if (!j || !j.ok || !j.enhanceId) throw new Error((j && j.error) || 'HTTP '+r.status);
         const fin = await pollEnhance(j.enhanceId);
-        if (fin && fin.status === 'cancelled') { if (!silent && !noPrompt) showToast('Download aktif — sweep dihentikan', 3000); break; }
+        if (fin && fin.status === 'cancelled') { if (!silent && !noPrompt) showToast(t('enh.sweepStoppedDownload'), 3000); break; }
         if (fin && fin.status === 'done' && fin.enhanced) { await markEnhanced(c.path); done++; }
         else { failed++; }
       } catch (err) {
         failed++;
-        if (String(err?.message||err).includes('Failed to fetch')) { if (!silent && !noPrompt) showToast('Engine offline — sweep dihentikan', 4000); break; }
+        if (String(err?.message||err).includes('Failed to fetch')) { if (!silent && !noPrompt) showToast(t('enh.sweepStoppedEngine'), 4000); break; }
       }
     }
   } finally { S._sweepRunning = false; }
@@ -212,7 +212,7 @@ document.getElementById('btnSaveArl')?.addEventListener('click', async ()=>{
   const v=document.getElementById('dzArl')?.value.trim()||'';
   localStorage.setItem('deezer_arl', v);
   await showAlert('Deezer', v ? t('enh.arlSaved') : t('enh.arlCleared'));
-  const st=document.getElementById('arlStatus'); if(st) st.textContent = v ? 'tersimpan' : '';
+  const st=document.getElementById('arlStatus'); if(st) st.textContent = v ? t('std.saved') : '';
 });
 document.getElementById('btnTestArl')?.addEventListener('click', async ()=>{
   const st=document.getElementById('arlStatus'); if(st) st.textContent=t('enh.testing');

@@ -40,7 +40,7 @@ async function loadVersion() {
 }
 
 async function fillEngineRows() {
-  setRow('aboutEngineState', 'Engine offline');
+  setRow('aboutEngineState', t('ab.engineOffline'));
   setRow('aboutEngineDevice', '—');
   setRow('aboutEngineTorch', '—');
   setRow('aboutEngineModel', '—');
@@ -48,12 +48,12 @@ async function fillEngineRows() {
     const info = await engineInfo();
     if (!aboutOpen) return;
     if (!info) return;
-    setRow('aboutEngineState', 'Online');
-    setRow('aboutEngineDevice', info.cuda ? (info.device || 'CUDA') : 'CPU (tanpa CUDA)');
+    setRow('aboutEngineState', t('std.online'));
+    setRow('aboutEngineDevice', info.cuda ? (info.device || 'CUDA') : t('ab.cpuNoCuda'));
     setRow('aboutEngineTorch', info.torch ? `PyTorch ${info.torch}` : '—');
     setRow('aboutEngineModel', info.bs_available
-      ? `RoFormer — ${info.bs_roformer || 'siap'}`
-      : 'RoFormer tidak tersedia');
+      ? `RoFormer — ${info.bs_roformer || t('ab.roformerReady')}`
+      : t('ab.roformerUnavailable'));
   } catch {}
 }
 
@@ -67,14 +67,14 @@ function paintUpdate(r) {
   if (!el) return;
   setRowClass('aboutUpdate', '');
   if (!r || r.state === 'unconfigured') { setRow('aboutUpdate', manifestUrl() ? t('ab.notChecked') : t('ab.notConfigured')); return; }
-  if (r.state === 'checking') { setRow('aboutUpdate', 'Memeriksa…'); return; }
-  if (r.state === 'error') { setRowClass('aboutUpdate', 'is-error'); setRow('aboutUpdate', 'Gagal memeriksa'); return; }
+  if (r.state === 'checking') { setRow('aboutUpdate', t('ab.checking')); return; }
+  if (r.state === 'error') { setRowClass('aboutUpdate', 'is-error'); setRow('aboutUpdate', t('ab.checkFailed')); return; }
   if (r.state === 'available') {
     setRowClass('aboutUpdate', 'is-new');
-    setRow('aboutUpdate', `Tersedia ${r.latest}`);
+    setRow('aboutUpdate', t('ab.availableVersion', { v: r.latest }));
     return;
   }
-  setRow('aboutUpdate', `Terbaru (${r.current || '—'})`);
+  setRow('aboutUpdate', t('ab.upToDate', { v: r.current || '—' }));
 }
 
 function showDownloads(r) {

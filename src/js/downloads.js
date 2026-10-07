@@ -55,7 +55,7 @@ export async function renderDownloads(force=false){
   catch (err) {
     console.error('[dl] render error', err);
     const listEl = document.getElementById('downloadList');
-    if (listEl) listEl.innerHTML = `<div style="padding:24px; text-align:center; color:#ff6b6b">⚠ Gagal render daftar download: ${escAttr(String(err?.message || err))}<br><span style="font-size:11px;color:var(--muted)">Lihat console (F12) untuk detail</span></div>`;
+    if (listEl) listEl.innerHTML = `<div style="padding:24px; text-align:center; color:#ff6b6b">${t('dl.renderFail', { n: escAttr(String(err?.message || err)) })}<br><span style="font-size:11px;color:var(--muted)">${t('dl.renderFailHint')}</span></div>`;
   }
 }
 async function _renderDownloads(force=false){
@@ -177,11 +177,11 @@ async function _renderDownloads(force=false){
       return;
     }
     const diag = [
-      isTauri() ? `folder yang di-scan: ${folder || '(default)'}` : 'mode browser: scan folder nonaktif',
-      `file ter-scan: ${scanCount}`,
-      `riwayat tersimpan: ${S.downloads.length}`,
+      isTauri() ? t('dl.scanFolder', { n: folder || t('dl.scanFolderDefault') }) : t('dl.scanBrowserMode'),
+      t('dl.scanFiles', { n: scanCount }),
+      t('dl.scanHistory', { n: S.downloads.length }),
     ].join(' • ');
-    listEl.innerHTML = `<div style="padding:24px; text-align:center; color:var(--muted)">Belum ada download<br><span style="font-size:11px">Hasil download dari Pencarian Lagu akan muncul di sini (format ${S.downloadOptions.format.toUpperCase()}, kualitas asli sumber)</span><br><span style="font-size:10px; color:#8b93a9">${escAttr(diag)}</span></div>`;
+    listEl.innerHTML = `<div style="padding:24px; text-align:center; color:var(--muted)">${t('dl.emptyTitle')}<br><span style="font-size:11px">${t('dl.emptyHint', { n: S.downloadOptions.format.toUpperCase() })}</span><br><span style="font-size:10px; color:#8b93a9">${escAttr(diag)}</span></div>`;
     return;
   }
   listEl.innerHTML = '';
@@ -192,7 +192,7 @@ async function _renderDownloads(force=false){
     const cover = d.cover
       ? `<img src="${d.cover}" alt="cover" class="t-cover" loading="lazy" />`
       : `<div class="t-cover placeholder" style="background:var(--card2); display:grid; place-items:center">${ICON.download}</div>`;
-    const kbpsTag = (d.audioNotice && d.audioNotice.actualKbps) ? ` • ${d.audioNotice.actualKbps}kbps${d.audioNotice.passthrough ? ' asli' : ''}` : '';
+    const kbpsTag = (d.audioNotice && d.audioNotice.actualKbps) ? ` • ${d.audioNotice.actualKbps}kbps${d.audioNotice.passthrough ? ' ' + t('std.origTag') : ''}` : '';
     const errTag = (status === 'failed' && d.error) ? ` • ${String(d.error).slice(0, 80)}` : '';
     const sub = d.bitrate ? `${d.artist} • ${d.format?.toUpperCase()||''} ${d.bitrate}kbps • ${status}${errTag}`
       : (d.size_str ? `${d.artist} • ${d.size_str}${kbpsTag}` : `${d.artist} • ${d.format?.toUpperCase()||''}${kbpsTag} • ${status}${errTag}`);
@@ -200,7 +200,7 @@ async function _renderDownloads(force=false){
     const subLoc = dirOnly ? `<div class="t-sub dl-loc"><strong>${t('dl.provenanceSource')}</strong>:${escAttr(dirOnly)}</div>` : '';
     const durTxt = (d.dur && d.dur !== '--:--') ? d.dur : status;
     const checkCell = S.selectMode.downloads
-      ? `<input type="checkbox" data-sel-dl="${i}" ${S.selectedPaths.downloads.has(selKeyDL(d))?'checked':''} title="Pilih">`
+      ? `<input type="checkbox" data-sel-dl="${i}" ${S.selectedPaths.downloads.has(selKeyDL(d))?'checked':''} title="${t('std.select')}">`
       : `<span style="color:#8b93a9">${i+1}</span>`;
     const failStyle = status === 'failed' ? ';color:#ff6b6b' : '';
     b.innerHTML = `${checkCell}<span class="t-main">${cover}<span><div class="t-title"${failStyle}>${d.title}${downloadProvenanceHtml(d)}</div><div class="t-sub">${sub}</div>${subLoc}</span></span><span class="c-type">${(d.format||'').toUpperCase()}</span><span class="c-size">${pct}%</span><span class="c-dur"${failStyle}>${durTxt}</span><span class="c-more"><div class="more-menu" data-dlmenu="${i}"><button data-edit-dl="${i}" title="${t('dl.editDlInfo')}">${ICON.pencil} ${t('dl.editDlInfo')}</button><button data-enhance-dl="${i}">${ICON.sparkles} ${t('dl.enhanceDl')}</button>${d.path ? `<button data-iphone-dl="${i}" title="${t('dl.importToIphone')}">${ICON.upload} ${t('dl.importToIphone')}</button>` : ''}${d.path ? `<button data-reveal-dl="${i}" title="${t('dl.revealTitle')}">${ICON.folder} ${t('dl.reveal')}</button>` : ''}${(status === 'failed' && d.track) ? `<button data-redl="${i}" title="${t('dl.redownloadFromSource')}">${ICON.download} ${t('dl.redownload')}</button>` : ''}<button data-del-dl="${i}" title="${t('modal.delete')}">${ICON.trash} ${t('modal.delete')}</button></div></span>`;
@@ -382,7 +382,7 @@ document.getElementById('btnRefreshLocal')?.addEventListener('click', async ()=>
     S._musicRescanAt = 0;
     await rescanMusicFolders();
     renderTracks($('#globalSearch')?.value || '');
-    showToast('Library di-refresh', 2500);
+    showToast(t('dl.libraryRefreshed'), 2500);
   } catch {} finally {
     if (btn) { delete btn.dataset.busy; btn.classList.remove('spinning'); }
   }
