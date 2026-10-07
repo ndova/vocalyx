@@ -166,8 +166,21 @@ pub fn start(app: &AppHandle) {
         Err(poisoned) => poisoned.into_inner(),
     };
     if engine_alive() {
-        log_line!("engine sudah hidup di 127.0.0.1:8001, skip spawn");
-        return;
+        // Engine yatim versi LAMA (bytecode basi, mis. dari instalasi sebelumnya)
+        // tetap menjawab /health tapi tidak punya cap `premium_backend` - dan
+        // kode lama di memori inilah yang membuat Test Login/Connect melaporkan
+        // error lama walau file di disk sudah baru. Ambil alih dulu sebelum
+        // memutuskan skip spawn.
+        if engine_has_premium_backend() {
+            log_line!("engine sudah hidup di 127.0.0.1:8001, skip spawn");
+            return;
+        }
+        log_line!("engine di 8001 tanpa cap premium_backend (versi lama) -> diambil alih");
+        take_over_stale_engine();
+        if engine_alive() {
+            log_line!("GAGAL: engine basi di 8001 masih hidup setelah takeover, spawn dibatalkan");
+            return;
+        }
     }
 
     let Some(script) = find_engine_script(app) else {
@@ -246,19 +259,19 @@ fn wait_engine_listen(max_ms: u64) {
 /// JSON bisa tiba di segmen TCP terpisah, jadi satu `read` yang hanya menangkap
 /// header membuat engine yang sehat terlihat mati.
 fn engine_alive() -> bool {
+    health_body().is_some()
+}
+
+/// Ambil respons mentah `GET /health` bila engine menjawab 200 + `"ok"`.
+fn health_body() -> Option<String> {
     let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, ENGINE_PORT));
-    let mut s = match TcpStream::connect_timeout(&addr, HEALTH_TIMEOUT) {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
+    let mut s = TcpStream::connect_timeout(&addr, HEALTH_TIMEOUT).ok()?;
     let _ = s.set_read_timeout(Some(HEALTH_TIMEOUT));
     let req = format!(
         "GET /health HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n",
         ENGINE_PORT
     );
-    if s.write_all(req.as_bytes()).is_err() {
-        return false;
-    }
+    s.write_all(req.as_bytes()).ok()?;
     let mut resp: Vec<u8> = Vec::with_capacity(1024);
     let mut chunk = [0u8; 1024];
     loop {
@@ -273,8 +286,18 @@ fn engine_alive() -> bool {
             Err(_) => break,
         }
     }
-    let resp = String::from_utf8_lossy(&resp);
-    resp.starts_with("HTTP/1.1 200") && resp.contains("\"ok\"")
+    let resp = String::from_utf8_lossy(&resp).into_owned();
+    if resp.starts_with("HTTP/1.1 200") && resp.contains("\"ok\"") {
+        Some(resp)
+    } else {
+        None
+    }
+}
+
+/// Engine sebelum resolver backend premium tidak mengirim cap ini; cukup untuk
+/// membedakan bytecode segar dari engine yatim basi di port yang sama.
+fn engine_has_premium_backend() -> bool {
+    health_body().map(|b| b.contains("\"premium_backend\"")).unwrap_or(false)
 }
 
 /// Environment untuk child engine.

@@ -1216,6 +1216,8 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
       '3a: paket premium staged (librespot/deemix) ikut resource installer');
     ok(/stage:premium/.test(tconf.build.beforeBuildCommand),
       '3a: staging paket premium dihook ke beforeBuildCommand (venv tak terbundel, wajib distage)');
+    ok(/stage:engine/.test(tconf.build.beforeBuildCommand),
+      '3a: staging engine disegarkan otomatis tiap build (staging basi = engine lama yang dikirim)');
     ok(!JSON.stringify(res).includes('../python-engine'),
       '3a: resources tidak lagi menyalin folder python-engine mentah (junk ikut terbundel)');
     const rsRt = fs.readFileSync(path.join(root, 'src-tauri/src/runtime.rs'), 'utf8');
@@ -1230,6 +1232,15 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
       '3a: startup lewat runtime::spawn_ensure_and_start');
     ok(/runtime::runtime_extract_bundled/.test(libRs2), '3a: command runtime_extract_bundled terdaftar');
     ok(/pub fn write_log_note\(/.test(rsEngine), '3a: engine::write_log_note tersedia untuk runtime');
+    const srvPy = fs.readFileSync(path.join(root, 'python-engine/server.py'), 'utf8');
+    ok(srvPy.includes('"premium_backend": True'),
+      '3a: /health menandai cap premium_backend (deteksi engine yatim basi di 8001)');
+    const capIdx = rsEngine.indexOf('if engine_has_premium_backend()');
+    const skipIdx = rsEngine.indexOf('engine sudah hidup di 127.0.0.1:8001, skip spawn', capIdx);
+    const ovIdx = rsEngine.indexOf('engine di 8001 tanpa cap premium_backend (versi lama)', skipIdx);
+    ok(capIdx > 0 && skipIdx > capIdx && ovIdx > skipIdx
+      && /fn engine_has_premium_backend\(/.test(rsEngine),
+      '3a: start() cek cap premium sebelum skip spawn, engine tanpa cap diambil alih');
     const bundleZip = path.join(root, 'build/runtime-bundle.zip');
     if (fs.existsSync(bundleZip)) {
       ok(fs.statSync(bundleZip).size > 100 * 1024 * 1024,
@@ -1254,6 +1265,21 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
       ok(junk.length === 0, `4: sumber resource build/engine bebas junk (${junk.join(', ') || 'bersih'})`);
       ok(leaked.length === 0,
         `4: staging bebas source .py plaintext (${leaked.join(', ') || 'bersih'}) - sisanya harus .pyc`);
+      const stalePyc = [];
+      (function walkFresh(d) {
+        for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+          const full = path.join(d, e.name);
+          if (e.isDirectory()) { walkFresh(full); continue; }
+          if (!e.name.endsWith('.pyc')) continue;
+          const rel = path.relative(stagedSrc, full);
+          const src = path.join(root, 'python-engine', rel.replace(/\.pyc$/, '.py'));
+          if (fs.existsSync(src) && fs.statSync(src).mtimeMs > fs.statSync(full).mtimeMs + 1000) {
+            stalePyc.push(rel);
+          }
+        }
+      })(stagedSrc);
+      ok(stalePyc.length === 0,
+        `4: staging engine segar - setiap .pyc lebih baru dari sumber .py${stalePyc.length ? ` (basi: ${stalePyc.join(', ')})` : ''}`);
     } else {
       ok(true, '4: build/engine belum dibuat (jalankan build_runtime.py)');
     }

@@ -15,6 +15,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "stage:clean": "python scripts/clean_release_stage.py",
+    "stage:engine": "python scripts/build_runtime.py --staging-only",
     "stage:premium": "python scripts/stage_premium.py",
     "stage:check": "python scripts/clean_release_stage.py --check",
     "protect:release": "python scripts/clean_release_artifacts.py",

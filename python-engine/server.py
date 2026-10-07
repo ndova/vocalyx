@@ -50,6 +50,10 @@ def health():
         "bs_available": bs_available,
         "torch": torch.__version__,
         "cover_upload": True,
+        # Penanda protokol: engine LAMA (sebelum resolver backend premium)
+        # tidak punya field ini, jadi frontend/Rust bisa mendeteksi engine yatim
+        # basi di 8001 dan mengambil alihnya. Jangan dibuat dinamis.
+        "premium_backend": True,
     }
 
 
