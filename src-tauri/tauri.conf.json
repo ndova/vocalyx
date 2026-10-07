@@ -7,7 +7,7 @@
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist",
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build && npm run stage:clean"
+    "beforeBuildCommand": "npm run build && npm run stage:clean && npm run stage:premium"
   },
   "app": {
     "windows": [
@@ -48,6 +48,7 @@
     "shortDescription": "Desktop Music Manager | Vocal Isolation | Karaoke & EQ",
     "resources": {
       "../build/engine": "python-engine",
+      "../build/premium": "premium",
       "../assets": "assets"
     },
     "windows": {

@@ -257,23 +257,45 @@ def _unlink_quiet(p) -> None:
         pass
 
 
+def _premium_backend(service: str, script_name: str):
+    """Resolve (interpreter, script, extra_env) backend premium per layanan.
+
+    Prioritas: paket staged `premium/<service>/` (ikut resource installer,
+    dijalankan dengan interpreter mesin + PYTHONPATH ke paketnya) -> fallback
+    dev: venv lokal scripts/<service>-venv + glue repo scripts/. Venv lokal
+    TIDAK ikut terbundel, jadi build wajib men-stagel paket via
+    scripts/stage_premium.py (beforeBuildCommand).
+    """
+    stem = script_name[:-3] if script_name.endswith(".py") else script_name
+    for base in (Path.cwd() / "premium",
+                 Path(__file__).resolve().parent.parent / "build" / "premium"):
+        pkg = base / service
+        for cand in (pkg / f"{stem}.pyc", pkg / script_name):
+            if cand.is_file():
+                extra = {"PYTHONPATH": str(pkg)}
+                if os.environ.get("PYTHONPATH"):
+                    extra["PYTHONPATH"] += os.pathsep + os.environ["PYTHONPATH"]
+                return str(sys.executable), str(cand), extra
+    venv_py = next((p for p in (
+        Path.cwd() / "scripts" / f"{service}-venv" / "Scripts" / "python.exe",
+        Path.cwd() / "scripts" / f"{service}-venv" / "bin" / "python",
+    ) if p.exists()), None)
+    script = Path.cwd() / "scripts" / script_name
+    if venv_py and script.is_file():
+        return str(venv_py), str(script), {}
+    return None
+
+
 def _spotify_try_premium(track: dict, out_path: Path, options: dict, download_id: str) -> dict:
-    """Coba download Premium via librespot venv. Return {success/filePath/error}."""
+    """Coba download Premium via backend librespot (paket staged / venv dev)."""
     try:
         sid = _spotify_id_from_track(track)
         if not sid:
             return {"need_creds": True, "failed": True, "error": "Track Spotify tanpa ID valid — tidak bisa Premium"}
-        candidates_py = [
-            Path.cwd() / "scripts" / "spotify-venv" / "Scripts" / "python.exe",
-            Path.cwd() / "scripts" / "spotify-venv" / "bin" / "python",
-        ]
-        candidates_script = [
-            Path.cwd() / "scripts" / "spotify_premium_download.py",
-        ]
-        venv_py = next((p for p in candidates_py if p.exists()), None)
-        script = next((p for p in candidates_script if p.exists()), None)
-        if not venv_py or not script:
-            return {"failed": True, "error": "spotify-venv belum disiapkan (taruh venv di scripts/spotify-venv)"}
+        be = _premium_backend("spotify", "spotify_premium_download.py")
+        if not be:
+            return {"failed": True, "error": "Backend Spotify Premium tidak ada (paket premium tidak terbundel; jalankan stage_premium.py lalu build ulang)"}
+        venv_py, script, prem_env = be
         cred_path = Path.cwd() / ".spotify-premium" / "credentials.json"
         stored = str(cred_path if cred_path.exists() else "")
         user = (options.get("spotifyPremiumUser") or options.get("spotify_premium_user") or "").strip()
@@ -284,7 +306,7 @@ def _spotify_try_premium(track: dict, out_path: Path, options: dict, download_id
         tmp_dir = tempfile.mkdtemp(prefix="sp-prem-")
         ogg_path = str(Path(tmp_dir) / "out.ogg")
         def _run_one(use_stored: bool):
-            env2 = os.environ.copy()
+            env2 = {**os.environ, **prem_env}
             cmd2 = [str(venv_py), str(script), "--track", sid, "--out", ogg_path, "--quality", "very_high"]
             if use_stored and stored and Path(stored).exists():
                 cmd2 += ["--stored-creds", str(stored)]
@@ -339,12 +361,12 @@ def _spotify_try_premium(track: dict, out_path: Path, options: dict, download_id
             pass
             break
         proc = None
-        env = os.environ.copy()
+        env = {**os.environ, **prem_env}
         chosen_stored = None
         for use_stored in attempts:
             if use_stored and has_stored:
                 chosen_stored = True
-                env = os.environ.copy()
+                env = {**os.environ, **prem_env}
                 env.pop("SPOTIFY_PREMIUM_USER", None)
                 env.pop("SPOTIFY_PREMIUM_PASS", None)
                 cmd = [str(venv_py), str(script), "--track", sid, "--out", ogg_path, "--quality", "very_high", "--stored-creds", str(stored)]
@@ -366,7 +388,7 @@ def _spotify_try_premium(track: dict, out_path: Path, options: dict, download_id
                 proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env, bufsize=1)
                 break
             elif not use_stored and has_user:
-                env = os.environ.copy()
+                env = {**os.environ, **prem_env}
                 env["SPOTIFY_PREMIUM_USER"] = user.strip()
                 env["SPOTIFY_PREMIUM_PASS"] = pwd
                 cmd = [str(venv_py), str(script), "--track", sid, "--out", ogg_path, "--quality", "very_high"]
@@ -545,22 +567,14 @@ def _deezer_try_full(track: dict, out_path: Path, options: dict, download_id: st
         arl = _deezer_get_arl(options)
         if not arl:
             return {"need_creds": True, "failed": True, "error": "ERR_DEEZER_ARL_REQUIRED: Isi ARL Deezer dulu (Settings -> Deezer ARL) untuk download full."}
-        candidates_py = [
-            Path.cwd() / "scripts" / "deezer-venv" / "Scripts" / "python.exe",
-            Path.cwd() / "scripts" / "deezer-venv" / "bin" / "python",
-        ]
-        candidates_dl = [
-            Path.cwd() / "scripts" / "deezer_download.py",
-        ]
-        venv_py = next((p for p in candidates_py if p.exists()), None)
-        script = next((p for p in candidates_dl if p.exists()), None)
-        if not venv_py or not script:
-            return {"failed": True, "error": "deezer-venv belum disiapkan (taruh venv di scripts/deezer-venv)"}
+        be = _premium_backend("deezer", "deezer_download.py")
+        if not be:
+            return {"failed": True, "error": "Backend Deezer tidak ada (paket premium tidak terbundel; jalankan stage_premium.py lalu build ulang)"}
 
         staging = tempfile.mkdtemp(prefix="dz-dl-")
-        env = os.environ.copy()
+        env = {**os.environ, **be[2]}
         env["DEEZER_ARL"] = arl
-        cmd = [str(venv_py), str(script), "--track", did, "--out", staging]
+        cmd = [be[0], be[1], "--track", did, "--out", staging]
         download_progress[download_id]["percent"] = 8
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env, bufsize=1)
         stdout_lines = []
@@ -1412,21 +1426,13 @@ async def deezer_arl(payload: dict):
     arl = str(payload.get("arl") or payload.get("deezerArl") or "").strip()[:512]
     if not arl:
         return JSONResponse({"ok": False, "error": "ARL_KOSONG"}, status_code=401)
-    candidates_py = [
-        Path.cwd() / "scripts" / "deezer-venv" / "Scripts" / "python.exe",
-        Path.cwd() / "scripts" / "deezer-venv" / "bin" / "python",
-    ]
-    candidates_script = [
-        Path.cwd() / "scripts" / "deezer_arl_test.py",
-    ]
-    venv_py = next((p for p in candidates_py if p.exists()), None)
-    script = next((p for p in candidates_script if p.exists()), None)
-    if not venv_py or not script:
-        return JSONResponse({"ok": False, "error": "deezer-venv belum disiapkan"}, status_code=500)
-    env = os.environ.copy()
+    be = _premium_backend("deezer", "deezer_arl_test.py")
+    if not be:
+        return JSONResponse({"ok": False, "error": "Backend Deezer tidak ada (paket premium tidak terbundel)"}, status_code=500)
+    env = {**os.environ, **be[2]}
     env["DEEZER_ARL"] = arl
     try:
-        proc = subprocess.run([str(venv_py), str(script)], capture_output=True, text=True, timeout=60, env=env)
+        proc = subprocess.run([be[0], be[1]], capture_output=True, text=True, timeout=60, env=env)
         for line in (proc.stdout or "").splitlines():
             line=line.strip()
             if not line:
@@ -1483,52 +1489,64 @@ async def spotify_premium(payload: dict):
         if not u or not p:
             return {"ok": False, "error": "Isi Username & Password Premium dulu"}
         try:
-            venv_py = Path.cwd() / "scripts" / "spotify-venv" / "Scripts" / "python.exe"
-            if not venv_py.exists():
-                venv_py = Path.cwd() / "scripts" / "spotify-venv" / "bin" / "python"
-            script = Path.cwd() / "scripts" / "spotify_premium_download.py"
-            if venv_py.exists() and script.exists():
-                if u and p:
-                    cmd = [str(venv_py), str(script), "--test-login"]
-                elif cred_path.exists():
-                    cmd = [str(venv_py), str(script), "--test-login", "--stored-creds", str(cred_path)]
-                else:
-                    cmd = [str(venv_py), str(script), "--test-login"]
-                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=45, env={**__import__("os").environ, "SPOTIFY_PREMIUM_USER": u, "SPOTIFY_PREMIUM_PASS": p})
-                log.debug("premium test stdout: %s stderr: %s", proc.stdout[:500], proc.stderr[:500])
-                if proc.returncode == 0:
-                    return {"ok": True, "via": "user_pass"}
+            be = _premium_backend("spotify", "spotify_premium_download.py")
+            if not be:
+                return {"ok": False, "error": "Backend Spotify Premium tidak ada (paket premium tidak terbundel; jalankan stage_premium.py lalu build ulang)"}
+            venv_py, script, prem_env = be
+            if u and p:
+                cmd = [str(venv_py), str(script), "--test-login"]
+            elif cred_path.exists():
+                cmd = [str(venv_py), str(script), "--test-login", "--stored-creds", str(cred_path)]
+            else:
+                cmd = [str(venv_py), str(script), "--test-login"]
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=45,
+                                  env={**os.environ, **prem_env, "SPOTIFY_PREMIUM_USER": u, "SPOTIFY_PREMIUM_PASS": p})
+            log.debug("premium test stdout: %s stderr: %s", proc.stdout[:500], proc.stderr[:500])
+            if proc.returncode == 0:
+                return {"ok": True, "via": "user_pass"}
+            err = ""
+            for line in reversed((proc.stdout or "").strip().splitlines()):
+                try:
+                    j = json.loads(line)
+                    if isinstance(j, dict) and j.get("error"):
+                        err = str(j["error"])
+                        break
+                except Exception:
+                    continue
+            if not err:
                 err = (proc.stderr or proc.stdout or "").strip()
-                err = err.replace(p, "***") if p else err
-                low_err = err.lower()
-                if "badcredentials" in low_err or "bad credentials" in low_err or "401" in err or "unauthorized" in low_err:
-                    err = "Login Spotify gagal: BadCredentials — cek username/password Premium. Gunakan Spotify username (contoh: 317...) bukan email bila login via Facebook/Google, dan pastikan akun Premium (bukan Free). Coba Disconnect lalu Connect via Zeroconf atau isi ulang User/Pass."
-                return {"ok": False, "error": err[:500] or "Login gagal — cek username/password Premium (harus akun Premium, bukan free)"}
+            err = err.replace(p, "***") if p else err
+            low_err = err.lower()
+            if "badcredentials" in low_err or "bad credentials" in low_err or "401" in err or "unauthorized" in low_err:
+                err = "Login Spotify gagal: BadCredentials — cek username/password Premium. Gunakan Spotify username (contoh: 317...) bukan email bila login via Facebook/Google, dan pastikan akun Premium (bukan Free). Coba Disconnect lalu Connect via Zeroconf atau isi ulang User/Pass."
+            return {"ok": False, "error": err[:500] or "Login gagal — cek username/password Premium (harus akun Premium, bukan free)"}
         except Exception as e:
             return {"ok": False, "error": str(e)}
-        return {"ok": False, "error": "Premium venv / script tidak ditemukan di scripts/spotify-venv"}
     if action == "connect-start":
         try:
-            venv_py = Path.cwd() / "scripts" / "spotify-venv" / "Scripts" / "python.exe"
-            if not venv_py.exists():
-                venv_py = Path.cwd() / "scripts" / "spotify-venv" / "bin" / "python"
-            script = Path.cwd() / "scripts" / "spotify_premium_auth.py"
-            if venv_py.exists() and script.exists():
+            be = _premium_backend("spotify", "spotify_premium_auth.py")
+            if not be:
+                return {"ok": False, "error": "Backend Spotify Connect tidak ada (paket premium tidak terbundel; jalankan stage_premium.py lalu build ulang)"}
+            venv_py, script, prem_env = be
 
-                sid = str(uuid.uuid4())[:8]
-                out_path = cred_path
-                out_path.parent.mkdir(parents=True, exist_ok=True)
-                device_name = f"VocaLyx-{sid.upper()}"
-                try:
-                    device_path.parent.mkdir(parents=True, exist_ok=True)
-                    device_path.write_text(device_name, encoding="utf-8")
-                except Exception:
-                    pass
-                subprocess.Popen([str(venv_py), str(script), "--out", str(out_path), "--timeout", "120", "--device-name", device_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                return {"sessionId": sid, "deviceName": device_name}
+            sid = str(uuid.uuid4())[:8]
+            out_path = cred_path
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            device_name = f"VocaLyx-{sid.upper()}"
+            try:
+                device_path.parent.mkdir(parents=True, exist_ok=True)
+                device_path.write_text(device_name, encoding="utf-8")
+            except Exception:
+                pass
+            subprocess.Popen(
+                [str(venv_py), str(script), "--out", str(out_path), "--timeout", "120", "--device-name", device_name],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                env={**os.environ, **prem_env},
+            )
+            return {"sessionId": sid, "deviceName": device_name}
         except Exception as e:
             log.error("connect-start failed: %s", e)
-        return {"sessionId": "mock", "deviceName": "VocaLyx-XXXX"}
+            return {"ok": False, "error": f"Gagal memulai Spotify Connect: {str(e)[:200]}"}
     if action == "connect-status":
     
         if cred_path.exists() and cred_path.stat().st_size > 16:
