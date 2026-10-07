@@ -36,7 +36,8 @@ your iPhone. Built with **Tauri (frontend) + Python (audio engine)** by
 | :--- | ---: | :--- |
 | [**Setup.exe (NSIS)**](https://github.com/ndova/vocalyx-releases/releases/latest) | ≈700 MB | Full build — runtime bundled, install and go |
 | [**MSI**](https://github.com/ndova/vocalyx-releases/releases/latest) | ≈706 MB | Same full build, Windows Installer format |
-| [**Runtime bundle**](https://github.com/ndova/vocalyx-releases/releases/tag/runtime-0.1.0-beta) | ≈670 MB | Repair/manual install for `%APPDATA%\VocaLyx` |
+
+If an installation breaks, just run the installer again — the runtime is part of it.
 
 ### Features
 
@@ -129,7 +130,8 @@ iPhone Anda. Dibangun dengan **Tauri (frontend) + Python (audio engine)** oleh
 | :--- | ---: | :--- |
 | [**Setup.exe (NSIS)**](https://github.com/ndova/vocalyx-releases/releases/latest) | ≈700 MB | Build full — runtime terbundel, pasang langsung jalan |
 | [**MSI**](https://github.com/ndova/vocalyx-releases/releases/latest) | ≈706 MB | Build full yang sama, format Windows Installer |
-| [**Bundle runtime**](https://github.com/ndova/vocalyx-releases/releases/tag/runtime-0.1.0-beta) | ≈670 MB | Perbaikan/pasang manual untuk `%APPDATA%\VocaLyx` |
+
+Jika instalasi rusak, jalankan lagi saja installernya — runtime sudah bagian darinya.
 
 ### Fitur
 
