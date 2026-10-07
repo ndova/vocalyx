@@ -1228,8 +1228,8 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
     const res = tconf.bundle.resources;
     ok(res && !Array.isArray(res), '3a: tauri.conf bundle.resources memakai bentuk map');
     ok(res['../build/engine'] === 'python-engine', '3a: engine staging bersih jadi resource python-engine');
-    ok(!res['../build/runtime-bundle.zip'],
-      '3a: build slim - runtime-bundle.zip TIDAK ikut resource (aplikasi ±25MB; runtime diunduh via banner bila absen)');
+    ok(res['../build/runtime-bundle.zip'] === 'runtime-bundle.zip',
+      '3a: build FULL - runtime-bundle.zip ikut resource (installer ±700MB, runtime terbundel; update berikutnya balik ke slim)');
     ok(res['../assets'] === 'assets', '3a: assets tetap jadi resource');
     ok(res['../build/premium'] === 'premium',
       '3a: paket premium staged (librespot/deemix) ikut resource installer');

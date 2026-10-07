@@ -49,6 +49,7 @@
     "resources": {
       "../build/engine": "python-engine",
       "../build/premium": "premium",
+      "../build/runtime-bundle.zip": "runtime-bundle.zip",
       "../assets": "assets"
     },
     "windows": {
