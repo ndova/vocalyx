@@ -31,7 +31,7 @@ License: [MIT](LICENSE) · Third-party attributions: [NOTICE](NOTICE)
 
 ### Install (users)
 
-Download `VocaLyx_0.1.1-beta_x64-setup.exe` (NSIS) or `.msi` from [the releases page](https://github.com/ndova/vocalyx-releases/releases/latest) and run — Python, ffmpeg, and the CPU runtime are included. The runtime self-extracts to `%APPDATA%\VocaLyx` on first launch. AI models download on first use; CUDA dependencies install from the **Install CUDA dependencies** button in the Karaoke card in Settings.
+Download `VocaLyx_0.1.0-beta_x64-setup.exe` (NSIS) or `.msi` from [the releases page](https://github.com/ndova/vocalyx-releases/releases/latest) and run — Python, ffmpeg, and the CPU runtime are included. The runtime self-extracts to `%APPDATA%\VocaLyx` on first launch. AI models download on first use; CUDA dependencies install from the **Install CUDA dependencies** button in the Karaoke card in Settings.
 
 ### Run from source (dev)
 
@@ -87,7 +87,7 @@ Lisensi: [MIT](LICENSE) · Atribusi pihak ketiga: [NOTICE](NOTICE)
 
 ### Instalasi (pengguna)
 
-Unduh `VocaLyx_0.1.1-beta_x64-setup.exe` (NSIS) atau `.msi` dari [halaman rilis](https://github.com/ndova/vocalyx-releases/releases/latest), jalankan, selesai — Python, ffmpeg, dan runtime CPU sudah termasuk. Runtime diekstrak otomatis ke `%APPDATA%\VocaLyx` saat pertama dibuka. Model AI diunduh otomatis saat pertama dipakai; dependensi CUDA dipasang lewat tombol **Install CUDA dependencies** di kartu Karaoke pada Settings.
+Unduh `VocaLyx_0.1.0-beta_x64-setup.exe` (NSIS) atau `.msi` dari [halaman rilis](https://github.com/ndova/vocalyx-releases/releases/latest), jalankan, selesai — Python, ffmpeg, dan runtime CPU sudah termasuk. Runtime diekstrak otomatis ke `%APPDATA%\VocaLyx` saat pertama dibuka. Model AI diunduh otomatis saat pertama dipakai; dependensi CUDA dipasang lewat tombol **Install CUDA dependencies** di kartu Karaoke pada Settings.
 
 ### Jalankan dari source (dev)
 

@@ -25,15 +25,39 @@ import time
 
 logging.basicConfig(level=logging.CRITICAL)
 
+_TMP_DIRS = []
+
+
+def _quiet(fn):
+    try:
+        fn()
+    except Exception:
+        pass
+
 
 def emit(obj):
     sys.stdout.write(json.dumps(obj) + "\n")
     sys.stdout.flush()
 
 
+def _cleanup_tmp():
+    for d in list(_TMP_DIRS):
+        try:
+            shutil.rmtree(d, ignore_errors=True)
+        except Exception:
+            pass
+
+
 def fail(msg):
     emit({"ok": False, "error": str(msg)[:500]})
-    sys.exit(1)
+    try:
+        sys.stdout.flush()
+    except Exception:
+        pass
+    _cleanup_tmp()
+    # os._exit: bypass thread non-daemon librespot yang bisa menahan shutdown
+    # interpreter selamanya (membuat proses basi memegang port mDNS 5353).
+    os._exit(1)
 
 
 def main():
@@ -52,6 +76,7 @@ def main():
         fail("Paket librespot belum terinstall di spotify-venv: " + str(e)[:200])
 
     tmpdir = tempfile.mkdtemp(prefix="sp-auth-")
+    _TMP_DIRS.append(tmpdir)
     tmp_creds = os.path.join(tmpdir, "creds.json")
     try:
         conf = (
@@ -83,8 +108,12 @@ def main():
                     pass
                 time.sleep(1)
         finally:
+            # close() bisa men-hang; batasi 3 detik lewat thread daemon
             try:
-                server.close()
+                import threading
+                t = threading.Thread(target=lambda: _quiet(server.close), daemon=True)
+                t.start()
+                t.join(3)
             except Exception:
                 pass
 
@@ -122,7 +151,10 @@ def main():
             time.sleep(0.8)
         except Exception:
             pass
-        return 0
+        _cleanup_tmp()
+        # Exit paksa: thread non-daemon librespot bisa menahan shutdown
+        # interpreter selamanya (proses basi memegang port mDNS 5353).
+        os._exit(0)
     finally:
         try:
             shutil.rmtree(tmpdir, ignore_errors=True)

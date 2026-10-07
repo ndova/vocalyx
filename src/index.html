@@ -493,16 +493,13 @@
 
               <div class="settings-block">
                 <div class="settings-label"><span data-t="set.spotifyPremium">Spotify Premium</span> <span class="settings-desc" data-t="set.premiumOriginal">Original Audio</span></div>
-                <input id="spUser" class="modal-input" placeholder="Premium Username" style="margin-bottom:8px">
-                <input id="spPass" class="modal-input" placeholder="Premium Password" type="password" style="margin-bottom:8px">
                 <div class="settings-row settings-row-wrap">
-                  <button id="btnSavePremium" class="btn-add-folder" data-t="btn.saveUserPass">Save User/Pass</button>
-                  <button id="btnTestPremium" class="btn-add-folder" data-t="btn.testLogin">Test Login</button>
                   <button id="btnConnectPremium" class="btn-add-folder" data-t="btn.connect">Connect</button>
+                  <button id="btnVerifyPremium" class="btn-add-folder" data-t="btn.verify">Verify</button>
                   <button id="btnDisconnectPremium" class="btn-add-folder" style="background:transparent !important" data-t="btn.disconnect">Disconnect</button>
                   <span id="premiumStatus" class="settings-status"></span>
                 </div>
-                <div class="settings-desc" data-t="set.premiumDesc">Keduanya didukung — manual User/Pass atau Connect via Zeroconf (VocaLyx-XXXX, tanpa simpan password).</div>
+                <div class="settings-desc" data-t="set.premiumDesc">Login utama via Connect: klik Connect lalu pilih device VocaLyx-XXXX di aplikasi Spotify (satu WiFi). Kredensial tersimpan reusable tanpa password.</div>
               </div>
 
               <div class="settings-block">
@@ -646,7 +643,7 @@
           <img src="./logo.png" class="brand-logo about-logo" alt="VocaLyx">
           <span class="beta-badge" hidden="">Beta</span>
         </div>
-        <p class="about-desc" id="aboutDesc" data-t-html="ab.desc">Manajer musik desktop all-in-one untuk Windows. Kelola koleksi lokal, unduh lagu dari berbagai platform, buat trek karaoke berbasis AI, dan sinkronkan musik langsung ke iPhone Anda.<br><strong>Multi-Platform:</strong> YouTube, Spotify, Deezer, SoundCloud, Archive.org, 4shared.<br><strong>AI Karaoke:</strong> 3 preset pemisah vokal (CPU &amp; CUDA 1-klik).<br><strong>Pro Audio:</strong> EQ 10-band, VolumeGain, &amp; Audio Cleaner.<br><strong>Fitur Lain:</strong> Lirik tersinkron, tema otomatis Windows, &amp; transfer iOS dua arah.</p>
+        <p class="about-desc" id="aboutDesc" data-t-html="ab.desc">Manajer musik desktop all-in-one untuk Windows. Kelola koleksi lokal, unduh lagu dari berbagai platform, buat trek karaoke berbasis AI, dan sinkronkan musik langsung ke iPhone Anda.</p>
         <div class="about-rows">
           <div class="about-row"><span class="about-key" data-t="ab.version">Versi</span><span class="about-val" id="aboutVersion">—</span></div>
       <div class="about-row"><span class="about-key" data-t="ab.update">Pembaruan</span><span class="about-val" id="aboutUpdate">—</span></div>

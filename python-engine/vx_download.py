@@ -287,7 +287,11 @@ def _premium_backend(service: str, script_name: str):
 
 
 def _spotify_try_premium(track: dict, out_path: Path, options: dict, download_id: str) -> dict:
-    """Coba download Premium via backend librespot (paket staged / venv dev)."""
+    """Coba download Premium via backend librespot (paket staged / venv dev).
+
+    Hanya file kredensial reusable dari Spotify Connect — login
+    username/password sudah dimatikan Spotify untuk app pihak ketiga.
+    """
     try:
         sid = _spotify_id_from_track(track)
         if not sid:
@@ -297,106 +301,31 @@ def _spotify_try_premium(track: dict, out_path: Path, options: dict, download_id
             return {"failed": True, "error": "Backend Spotify Premium tidak ada (paket premium tidak terbundel; jalankan stage_premium.py lalu build ulang)"}
         venv_py, script, prem_env = be
         cred_path = Path.cwd() / ".spotify-premium" / "credentials.json"
-        stored = str(cred_path if cred_path.exists() else "")
-        user = (options.get("spotifyPremiumUser") or options.get("spotify_premium_user") or "").strip()
-        pwd = options.get("spotifyPremiumPass") or options.get("spotify_premium_pass") or ""
-        if not stored and (not user or not pwd):
-            return {"need_creds": True, "failed": True, "error": "Kredensial Premium kosong (hubungkan via Spotify Connect atau isi di Settings dulu)"}
+        if not (cred_path.exists() and cred_path.stat().st_size > 16):
+            return {"need_creds": True, "failed": True, "error": "Kredensial Premium kosong (hubungkan via Spotify Connect dulu di Settings)"}
+        download_progress[download_id]["percent"] = 8
 
         tmp_dir = tempfile.mkdtemp(prefix="sp-prem-")
         ogg_path = str(Path(tmp_dir) / "out.ogg")
-        def _run_one(use_stored: bool):
-            env2 = {**os.environ, **prem_env}
-            cmd2 = [str(venv_py), str(script), "--track", sid, "--out", ogg_path, "--quality", "very_high"]
-            if use_stored and stored and Path(stored).exists():
-                cmd2 += ["--stored-creds", str(stored)]
-                for didp in [Path.cwd() / ".spotify-premium" / "device_id.txt"]:
-                    try:
-                        if didp.exists():
-                            did = didp.read_text(encoding="utf-8", errors="ignore").strip()[:64]
-                            if did:
-                                cmd2 += ["--device-id", did]
-                            break
-                    except Exception:
-                        pass
-                cache_dir = str(Path.cwd() / ".spotify-premium" / "cache")
-                try:
-                    Path(cache_dir).mkdir(parents=True, exist_ok=True)
-                    cmd2 += ["--cache-dir", cache_dir]
-                except Exception:
-                    pass
-            elif not use_stored and user and pwd:
-                env2["SPOTIFY_PREMIUM_USER"] = user.strip()
-                env2["SPOTIFY_PREMIUM_PASS"] = pwd
-            else:
-                return None, "no-creds"
-            if not use_stored and (not user.strip() or not pwd):
-                return None, "no-creds"
-            if use_stored and not (stored and Path(stored).exists()):
-                return None, "no-stored"
-            proc2 = subprocess.Popen(cmd2, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env2, bufsize=1)
-            return proc2, env2
 
-        attempts = []
-        has_user = bool(user.strip() and pwd)
-        has_stored = bool(stored and Path(stored).exists())
-        if has_stored:
-            attempts.append(True)
-        if has_user:
-            attempts.append(False)
-        if not attempts:
-            return {"need_creds": True, "failed": True, "error": "Kredensial Premium kosong (hubungkan via Spotify Connect atau isi di Settings dulu)"}
-
-        last_err = ""
-        for use_stored in attempts:
-            download_progress[download_id]["percent"] = 8
-            proc_tuple = (None, "skip")
-            if proc_tuple is None or proc_tuple[1] == "no-creds":
-                continue
-            if isinstance(proc_tuple, tuple) and proc_tuple[1] in ("no-stored", "no-creds"):
-                continue
-            proc, env = proc_tuple if isinstance(proc_tuple, tuple) else (proc_tuple, os.environ.copy())
-            if proc is None:
-                continue
-            pass
-            break
-        proc = None
         env = {**os.environ, **prem_env}
-        chosen_stored = None
-        for use_stored in attempts:
-            if use_stored and has_stored:
-                chosen_stored = True
-                env = {**os.environ, **prem_env}
-                env.pop("SPOTIFY_PREMIUM_USER", None)
-                env.pop("SPOTIFY_PREMIUM_PASS", None)
-                cmd = [str(venv_py), str(script), "--track", sid, "--out", ogg_path, "--quality", "very_high", "--stored-creds", str(stored)]
-                for didp in [Path.cwd() / ".spotify-premium" / "device_id.txt"]:
-                    try:
-                        if didp.exists():
-                            did = didp.read_text(encoding="utf-8", errors="ignore").strip()[:64]
-                            if did:
-                                cmd += ["--device-id", did]
-                            break
-                    except Exception:
-                        pass
-                cache_dir = str(Path.cwd() / ".spotify-premium" / "cache")
-                try:
-                    Path(cache_dir).mkdir(parents=True, exist_ok=True)
-                    cmd += ["--cache-dir", cache_dir]
-                except Exception:
-                    pass
-                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env, bufsize=1)
-                break
-            elif not use_stored and has_user:
-                env = {**os.environ, **prem_env}
-                env["SPOTIFY_PREMIUM_USER"] = user.strip()
-                env["SPOTIFY_PREMIUM_PASS"] = pwd
-                cmd = [str(venv_py), str(script), "--track", sid, "--out", ogg_path, "--quality", "very_high"]
-                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env, bufsize=1)
-                chosen_stored = False
-                break
-        if proc is None:
-            return {"need_creds": True, "failed": True, "error": "Kredensial Premium kosong (hubungkan via Spotify Connect atau isi di Settings dulu)"}
+        cmd = [str(venv_py), str(script), "--track", sid, "--out", ogg_path, "--quality", "very_high", "--stored-creds", str(cred_path)]
+        for didp in [Path.cwd() / ".spotify-premium" / "device_id.txt"]:
+            try:
+                if didp.exists():
+                    did = didp.read_text(encoding="utf-8", errors="ignore").strip()[:64]
+                    if did:
+                        cmd += ["--device-id", did]
+                    break
+            except Exception:
+                pass
+        cache_dir = str(Path.cwd() / ".spotify-premium" / "cache")
+        try:
+            Path(cache_dir).mkdir(parents=True, exist_ok=True)
+            cmd += ["--cache-dir", cache_dir]
+        except Exception:
+            pass
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env, bufsize=1)
         stdout_lines = []
         err_buf = []
         try:
@@ -467,7 +396,7 @@ def _spotify_try_premium(track: dict, out_path: Path, options: dict, download_id
             errm = str(result.get("error") or "Premium gagal")[:500]
             low = errm.lower()
             if "badcredentials" in low or "bad credentials" in low or "401" in low or "unauthorized" in low:
-                errm = "Login Spotify gagal: BadCredentials — cek username/password Premium. Gunakan Spotify username (bukan email) bila login via Facebook/Google, dan pastikan akun Premium (bukan Free). Coba Disconnect lalu Connect via Zeroconf atau isi username ID (contoh: 317...) bukan email."
+                errm = "Login username/password sudah dimatikan Spotify untuk aplikasi pihak ketiga (librespot) — bukan salah akun Anda. Gunakan Connect: pilih device VocaLyx-XXXX di aplikasi Spotify (satu WiFi); kredensial tersimpan reusable tanpa password."
             need = "kredensial" in low or "connect" in low or "badcredentials" in low
             return {"failed": True, "need_creds": need, "error": errm}
         ogg_file = result.get("path") or ogg_path
@@ -1480,30 +1409,28 @@ async def spotify_premium(payload: dict):
             pass
         return {"ok": True}
     if action == "test":
-        u = (payload.get("username") or payload.get("user") or "").strip()
-        p = (payload.get("password") or payload.get("pass") or "").strip()
-        if u and p:
-            pass
-        elif cred_path.exists() and cred_path.stat().st_size > 16:
-            return {"ok": True, "via": "stored"}
-        if not u or not p:
-            return {"ok": False, "error": "Isi Username & Password Premium dulu"}
+        if not (cred_path.exists() and cred_path.stat().st_size > 16):
+            return {"ok": False, "error": "Belum ada sesi tersimpan — klik Connect lalu pilih device VocaLyx-XXXX di aplikasi Spotify (login tanpa password)"}
         try:
             be = _premium_backend("spotify", "spotify_premium_download.py")
             if not be:
                 return {"ok": False, "error": "Backend Spotify Premium tidak ada (paket premium tidak terbundel; jalankan stage_premium.py lalu build ulang)"}
             venv_py, script, prem_env = be
-            if u and p:
-                cmd = [str(venv_py), str(script), "--test-login"]
-            elif cred_path.exists():
-                cmd = [str(venv_py), str(script), "--test-login", "--stored-creds", str(cred_path)]
-            else:
-                cmd = [str(venv_py), str(script), "--test-login"]
+            cmd = [str(venv_py), str(script), "--test-login", "--stored-creds", str(cred_path)]
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=45,
-                                  env={**os.environ, **prem_env, "SPOTIFY_PREMIUM_USER": u, "SPOTIFY_PREMIUM_PASS": p})
-            log.debug("premium test stdout: %s stderr: %s", proc.stdout[:500], proc.stderr[:500])
+                                  env={**os.environ, **prem_env})
+            log.debug("premium verify stdout: %s stderr: %s", proc.stdout[:500], proc.stderr[:500])
             if proc.returncode == 0:
-                return {"ok": True, "via": "user_pass"}
+                username = ""
+                for line in reversed((proc.stdout or "").strip().splitlines()):
+                    try:
+                        j = json.loads(line)
+                        if isinstance(j, dict) and j.get("ok"):
+                            username = str(j.get("username") or "")
+                            break
+                    except Exception:
+                        continue
+                return {"ok": True, "via": "stored-validated", "username": username}
             err = ""
             for line in reversed((proc.stdout or "").strip().splitlines()):
                 try:
@@ -1515,11 +1442,12 @@ async def spotify_premium(payload: dict):
                     continue
             if not err:
                 err = (proc.stderr or proc.stdout or "").strip()
-            err = err.replace(p, "***") if p else err
             low_err = err.lower()
-            if "badcredentials" in low_err or "bad credentials" in low_err or "401" in err or "unauthorized" in low_err:
-                err = "Login Spotify gagal: BadCredentials — cek username/password Premium. Gunakan Spotify username (contoh: 317...) bukan email bila login via Facebook/Google, dan pastikan akun Premium (bukan Free). Coba Disconnect lalu Connect via Zeroconf atau isi ulang User/Pass."
-            return {"ok": False, "error": err[:500] or "Login gagal — cek username/password Premium (harus akun Premium, bukan free)"}
+            if any(k in low_err for k in ("kedaluwarsa", "ditolak", "bad credentials", "badcredentials", "unauthorized")):
+                err = "Sesi tersimpan kedaluwarsa/ditolak — klik Connect ulang untuk memperbarui (tanpa password)."
+            return {"ok": False, "error": err[:500] or "Verifikasi gagal — klik Connect ulang"}
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "error": "Verifikasi timeout (jaringan lambat) — coba lagi"}
         except Exception as e:
             return {"ok": False, "error": str(e)}
     if action == "connect-start":
@@ -1538,11 +1466,26 @@ async def spotify_premium(payload: dict):
                 device_path.write_text(device_name, encoding="utf-8")
             except Exception:
                 pass
-            subprocess.Popen(
+            log_f = None
+            try:
+                log_f = open(str(cred_path.parent / "connect-last.log"), "w", encoding="utf-8")
+            except Exception:
+                log_f = None
+            proc = subprocess.Popen(
                 [str(venv_py), str(script), "--out", str(out_path), "--timeout", "120", "--device-name", device_name],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                stdout=log_f if log_f else subprocess.DEVNULL,
+                stderr=subprocess.STDOUT if log_f else subprocess.DEVNULL,
                 env={**os.environ, **prem_env},
             )
+            if log_f:
+                try:
+                    log_f.close()  # child memegang dup-nya sendiri
+                except Exception:
+                    pass
+                try:
+                    proc.poll()
+                except Exception:
+                    pass
             return {"sessionId": sid, "deviceName": device_name}
         except Exception as e:
             log.error("connect-start failed: %s", e)

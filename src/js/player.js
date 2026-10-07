@@ -141,12 +141,8 @@ function loadSettingsUI(){
   if (arlEl) arlEl.value = localStorage.getItem('deezer_arl')||'';
   const idEl = document.getElementById('spClientId');
   const secEl = document.getElementById('spClientSecret');
-  const userEl = document.getElementById('spUser');
-  const passEl = document.getElementById('spPass');
   if (idEl) idEl.value = localStorage.getItem('spotify_client_id')||'';
   if (secEl) secEl.value = localStorage.getItem('spotify_client_secret')||'';
-  if (userEl) userEl.value = localStorage.getItem('spotify_premium_user')||'';
-  if (passEl) passEl.value = localStorage.getItem('spotify_premium_pass')||'';
 }
 
 function updateNpCover(t) {

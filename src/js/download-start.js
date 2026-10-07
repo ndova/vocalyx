@@ -79,7 +79,7 @@ function _trackSnapshot(t){
 export const _redlBusy = new WeakSet();
 export async function startTrackDownload(tk, { reuseEntry = null, onTick = null, onFailed = null, onDone = null, onStale = null } = {}) {
   if (!tk) return null;
-  const payload = { track: tk, options: { ...S.downloadOptions, downloadFolder: S.downloadFolder, deezerArl: localStorage.getItem('deezer_arl') || '', spotifyPremiumUser: localStorage.getItem('spotify_premium_user') || '', spotifyPremiumPass: localStorage.getItem('spotify_premium_pass') || '', spotifyClientId: localStorage.getItem('spotify_client_id') || '', spotifyClientSecret: localStorage.getItem('spotify_client_secret') || '' } };
+  const payload = { track: tk, options: { ...S.downloadOptions, downloadFolder: S.downloadFolder, deezerArl: localStorage.getItem('deezer_arl') || '', spotifyClientId: localStorage.getItem('spotify_client_id') || '', spotifyClientSecret: localStorage.getItem('spotify_client_secret') || '' } };
   const rr = await fetch('http://127.0.0.1:8001/download', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
   const jj = await rr.json();
   if (!jj.downloadId) return null;

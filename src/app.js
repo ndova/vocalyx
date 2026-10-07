@@ -87,6 +87,7 @@ try { translateTree(document); } catch {}
 const setLangEl = document.getElementById('setLang');
 if (setLangEl) { try { setLangEl.value = lang(); } catch {} }
 try { if (typeof window.__syncLangCode === 'function') window.__syncLangCode(lang()); } catch {}
+try { localStorage.removeItem('spotify_premium_user'); localStorage.removeItem('spotify_premium_pass'); } catch {}
 renderTracks();
 try { hydrateIcons(document); } catch {}
 initResizableGrid();

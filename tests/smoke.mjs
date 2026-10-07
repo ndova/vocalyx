@@ -878,7 +878,8 @@ ok(!document.getElementById('dlSearchBox')?.classList.contains('open'), 'downloa
 }
 const iphoneNote = $('#aboutDesc');
 ok(/straight to your iPhone/.test(iphoneNote?.textContent || ''), 'about: kalimat sinkron musik langsung ke iPhone');
-ok(/two-way iOS transfer/.test(iphoneNote?.textContent || ''), 'about: kalimat transfer iOS dua arah');
+ok(!/two-way iOS transfer|Multi-Platform|VolumeGain|Fitur Lain|<strong>/.test(iphoneNote?.innerHTML || ''),
+  'about: segmen fitur (Multi-Platform/AI Karaoke/Pro Audio/Fitur Lain) dihapus dari deskripsi About');
 {
   const sup = document.getElementById('btnSupport');
   const supImg = sup?.querySelector('img');
@@ -1195,6 +1196,24 @@ try {
   // dilewati karena `.exists()` False.
   ok(/def _resolve_script\(/.test(pySepMain) && /for ext in \("\.py", "\.pyc"\)/.test(pySepMain),
     'py: sub-script karaoke dikenali di mode .py maupun .pyc');
+  // Interpreter child karaoke: di dev system Python bisa tanpa audio_separator.
+  // Resolver urut build/runtime -> APPDATA runtime -> sys.executable (rilis nol-ubah).
+  const iB = pySepRun.indexOf('"build" / "runtime" / "python.exe"');
+  const iA = pySepRun.indexOf('"VocaLyx" / "runtime" / "python.exe"');
+  const iS = pySepRun.indexOf('raw.append(Path(sys.executable))');
+  ok(iB > -1 && iA > iB && iS > iA,
+    'py: resolver karaoke urut build/runtime -> APPDATA runtime -> sys.executable');
+  ok(pySepRun.includes('_KARAOKE_PY_CACHE') && pySepRun.includes('_probe_karaoke_python'),
+    'py: probe audio_separator di-cache per process (tanpa probe ulang tiap script)');
+  ok(/\[py_exe, "-u", str\(script\)/.test(pySepRun) && !pySepRun.includes('[sys.executable, "-u"'),
+    'py: _run_script spawn lewat resolver, bukan sys.executable langsung');
+  ok(pySepRun.includes('import audio_separator, torch, onnxruntime'),
+    'py: probe menuntut audio_separator + torch + onnxruntime sekaligus');
+  ok(pySepRun.includes('def _karaoke_missing_deps_message()') && pySepRun.includes('_JOBS[job_id]["script_error"] = _karaoke_missing_deps_message()'),
+    'py: preflight gagal-deps langsung isi script_error panduan actionable');
+  ok(pySepMain.includes("No module named 'audio_separator'")
+    && pySepMain.includes('_karaoke_missing_deps_message()'),
+    'py: pesan akhir gagal karena deps hilang diganti panduan (bukan "semua model gagal")');
   const pySep = fs.readFileSync(path.join(root, 'python-engine/vx_karaoke_sep.py'), 'utf8');
   const pyDsp = fs.readFileSync(path.join(root, 'python-engine/vx_karaoke_dsp.py'), 'utf8');
   const pyBest = fs.readFileSync(path.join(root, 'python-engine/scripts/karaoke_best.py'), 'utf8');
@@ -3425,6 +3444,57 @@ try {
   ok(ajsP.includes('status.title = j.ok'), 'js: alasan gagal Test Login tampil di status (bukan sekadar gagal)');
   ok(ajsP.includes('enh.connectTimeout') && ajsP.includes('Date.now()-t0>120000'),
     'js: polling Connect berhenti di 120 detik dengan pesan timeout');
+
+  // Hapus fungsi User/Pass (Spotify mematikan login password utk app pihak ketiga).
+  ok(py.includes('Login username/password sudah dimatikan Spotify') && !py.includes('cek username/password Premium. Gunakan Spotify username'),
+    'python: pesan BadCredentials mengarah ke Connect (bukan menyalahkan password)');
+  ok(py.includes('Belum ada sesi tersimpan') && !py.includes('Isi Username & Password Premium dulu'),
+    'python: verify tanpa kredensial mengarah ke Connect');
+  ok(py.includes('stored-validated') && py.includes('"username": username'),
+    'python: verify memvalidasi sesi stored sungguhan + mengembalikan username');
+  ok(!py.includes('SPOTIFY_PREMIUM_USER') && !py.includes('SPOTIFY_PREMIUM_PASS')
+    && !py.includes('spotifyPremiumUser') && !py.includes('user_pass') && !py.includes('payload.get("username")'),
+    'python: tanpa jalur kredensial user/pass (env, payload, user_pass)');
+  const dlGlue = fs.readFileSync(path.join(root, 'scripts/spotify_premium_download.py'), 'utf8');
+  ok(!dlGlue.includes('user_pass') && !dlGlue.includes('SPOTIFY_PREMIUM_USER') && !dlGlue.includes('SPOTIFY_PREMIUM_PASS'),
+    'glue: tanpa cabang login password (stored-creds only)');
+  ok(dlGlue.includes('Sesi Premium belum ada') && dlGlue.includes('"username": _user'),
+    'glue: tanpa stored-creds gagal ke Connect; --test-login mengembalikan username');
+  const authGlue = fs.readFileSync(path.join(root, 'scripts/spotify_premium_auth.py'), 'utf8');
+  ok(authGlue.includes('os._exit(0)') && authGlue.includes('os._exit(1)'),
+    'auth: exit paksa setelah emit final (thread non-daemon tak boleh menahan proses)');
+  ok(authGlue.includes('t.join(3)'), 'auth: server.close() dibatasi timeout 3 detik');
+  ok(py.includes('connect-last.log'), 'python: connect-start menulis log diagnosa');
+  const idxHtml = fs.readFileSync(path.join(root, 'src/index.html'), 'utf8');
+  ok(!idxHtml.includes('spUser') && !idxHtml.includes('spPass')
+    && !idxHtml.includes('btnSavePremium') && !idxHtml.includes('btnTestPremium')
+    && !idxHtml.includes('help.passDeprecated') && !idxHtml.includes('premiumUser'),
+    'html: kolom + tombol User/Pass hilang total dari blok Premium');
+  ok(idxHtml.includes('id="btnVerifyPremium"') && idxHtml.includes('data-t="btn.verify"'),
+    'html: tombol Verify Connection menggantikan Test Login');
+  const enJs = fs.readFileSync(path.join(root, 'src/js/enhance.js'), 'utf8');
+  ok(enJs.includes('btnVerifyPremium') && !enJs.includes('spUser') && !enJs.includes('btnTestPremium')
+    && !enJs.includes('btnSavePremium') && !enJs.includes("spotify_premium_user"),
+    'js: handler Verify ada; handler Save/Test user-pass hilang');
+  const dlJs = fs.readFileSync(path.join(root, 'src/js/download-start.js'), 'utf8');
+  ok(!dlJs.includes('spotifyPremiumUser') && !dlJs.includes('spotify_premium_pass'),
+    'js: payload download tak lagi membawa kredensial user/pass');
+  const plJs = fs.readFileSync(path.join(root, 'src/js/player.js'), 'utf8');
+  ok(!plJs.includes('spUser') && !plJs.includes('spotify_premium_user'),
+    'js: settings tak lagi restore user/pass');
+  const appJs = fs.readFileSync(path.join(root, 'src/app.js'), 'utf8');
+  ok(appJs.includes("removeItem('spotify_premium_user')") && appJs.includes("removeItem('spotify_premium_pass')"),
+    'js: password basi di localStorage dipurge saat boot');
+  for (const loc of ['en', 'id', 'jv']) {
+    const s = fs.readFileSync(path.join(root, `src/js/i18n/${loc}.js`), 'utf8');
+    const deadKeys = ['btn.saveUserPass', 'btn.testLogin', 'ph.premiumUser', 'ph.premiumPass', 'enh.premiumSaved', 'help.passDeprecated'];
+    const leftovers = deadKeys.filter((k) => s.includes(`'${k}':`));
+    ok(leftovers.length === 0 && s.includes("'btn.verify':")
+      && !/Save User\/Pass, then Test Login/.test(s)
+      && !/klik Save User\/Pass, lalu Test Login/.test(s)
+      && !/klik Simpen User\/Pass, banjur Test Login/.test(s),
+      `i18n ${loc}: 6 key user/pass mati hilang (sisa: ${leftovers.join(',') || 'nol'}), btn.verify ada, help.cred.s2b Connect-only`);
+  }
 
   const rs = fs.readFileSync(path.join(root, 'src-tauri/src/lib.rs'), 'utf8');
   ok(/fn is_artifact_name[\s\S]{0,300}?\.prem\./.test(rs), 'rust: is_artifact_name kenal .prem.');

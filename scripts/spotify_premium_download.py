@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Download 1 track Spotify via akun Premium (librespot, venv terisolasi).
 
-Dipakai HANYA oleh src/lib/spotifyPremium.ts. Kredensial TIDAK boleh lewat argv
-(terlihat di process list) — melainkan via env:
-  SPOTIFY_PREMIUM_USER / SPOTIFY_PREMIUM_PASS
-  ATAU file kredensial reusable (hasil spotify_premium_auth.py):
+Dipakai HANYA oleh python-engine/vx_download.py. WAJIB memakai file
+kredensial reusable (hasil spotify_premium_auth.py / Connect) — login
+username/password sudah dimatikan Spotify untuk app pihak ketiga, jadi
+TIDAK ada jalur env kredensial user/pass lagi:
   python spotify_premium_download.py --stored-creds ".spotify-premium\\credentials.json" \
     --track ... --out ...
 
@@ -14,9 +14,9 @@ Protokol stdout: baris JSON. Baris terakhir SELALU hasil akhir:
 Baris {"progress": n} opsional di tengah (heartbeat agar pemanggil tahu hidup).
 
 Contoh:
-  SPOTIFY_PREMIUM_USER=... SPOTIFY_PREMIUM_PASS=... python spotify_premium_download.py \
+  python spotify_premium_download.py --stored-creds ".spotify-premium\\credentials.json" \
     --track 4uLU6hMCjMI75M1A2tKUQ --out "C:\\dl\\x.ogg" --quality very_high
-  ... --test-login   (hanya login lalu keluar)
+  ... --test-login   (validasi sesi stored, lalu keluar)
 """
 import argparse
 import json
@@ -51,10 +51,8 @@ def main():
     args = ap.parse_args()
 
     stored_creds = args.stored_creds.strip()
-    username = os.environ.get("SPOTIFY_PREMIUM_USER", "").strip()
-    password = os.environ.get("SPOTIFY_PREMIUM_PASS", "")
-    if not stored_creds and (not username or not password):
-        fail("Kredensial Premium kosong (hubungkan via Spotify Connect atau isi di Settings dulu)")
+    if not stored_creds:
+        fail("Sesi Premium belum ada — hubungkan via Spotify Connect dulu (login password sudah dimatikan Spotify)")
     if not args.test_login and not args.track:
         fail("Track ID kosong")
 
@@ -117,31 +115,22 @@ def main():
     except Exception:
         pass
     conf = conf_builder.build()
-    if stored_creds:
-        if not os.path.exists(stored_creds):
-            fail("File kredensial tidak ditemukan — hubungkan ulang via Spotify Connect")
-        try:
-            session = Session.Builder(conf).stored_file(stored_creds).create()
-        except Exception as e:
-            fail("Kredensial tersimpan kedaluwarsa/ditolak — hubungkan ulang: " + str(e)[:200])
-    else:
-        try:
-            session = Session.Builder(conf).user_pass(username, password).create()
-        except Exception as e:
-            msg = str(e)[:500]
-            low = msg.lower()
-            if "bad credentials" in low or "401" in low or "unauthorized" in low or "login" in low:
-                fail("Login Spotify gagal — cek username/password Premium")
-            if "disabled" in low or "banned" in low or "suspend" in low or "deactivat" in low:
-                fail("account_disabled: akun dibatasi Spotify — ganti akun & hubungkan ulang")
-            if "429" in low or "too many" in low or "throttl" in low:
-                emit({"ok": False, "error": "rate_limited: login terlalu sering, jeda lalu retry", "retry_after": 60})
-                sys.exit(2)
-            fail("Login Spotify gagal: " + msg[:300])
+    if not os.path.exists(stored_creds):
+        fail("File kredensial tidak ditemukan — hubungkan ulang via Spotify Connect")
+    try:
+        session = Session.Builder(conf).stored_file(stored_creds).create()
+    except Exception as e:
+        fail("Kredensial tersimpan kedaluwarsa/ditolak — hubungkan ulang: " + str(e)[:200])
 
     try:
         if args.test_login:
-            emit({"ok": True, "path": ""})
+            _user = ""
+            try:
+                with open(stored_creds, "r", encoding="utf-8") as f:
+                    _user = str(json.load(f).get("username") or "")
+            except Exception:
+                pass
+            emit({"ok": True, "path": "", "username": _user})
             return 0
 
         raw = args.track.strip()

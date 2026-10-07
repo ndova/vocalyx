@@ -186,11 +186,8 @@ document.getElementById('btnBrowseFolder')?.addEventListener('click', async ()=>
 });
 document.getElementById('btnSaveSettings')?.addEventListener('click', async ()=>{
   const idEl=document.getElementById('spClientId'), secEl=document.getElementById('spClientSecret');
-  const userEl=document.getElementById('spUser'), passEl=document.getElementById('spPass');
   if(idEl) localStorage.setItem('spotify_client_id', idEl.value.trim());
   if(secEl) localStorage.setItem('spotify_client_secret', secEl.value.trim());
-  if(userEl) localStorage.setItem('spotify_premium_user', userEl.value.trim());
-  if(passEl) localStorage.setItem('spotify_premium_pass', passEl.value.trim());
   await showAlert(t('topbar.settings'), t('enh.settingsSaved2', { n: S.downloadOptions.format.toUpperCase() }));
 });
 document.getElementById('btnSaveCreds')?.addEventListener('click', async ()=>{
@@ -223,20 +220,14 @@ document.getElementById('btnTestArl')?.addEventListener('click', async ()=>{
     if(st){ st.textContent = j.data ? `✓ ${j.data.tier} ${j.data.maxQuality}` : t('enh.failed'); st.style.color = j.data ? 'var(--accent2)' : '#ff6b6b'; }
   }catch{ if(st) st.textContent=t('enh.error'); }
 });
-document.getElementById('btnSavePremium')?.addEventListener('click', async ()=>{
-  const u=document.getElementById('spUser')?.value.trim()||'', p=document.getElementById('spPass')?.value.trim()||'';
-  localStorage.setItem('spotify_premium_user', u); localStorage.setItem('spotify_premium_pass', p);
-  await showAlert('Premium', t('enh.premiumSaved'));
-});
-document.getElementById('btnTestPremium')?.addEventListener('click', async ()=>{
+document.getElementById('btnVerifyPremium')?.addEventListener('click', async ()=>{
   const status=document.getElementById('premiumStatus'); if(status) status.textContent=t('enh.testing');
   try{
-    const u=localStorage.getItem('spotify_premium_user')||'', p=localStorage.getItem('spotify_premium_pass')||'';
-    const r=await fetch('http://127.0.0.1:8001/spotify/premium', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action:'test', username:u, password:p})});
+    const r=await fetch('http://127.0.0.1:8001/spotify/premium', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action:'test'})});
     const j=await r.json();
     if(status) {
       const err = j.error ? String(j.error) : '';
-      status.textContent = j.ok ? t('enh.connected') : (err ? err.slice(0,160) : t('enh.failed'));
+      status.textContent = j.ok ? t('enh.connected') + (j.username ? ` (${j.username})` : '') : (err ? err.slice(0,160) : t('enh.failed'));
       status.title = j.ok ? '' : err;
       status.style.color = j.ok ? 'var(--accent2)' : '#ff6b6b';
     }

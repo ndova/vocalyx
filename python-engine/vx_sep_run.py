@@ -28,9 +28,91 @@ def _spawn_env(force_cpu: bool = False) -> dict:
     return env
 
 
+_KARAOKE_PY_CACHE: dict | None = None
+_KARAOKE_PROBE_CODE = "import audio_separator, torch, onnxruntime"
+_KARAOKE_PROBE_TIMEOUT = 45
+
+
+def _interpreter_candidates() -> list:
+    raw = []
+    try:
+        raw.append(Path(__file__).resolve().parent.parent / "build" / "runtime" / "python.exe")
+    except Exception:
+        pass
+    _appdata = os.environ.get("APPDATA") or ""
+    if _appdata:
+        raw.append(Path(_appdata) / "VocaLyx" / "runtime" / "python.exe")
+    raw.append(Path(sys.executable))
+    out, seen = [], set()
+    for c in raw:
+        try:
+            key = c.resolve().as_posix().lower() if c.exists() else str(c).lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            if c.is_file():
+                out.append(str(c))
+        except Exception:
+            continue
+    return out
+
+
+def _probe_karaoke_python(exe: str) -> bool:
+    try:
+        r = subprocess.run(
+            [exe, "-c", _KARAOKE_PROBE_CODE],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=_KARAOKE_PROBE_TIMEOUT,
+        )
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def _karaoke_python() -> tuple:
+    global _KARAOKE_PY_CACHE
+    if _KARAOKE_PY_CACHE is not None:
+        return _KARAOKE_PY_CACHE
+    me = ""
+    try:
+        me = Path(sys.executable).resolve().as_posix().lower()
+    except Exception:
+        me = str(sys.executable).lower()
+    for exe in _interpreter_candidates():
+        if _probe_karaoke_python(exe):
+            try:
+                is_me = Path(exe).resolve().as_posix().lower() == me
+            except Exception:
+                is_me = str(exe).lower() == me
+            _KARAOKE_PY_CACHE = (exe, True)
+            if not is_me:
+                log.info("karaoke: pakai interpreter ber-deps %s (bukan sys.executable)", exe)
+            return _KARAOKE_PY_CACHE
+    _KARAOKE_PY_CACHE = (sys.executable, False)
+    log.warning("karaoke: tak ada interpreter dengan audio_separator; pakai %s (job akan gagal dengan panduan)", sys.executable)
+    return _KARAOKE_PY_CACHE
+
+
+def _karaoke_missing_deps_message() -> str:
+    py, _ok = _karaoke_python()
+    return (
+        "Karaoke butuh paket audio_separator, tapi tak ada interpreter lengkap yang ditemukan. "
+        "Pasang runtime VocaLyx (banner Runtime di Settings, atau rilis runtime-0.1.0-beta) "
+        f"— atau install audio-separator ke {py}. "
+        "Model AI sudah ada; hanya dependensi Python yang kurang."
+    )
+
+
 def _run_script(job_id: str, script: Path, args: list, log_path: Path,
                Heartbeat_stage: str = "separate"):
     final = {}
+    py_exe, py_ok = _karaoke_python()
+    if not py_ok:
+        with _JOBS_LOCK:
+            if job_id in _JOBS:
+                _JOBS[job_id]["script_error"] = _karaoke_missing_deps_message()
+        log.warning("karaoke script %s dilewati: interpreter tanpa audio_separator", script.name)
+        return None, {}
     try:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_fh = open(log_path, "w", encoding="utf-8", errors="replace")
@@ -40,7 +122,7 @@ def _run_script(job_id: str, script: Path, args: list, log_path: Path,
     try:
         dev_arg = str(args[2]).lower() if len(args) >= 3 else ""
         proc = subprocess.Popen(
-            [sys.executable, "-u", str(script), *args],
+            [py_exe, "-u", str(script), *args],
             stdout=subprocess.PIPE, stderr=log_fh,
             text=True, bufsize=1, env=_spawn_env(force_cpu=(dev_arg == "cpu")),
         )

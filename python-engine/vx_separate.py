@@ -41,7 +41,7 @@ from vx_sep_cache import (
     _write_persist_meta,
 )
 from vx_sep_jobs import _JOBS, _JOBS_LOCK, _set_job, _tail_log
-from vx_sep_run import _device_info, _free_engine_vram, _run_script
+from vx_sep_run import _device_info, _free_engine_vram, _karaoke_missing_deps_message, _run_script
 
 router = APIRouter()
 
@@ -293,10 +293,13 @@ def _worker(job_id: str, raw: bytes, suffix: str, mode: str, quality: str,
                     pass
                 with _JOBS_LOCK:
                     det = (_JOBS.get(job_id, {}) or {}).get("script_error", "")
-                    msg = ("Pemisahan karaoke gagal untuk "
-                           f"quality='{quality}' (device={device}). "
-                           "Tidak ada fallback otomatis — cek log job. "
-                           + (det[-800:] if det else ""))
+                    if "No module named 'audio_separator'" in det:
+                        msg = _karaoke_missing_deps_message()
+                    else:
+                        msg = ("Pemisahan karaoke gagal untuk "
+                               f"quality='{quality}' (device={device}). "
+                               "Tidak ada fallback otomatis — cek log job. "
+                               + (det[-800:] if det else ""))
                     _JOBS[job_id].update(status="failed", error=msg, at=time.time())
                 return
 
