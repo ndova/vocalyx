@@ -10,7 +10,7 @@
 //! `runtime://progress` -> `runtime_status` lagi sampai `installed: true`.
 
 use std::fs;
-use std::io::Write;
+use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -314,31 +314,81 @@ pub async fn runtime_install(app: AppHandle, url: String, sha256: String) -> Res
     // dua bentuk ini diterima di sini.
     let want = resolve_expected_hash(&client, &sha256).await?;
 
-    let resp = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("gagal mengunduh runtime: {e}"))?;
-    if !resp.status().is_success() {
-        return Err(format!("server membalas {}", resp.status()));
-    }
-    let total = resp.content_length().unwrap_or(0);
+    // Resume: potongan `.part` lama dipakai ulang lewat header Range, jadi
+    // unduhan 670MB yang putus tidak perlu diulang dari nol. Status 206 =
+    // server melanjutkan, 200 = mulai dari awal, 416 = potongan melebihi
+    // ukuran objek (dicek dulu apakah sudah lengkap dan hash cocok).
     let tmp = zip_path.with_extension("part");
-    let mut file = fs::File::create(&tmp).map_err(|e| format!("gagal buat file: {e}"))?;
-    let mut stream = resp.bytes_stream();
-    let mut received = 0u64;
-    use futures_util::StreamExt;
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| format!("unduhan terputus: {e}"))?;
-        file.write_all(&chunk).map_err(|e| format!("gagal menulis: {e}"))?;
-        received += chunk.len() as u64;
-        if received % (4 * 1024 * 1024) < chunk.len() as u64 {
-            emit(received, total, "download");
+    let mut resume_from = fs::metadata(&tmp).map(|m| m.len()).unwrap_or(0);
+    let mut resp = {
+        let mut req = client.get(&url);
+        if resume_from > 0 {
+            req = req.header(reqwest::header::RANGE, format!("bytes={resume_from}-"));
+        }
+        req.send()
+            .await
+            .map_err(|e| format!("gagal mengunduh runtime: {e}"))?
+    };
+    let mut finished = false;
+    if resp.status().as_u16() == 416 && resume_from > 0 {
+        if let Some(want) = &want {
+            if let Ok(got) = sha256_file(&tmp) {
+                if &got == want {
+                    finished = true;
+                }
+            }
+        }
+        if !finished {
+            let _ = fs::remove_file(&tmp);
+            resume_from = 0;
+            resp = client
+                .get(&url)
+                .send()
+                .await
+                .map_err(|e| format!("gagal mengunduh runtime: {e}"))?;
         }
     }
-    file.flush().ok();
-    drop(file);
-    emit(received, total, "verify");
+    if !finished && !resp.status().is_success() {
+        return Err(format!("server membalas {}", resp.status()));
+    }
+    let mut received = resume_from;
+    let mut total = 0u64;
+    if !finished {
+        let append = resp.status().as_u16() == 206 && resume_from > 0;
+        if !append {
+            resume_from = 0;
+            received = 0;
+        }
+        total = resp.content_length().map(|l| l + resume_from).unwrap_or(0);
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(&tmp)
+            .map_err(|e| format!("gagal buat file: {e}"))?;
+        if append {
+            file.seek(SeekFrom::End(0)).ok();
+        } else {
+            file.set_len(0).ok();
+        }
+        emit(received, total, "download");
+        let mut stream = resp.bytes_stream();
+        use futures_util::StreamExt;
+        let mut last_emit = received;
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| format!("unduhan terputus: {e}"))?;
+            file.write_all(&chunk).map_err(|e| format!("gagal menulis: {e}"))?;
+            received += chunk.len() as u64;
+            if received - last_emit >= 4 * 1024 * 1024 {
+                last_emit = received;
+                emit(received, total, "download");
+            }
+        }
+        file.flush().ok();
+        drop(file);
+        emit(received, total, "verify");
+    } else {
+        emit(received, received, "verify");
+    }
 
     if let Some(want) = &want {
         let got = sha256_file(&tmp)?;

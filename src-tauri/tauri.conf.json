@@ -48,7 +48,6 @@
     "shortDescription": "Desktop Music Manager | Vocal Isolation | Karaoke & EQ",
     "resources": {
       "../build/engine": "python-engine",
-      "../build/runtime-bundle.zip": "runtime-bundle.zip",
       "../assets": "assets"
     },
     "windows": {
