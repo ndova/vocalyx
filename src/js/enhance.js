@@ -234,7 +234,12 @@ document.getElementById('btnTestPremium')?.addEventListener('click', async ()=>{
     const u=localStorage.getItem('spotify_premium_user')||'', p=localStorage.getItem('spotify_premium_pass')||'';
     const r=await fetch('http://127.0.0.1:8001/spotify/premium', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action:'test', username:u, password:p})});
     const j=await r.json();
-    if(status) { status.textContent = j.ok ? t('enh.connected') : t('enh.failed'); status.style.color=j.ok?'var(--accent2)':'#ff6b6b'; }
+    if(status) {
+      const err = j.error ? String(j.error) : '';
+      status.textContent = j.ok ? t('enh.connected') : (err ? err.slice(0,160) : t('enh.failed'));
+      status.title = j.ok ? '' : err;
+      status.style.color = j.ok ? 'var(--accent2)' : '#ff6b6b';
+    }
   }catch{ if(status) status.textContent=t('enh.error'); }
 });
 document.getElementById('btnConnectPremium')?.addEventListener('click', async ()=>{
@@ -243,12 +248,15 @@ document.getElementById('btnConnectPremium')?.addEventListener('click', async ()
     const r=await fetch('http://127.0.0.1:8001/spotify/premium', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action:'connect-start'})});
     const j=await r.json();
     const sid=j.sessionId;
+    if(!sid){ if(status){ status.textContent=j.error?String(j.error).slice(0,160):t('enh.failed'); status.style.color='#ff6b6b'; } return; }
+    const t0=Date.now();
     const poll = async()=>{
+      if(Date.now()-t0>120000){ if(status){ status.textContent=t('enh.connectTimeout'); status.style.color='#ff6b6b'; } return; }
       const pr=await fetch('http://127.0.0.1:8001/spotify/premium', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action:'connect-status', sessionId:sid})});
       const pj=await pr.json();
       if(pj.connected){ if(status){ status.textContent=t('enh.connected') + ' ' + (pj.deviceName||'VocaLyx-XXXX'); status.style.color='var(--accent2)'; } }
       else if(pj.waiting){ setTimeout(poll,2000); if(status) status.textContent=t('enh.waiting'); }
-      else { if(status) status.textContent=t('enh.failed'); }
+      else { if(status){ status.textContent=pj.error?String(pj.error).slice(0,160):t('enh.failed'); status.style.color='#ff6b6b'; } }
     };
     setTimeout(poll,2000);
   }catch{ if(status) status.textContent=t('enh.error'); }

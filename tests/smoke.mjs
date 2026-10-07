@@ -1212,6 +1212,10 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
     ok(!res['../build/runtime-bundle.zip'],
       '3a: build slim - runtime-bundle.zip TIDAK ikut resource (aplikasi ±25MB; runtime diunduh via banner bila absen)');
     ok(res['../assets'] === 'assets', '3a: assets tetap jadi resource');
+    ok(res['../build/premium'] === 'premium',
+      '3a: paket premium staged (librespot/deemix) ikut resource installer');
+    ok(/stage:premium/.test(tconf.build.beforeBuildCommand),
+      '3a: staging paket premium dihook ke beforeBuildCommand (venv tak terbundel, wajib distage)');
     ok(!JSON.stringify(res).includes('../python-engine'),
       '3a: resources tidak lagi menyalin folder python-engine mentah (junk ikut terbundel)');
     const rsRt = fs.readFileSync(path.join(root, 'src-tauri/src/runtime.rs'), 'utf8');
@@ -3369,6 +3373,32 @@ try {
     'python: tanpa blok except duplikat mati');
   const partialFn = py.slice(py.indexOf('def _is_partial_artifact'), py.indexOf('def _probe_duration'));
   ok(partialFn.includes('".prem." in n'), 'python: _is_partial_artifact kenal .prem.');
+
+  const beFn = py.slice(py.indexOf('def _premium_backend'), py.indexOf('def _spotify_try_premium'));
+  ok(beFn.includes('sys.executable') && beFn.includes('PYTHONPATH') && beFn.includes('"premium"'),
+    'python: resolver premium pakai paket staged + interpreter mesin + PYTHONPATH');
+  ok(beFn.includes('-venv') && beFn.includes('"scripts"'),
+    'python: resolver premium masih punya fallback dev scripts/*-venv');
+  ok(/_premium_backend\("spotify", "spotify_premium_download\.py"\)/.test(py)
+    && /_premium_backend\("spotify", "spotify_premium_auth\.py"\)/.test(py)
+    && /_premium_backend\("deezer", "deezer_arl_test\.py"\)/.test(py)
+    && /_premium_backend\("deezer", "deezer_download\.py"\)/.test(py),
+    'python: test-login, connect, ARL test, download semuanya lewat resolver premium');
+  ok(!/"sessionId": "mock"/.test(py),
+    'python: connect-start tidak lagi mengembalikan sesi mock saat backend absen');
+
+  const stageP = fs.readFileSync(path.join(root, 'scripts/stage_premium.py'), 'utf8');
+  ok(stageP.includes('legacy=True') && stageP.includes('stdlib_module_names'),
+    'stage: penutup impor abaikan stdlib; glue dikompilasi bytecode legacy');
+  ok(stageP.includes('rglob("*.py")') && stageP.includes('--check'),
+    'stage: paket staged wajib tanpa .py + punya mode --check');
+  const pkgJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  ok(/stage_premium\.py/.test(pkgJson.scripts['stage:premium'] || ''),
+    'stage: script npm stage:premium mengarah ke stage_premium.py');
+  const ajsP = readSrc();
+  ok(ajsP.includes('status.title = j.ok'), 'js: alasan gagal Test Login tampil di status (bukan sekadar gagal)');
+  ok(ajsP.includes('enh.connectTimeout') && ajsP.includes('Date.now()-t0>120000'),
+    'js: polling Connect berhenti di 120 detik dengan pesan timeout');
 
   const rs = fs.readFileSync(path.join(root, 'src-tauri/src/lib.rs'), 'utf8');
   ok(/fn is_artifact_name[\s\S]{0,300}?\.prem\./.test(rs), 'rust: is_artifact_name kenal .prem.');

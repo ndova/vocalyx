@@ -175,6 +175,7 @@ export default {
   'enh.connecting': 'Connecting to VocaLyx-XXXX...',
   'enh.waiting': 'Waiting...',
   'enh.disconnected': 'Disconnected',
+  'enh.connectTimeout': 'Timed out after 120s — keep Spotify on the same WiFi and try again',
   'enh.enhanceOld': 'Enhance Old Files',
   'enh.notDone': '{n} files do not match the Enhance setting.\nProcess them in the background one by one?',
   'enh.process': 'Process',

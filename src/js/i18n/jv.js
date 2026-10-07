@@ -175,6 +175,7 @@ export default {
   'enh.connecting': 'Nghubungkan VocaLyx-XXXX...',
   'enh.waiting': 'Nunggu...',
   'enh.disconnected': 'Putus',
+  'enh.connectTimeout': 'Waktu entek 120 detik — pastekake Spotify ing HP/desktop sak WiFi banjur coba maneh',
   'enh.enhanceOld': 'Nguwatake File Lawas',
   'enh.notDone': '{n} file durung cocok karo setelan Nguwatake.\nProses ing latar mburi siji-siji?',
   'enh.process': 'Proses',

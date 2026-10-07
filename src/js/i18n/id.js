@@ -175,6 +175,7 @@ export default {
   'enh.connecting': 'Menghubungkan VocaLyx-XXXX...',
   'enh.waiting': 'Menunggu...',
   'enh.disconnected': 'Terputus',
+  'enh.connectTimeout': 'Timeout 120 detik — pastikan Spotify di HP/desktop satu WiFi lalu coba lagi',
   'enh.enhanceOld': 'Perkuat File Lama',
   'enh.notDone': '{n} file belum sesuai pengaturan Perkuat.\nProses di latar belakang satu per satu?',
   'enh.process': 'Proses',

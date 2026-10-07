@@ -274,6 +274,28 @@ def audit_installer(installer: Path, tmp: Path) -> int:
     ok("karaoke_best.pyc ikut",
        bool(eng and (eng / "scripts" / "karaoke_best.pyc").is_file()))
 
+    # Paket premium (librespot/deemix) ikut terbundel sebagai bytecode.
+    # Tanpa ini, Test Login / Connect Spotify & ARL Deezer gagal di mesin
+    # pengguna karena scripts/*-venv memang tidak pernah ikut installer.
+    prem = eng.parent / "premium" if eng else None
+    ok("installer punya folder premium", bool(prem and prem.is_dir()),
+       str(prem) if prem else "")
+    if prem and prem.is_dir():
+        ppy = [p for p in prem.rglob("*.py")]
+        ok("premium bebas .py", not ppy,
+           f"bocor: {[str(p.relative_to(prem)) for p in ppy][:5]}" if ppy else "")
+        for svc, glues in (("spotify", ("spotify_premium_download.pyc", "spotify_premium_auth.pyc")),
+                           ("deezer", ("deezer_download.pyc", "deezer_arl_test.pyc"))):
+            d = prem / svc
+            ok(f"paket {svc} ada", d.is_dir(), str(d))
+            for g in glues:
+                ok(f"glue {svc}/{g} ikut", bool(d and (d / g).is_file()))
+        ok("librespot ikut (backend Spotify)",
+           (prem / "spotify" / "librespot").is_dir())
+        ok("deemix+deezer ikut (backend Deezer)",
+           (prem / "deezer" / "deemix").is_dir() and (prem / "deezer" / "deezer").is_dir())
+        ok("manifest premium ikut", (prem / "manifest.json").is_file())
+
     for z in tmp.rglob("*.zip"):
         with zipfile.ZipFile(z) as zf:
             leaked = [n for n in zf.namelist()
