@@ -104,7 +104,8 @@ try { initRuntime(); } catch {}
 try { initGpuPython(); } catch {}
 engineHealth();
 setInterval(engineHealth, 15000);
-setInterval(()=>{ if(S.activeView==='device') checkIPhoneConnected(); }, 3000);
+S._iphonePoll = setInterval(()=>{ if (S.activeView !== 'device' || document.hidden) return; checkIPhoneConnected(); }, 5000);
+document.addEventListener('visibilitychange', ()=>{ if (!document.hidden && S.activeView === 'device') checkIPhoneConnected(); });
 (async ()=>{ // engine di-spawn otomatis oleh Tauri; import torch lambat, jadi tunggu banyak sebelum menyerah
   for (let i = 0; i < 60; i++){
     try {

@@ -413,7 +413,6 @@ async function openIPhoneEditModal(pid) {
   });
 }
 checkIPhoneConnected();
-setInterval(checkIPhoneConnected, 15000);
 document.getElementById('btnDeviceRefresh')?.addEventListener('click', () => { checkIPhoneConnected(); loadIPhoneLibrary(); showToast(t('dl.refreshed'), 2000); });
 
 function setExportProgress(pct, text) {

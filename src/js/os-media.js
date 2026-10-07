@@ -138,6 +138,16 @@ async function initMediaSync(){
 }
 
 $('#btnPlay').onclick = () => (audio.paused ? play() : pause());
+function pickShuffleIdx(len, pos) {
+  if (len < 2) return -1;
+  let r = 0;
+  for (let guard = 0; guard < 50; guard++) {
+    r = Math.floor(Math.random() * len);
+    if (r !== pos) return r;
+  }
+  return r === pos ? (pos + 1) % len : r;
+}
+
 function getNextIndex() {
   if (S.playlistPlayback) {
     const pl = S.playlists.find(p=>p.id===S.playlistPlayback.id);
@@ -147,8 +157,8 @@ function getNextIndex() {
       if (pos === -1) pos = -1;
       if (S.isShuffle) {
         if (pl.trackPaths.length===1) return trackIndexByPath(pl.trackPaths[0]);
-        let r; do { r = Math.floor(Math.random()*pl.trackPaths.length); } while (r===pos);
-        return trackIndexByPath(pl.trackPaths[r]);
+        const r = pickShuffleIdx(pl.trackPaths.length, pos);
+        return r >= 0 ? trackIndexByPath(pl.trackPaths[r]) : -1;
       }
       let nextPos = pos + 1;
       if (nextPos >= pl.trackPaths.length) {
@@ -167,8 +177,8 @@ function getNextIndex() {
     if (pos === -1) pos = -1;
     if (S.isShuffle) {
       if (S.downloadPlayback.paths.length===1) return ensureTrackForPath(S.downloadPlayback.paths[0]);
-      let r; do { r = Math.floor(Math.random()*S.downloadPlayback.paths.length); } while (r===pos);
-      return ensureTrackForPath(S.downloadPlayback.paths[r]);
+      const r = pickShuffleIdx(S.downloadPlayback.paths.length, pos);
+      return r >= 0 ? ensureTrackForPath(S.downloadPlayback.paths[r]) : -1;
     }
     let nextPos = pos + 1;
     if (nextPos >= S.downloadPlayback.paths.length) {
@@ -185,7 +195,8 @@ function getNextIndex() {
     if (pos === -1) pos = -1;
     if (S.isShuffle) {
       if (cp.paths.length===1) return S.tracks.findIndex(t=>t.path===cp.paths[0]);
-      let r; do { r = Math.floor(Math.random()*cp.paths.length); } while (r===pos);
+      const r = pickShuffleIdx(cp.paths.length, pos);
+      if (r < 0) return -1;
       const ni = S.tracks.findIndex(t=>t.path===cp.paths[r]);
       return ni >=0 ? ni : S.idx;
     }
@@ -225,8 +236,8 @@ function getPrevIndex() {
     if (pos === -1) pos = 0;
     if (S.isShuffle) {
       if (S.downloadPlayback.paths.length===1) return ensureTrackForPath(S.downloadPlayback.paths[0]);
-      let r; do { r = Math.floor(Math.random()*S.downloadPlayback.paths.length); } while (r===pos);
-      return ensureTrackForPath(S.downloadPlayback.paths[r]);
+      const r = pickShuffleIdx(S.downloadPlayback.paths.length, pos);
+      return r >= 0 ? ensureTrackForPath(S.downloadPlayback.paths[r]) : -1;
     }
     let prevPos = pos - 1;
     if (prevPos < 0) {
@@ -242,7 +253,8 @@ function getPrevIndex() {
     if (pos === -1) pos = 0;
     if (S.isShuffle) {
       if (cp.paths.length===1) return S.tracks.findIndex(t=>t.path===cp.paths[0]);
-      let r; do { r = Math.floor(Math.random()*cp.paths.length); } while (r===pos);
+      const r = pickShuffleIdx(cp.paths.length, pos);
+      if (r < 0) return -1;
       const pi = S.tracks.findIndex(t=>t.path===cp.paths[r]);
       return pi >=0 ? pi : S.idx;
     }
@@ -262,8 +274,8 @@ function getPrevIndex() {
       if (pos === -1) pos = 0;
       if (S.isShuffle) {
         if (pl.trackPaths.length===1) return trackIndexByPath(pl.trackPaths[0]);
-        let r; do { r = Math.floor(Math.random()*pl.trackPaths.length); } while (r===pos);
-        return trackIndexByPath(pl.trackPaths[r]);
+        const r = pickShuffleIdx(pl.trackPaths.length, pos);
+        return r >= 0 ? trackIndexByPath(pl.trackPaths[r]) : -1;
       }
       let prevPos = pos - 1;
       if (prevPos < 0) {

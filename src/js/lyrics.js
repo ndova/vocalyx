@@ -84,7 +84,12 @@ async function fetchAndSaveLrclib(track) {
   }
 }
 
+let _lyrRows = null;
+let _lyrRowsFor = -1;
+let _lyrOn = -1;
+
 function renderLyrics() {
+  _lyrRows = null; _lyrRowsFor = -1; _lyrOn = -1;
   if (!S.lyricLines.length) {
     lyricsEl.innerHTML = `<div style="color:var(--muted);padding:20px">${t('lyr.noLyrics')}</div>`;
     syncLyricOffsetUI();
@@ -129,21 +134,42 @@ lyricsEl.addEventListener('click', (e)=>{
   if (!L) return;
   seekLyric(L.t);
 });
+function lyricRows() {
+  const n = S.lyricLines.length;
+  if (_lyrRows && _lyrRowsFor === n) return _lyrRows;
+  const off = lyricsEl.firstElementChild && lyricsEl.firstElementChild.classList.contains('lyr-spacer') ? 1 : 0;
+  const rows = [];
+  for (let i = 0; i < n; i++) rows.push(lyricsEl.children[off + i] || null);
+  _lyrRows = rows;
+  _lyrRowsFor = n;
+  _lyrOn = -1;
+  return rows;
+}
+function setLyricState(d, i, on) {
+  if (!d) return;
+  const base = d.hasAttribute('data-lyr') ? 'lyr-line' : '';
+  d.className = (base ? base + ' ' : '') + (i === on ? 'on' : (i < on ? 'past' : ''));
+}
+
 function syncLyrics(cur) {
-  if (!isSynced(S.lyricLines)) return;
+  if (!isSynced(S.lyricLines)) { _lyrOn = -1; return; }
   const adj = cur + S.lyricOffsetMs / 1000;
   let on = 0;
   for (let i = 0; i < S.lyricLines.length; i++) {
     if (adj + 0.15 >= S.lyricLines[i].t) on = i;
     else break;
   }
-  const off = lyricsEl.firstElementChild && lyricsEl.firstElementChild.classList.contains('lyr-spacer') ? 1 : 0;
-  const rows = [...lyricsEl.children].slice(off, off + S.lyricLines.length);
-  rows.forEach((d, i) => {
-    if (!d) return;
-    const base = d.hasAttribute('data-lyr') ? 'lyr-line' : '';
-    d.className = (base ? base + ' ' : '') + (i === on ? 'on' : (i < on ? 'past' : ''));
-  });
+  const rows = lyricRows();
+  if (!rows.length) return;
+
+  const prev = _lyrOn;
+  if (prev === on) return;
+  _lyrOn = on;
+
+  const lo = Math.min(prev < 0 ? on : prev, on);
+  const hi = Math.max(prev < 0 ? on : prev, on);
+  for (let i = lo; i <= hi; i++) setLyricState(rows[i], i, on);
+
   const active = rows[on];
   if (active && active.hasAttribute('data-lyr')) {
     try {

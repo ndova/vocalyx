@@ -486,7 +486,7 @@ const caps0 = await karaokeCaps().catch(() => null);
           tk.karaoke_stalled = true; changed = true;
         }
         if (changed) {
-          if (!updateKaraokeBadge(tk) && Date.now() - lastBadgeRender > 3000) {
+          if (!document.hidden && !updateKaraokeBadge(tk) && Date.now() - lastBadgeRender > 15000) {
             lastBadgeRender = Date.now();
             rerenderTrackViews();
           }

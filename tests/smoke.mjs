@@ -1424,8 +1424,15 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
     ok(/27015/.test(pyIph), '4: Python mengecek port 27015');
     ok(/ERR_APPLE_DRIVER_MISSING/.test(pyIph), '4: Python mengembalikan ERR_APPLE_DRIVER_MISSING');
     ok(/@router\.get\("\/iphone\/driver"\)/.test(pyIph), '4: endpoint /iphone/driver tersedia');
-    ok(/if not usbmuxd_reachable\(\):\s*\n\s*return _apple_driver_error\(\)/.test(pyIph),
+    ok(/if not await usbmuxd_reachable_async\(\):\s*\n\s*return _apple_driver_error\(\)/.test(pyIph),
       '4: /iphone/devices mengembalikan panduan driver saat service mati');
+    ok(/async def usbmuxd_reachable_async\(/.test(pyIph)
+      && /asyncio\.to_thread\(usbmuxd_reachable/.test(pyIph),
+      '4: probe usbmuxd dijalankan di thread, tidak memblokir event loop asyncio');
+    ok(!/async def _?iphone_devices\(\):[\s\S]{0,120}?if not usbmuxd_reachable\(\)/.test(pyIph),
+      '4: async endpoint tidak memanggil probe socket langsung');
+    ok(/_USBMUXD_TTL/.test(pyIph) && /_usbmuxd_cache/.test(pyIph),
+      '4: hasil probe usbmuxd di-cache (TTL) supaya poll berulang tidak probe terus');
     ok(!/AppleMobileDeviceSupport64\.msi/.test(pyIph),
       '4: Python tidak menyebut path msi driver Apple');
 
@@ -2865,6 +2872,81 @@ try {
   ok(srcTap.includes("handleOsMediaAction('play')"), 'web path (Media Session) lewat handleOsMediaAction');
   ok(!srcTap.includes('const S = window.devicePixelRatio'), 'shadowing S di drawWave tak balik');
   ok(srcTap.includes('S.analyser.getByteFrequencyData'), 'jalur data spektrum visualizer intak');
+
+  // --- guard perf: visualizer tidak boleh menggambar terus-menerus saat idle ---
+  const vizSrc = fs.readFileSync(path.join(root, 'src/js/viz.js'), 'utf8');
+  const drawBody = (vizSrc.match(/function drawWave\(\)\s*\{([\s\S]*?)\n\}/) || [, ''])[1];
+  ok(/if \(document\.hidden\)[\s\S]*?return;[\s\S]*?if \(!canvas\.offsetParent\) return;/.test(drawBody)
+    && /!S\.analyser \|\| audio\.paused \|\| !audio\.src[\s\S]*?return;/.test(drawBody),
+  'viz: drawWave berhenti saat window disembunyikan / tidak di-layout / tidak ada audio diputar');
+  ok(!/shadowBlur/.test(drawBody), 'viz: tidak ada shadowBlur per frame (blur full-width itu mahal)');
+  ok((drawBody.match(/createLinearGradient/g) || []).length === 0,
+    'viz: tidak ada createLinearGradient di dalam drawWave');
+  ok(!/Date\.now\(\)\s*\/\s*700/.test(vizSrc) && !/Array\.from\(\{\s*length:\s*90/.test(vizSrc),
+    'viz: gelombang sintetis idle dihapus (tidak ada trig per frame)');
+  ok(!/\[?\.{3}freqData\]/.test(vizSrc), 'viz: spektrum tidak disalin ulang jadi array tiap frame');
+  ok(/let gradW = -1, grad = null;/.test(vizSrc) && /buildGradient\(W\)/.test(vizSrc),
+    'viz: gradient di-cache dan hanya dibuat ulang saat lebar berubah');
+
+  // --- guard perf: Rust cache tag, busy-loop shuffle, polling ganda, throttle ---
+  const libRs = fs.readFileSync(path.join(root, 'src-tauri/src/lib.rs'), 'utf8');
+  ok(/struct ScanCacheEntry/.test(libRs) && /fn scan_cache\(\)/.test(libRs),
+    'rust: scan_music punya cache hasil parse tag per file');
+  ok(/entry\.mtime == mtime && entry\.len == len && entry\.sidecar == sidecar/.test(libRs),
+    'rust: cache di-key oleh (mtime, len, sidecar) sehingga file yang tidak berubah dilewati');
+  ok((libRs.match(/extract_cover\(&p\)/g) || []).length === 1
+    && /out\.push\(entry\.meta\)/.test(libRs),
+    'rust: extract_cover hanya jalan saat cache miss (cover base64 tidak di-encode ulang)');
+  ok(/SCAN_CACHE_MAX/.test(libRs) && /Path::new\(k\)\.exists\(\)/.test(libRs),
+    'rust: cache di-prune agar tidak tumbuh tanpa batas');
+  ok(/sidecar: \(u64, u64\)/.test(libRs) && /fn dir_mtime\(/.test(libRs),
+    'rust: signature sidecar (Lyrics/, mdx_extra/) ikut di-key supaya lirik & karaoke tidak basi');
+
+  const omSrc = fs.readFileSync(path.join(root, 'src/js/os-media.js'), 'utf8');
+  ok(!/while \(r===pos\)|while \(r === pos\)/.test(omSrc),
+    'os-media: tidak ada loop shuffle do-while tanpa batas iterasi');
+  ok(/function pickShuffleIdx\(len, pos\)/.test(omSrc) && /guard < 50/.test(omSrc)
+    && /if \(len < 2\) return -1;/.test(omSrc),
+    'os-media: semua loop shuffle lewat pickShuffleIdx yang berbatas iterasi');
+  const shuffleCalls = (omSrc.match(/pickShuffleIdx\(/g) || []).length;
+  ok(shuffleCalls === 7, `os-media: 6 titik shuffle + definisi helper memakai pickShuffleIdx (dapat ${shuffleCalls})`);
+
+  const iphSrc = fs.readFileSync(path.join(root, 'src/js/iphone.js'), 'utf8');
+  const appPerf = fs.readFileSync(path.join(root, 'src/app.js'), 'utf8');
+  const iphPollers = iphSrc.split('\n').filter((l) => /setInterval\(/.test(l) && /checkIPhoneConnected/.test(l));
+  ok(iphPollers.length === 0,
+    `iphone: tidak ada poller checkIPhoneConnected sendiri (hanya 1 di app.js)${iphPollers.length ? ' :: ' + iphPollers.join(' | ') : ''}`);
+  ok(/S\._iphonePoll = setInterval\(/.test(appPerf) && /document\.hidden/.test(appPerf),
+    'app: poller iPhone disimpan sebagai handle, dan dilewati saat window disembunyikan');
+
+  const engSrc = fs.readFileSync(path.join(root, 'src/js/engine.js'), 'utf8');
+  ok(/!document\.hidden && !updateKaraokeBadge\(tk\)[\s\S]{0,200}?rerenderTrackViews\(\)/.test(engSrc),
+    'engine: fallback render ulang pustaka karaoke dilewati saat window disembunyikan');
+  ok(/!updateKaraokeBadge\(tk\)[\s\S]{0,120}?lastBadgeRender > \d{5,}/.test(engSrc)
+    && !/lastBadgeRender > \d{3,4}[^0-9]/.test(engSrc),
+    'engine: fallback render ulang pustaka karaoke di-throttle >=10 detik');
+
+  const lyrSrc = fs.readFileSync(path.join(root, 'src/js/lyrics.js'), 'utf8');
+  ok(!/\[\.\.\.lyricsEl\.children\]/.test(lyrSrc),
+    'lyrics: tidak menyalin ulang seluruh baris tiap timeupdate');
+  ok(/function lyricRows\(\)/.test(lyrSrc) && /if \(prev === on\) return;/.test(lyrSrc),
+    'lyrics: baris di-cache dan early-return saat baris aktif tidak berubah');
+  ok(/for \(let i = lo; i <= hi; i\+\+\) setLyricState/.test(lyrSrc),
+    'lyrics: hanya rentang baris yang berubah yang ditulis ulang');
+
+  const dsSrc = fs.readFileSync(path.join(root, 'src/js/download-start.js'), 'utf8');
+  ok(/import \{ renderDownloads, applyDownloadedFrom, requestDlRender \}/.test(dsSrc),
+    'download: poll progres mengimpor requestDlRender (ber-throttle)');
+  const dsPoll = (dsSrc.match(/const poll = setInterval\(async\(\)=>\{([\s\S]*?)\}, 700\)/) || [, ''])[1];
+  const dsHot = dsPoll.split(/if \(cur\.status === /)[0];
+  ok(dsHot.includes('requestDlRender()') && !dsHot.includes('renderDownloads()'),
+    'download: jalur progres tiap tick pakai requestDlRender (ber-throttle), bukan render langsung');
+  ok((dsPoll.match(/renderDownloads\(\)/g) || []).length === 2,
+    'download: renderDownloads() hanya di cabang terminal (gagal / selesai), bukan tiap tick');
+  ok(!/saveDownloads\(\);\s*renderDownloads\(\);\s*\n\s*if \(cur\.status === 'failed'\)/.test(dsSrc),
+    'download: tidak ada saveDownloads + render penuh di setiap tick 700ms');
+  ok(/Date\.now\(\) - lastSave > 1000/.test(dsSrc),
+    'download: penulisan localStorage riwayat di-throttle 1x/detik');
 } catch (e) {
   ok(false, `os-media tap pattern :: ${e.message}`);
 }

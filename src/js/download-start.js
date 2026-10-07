@@ -2,7 +2,7 @@ import { t } from './i18n/core.js';
 import { S } from './state.js';
 import { showToast, showAudioNotice } from './engine.js';
 import { escAttr } from './format.js';
-import { renderDownloads, applyDownloadedFrom } from './downloads.js';
+import { renderDownloads, applyDownloadedFrom, requestDlRender } from './downloads.js';
 import { markEnhanced } from './enhance.js';
 import { activeDownloadIds, saveDownloads } from '../app.js';
 
@@ -98,6 +98,7 @@ export async function startTrackDownload(tk, { reuseEntry = null, onTick = null,
   }
   activeDownloadIds.add(jj.downloadId);
   saveDownloads(); renderDownloads();
+  let lastSave = Date.now();
   const poll = setInterval(async()=>{
     try{
       const pr = await fetch(`http://127.0.0.1:8001/download/progress?downloadId=${jj.downloadId}`);
@@ -109,7 +110,8 @@ export async function startTrackDownload(tk, { reuseEntry = null, onTick = null,
         ent.progress = pct; ent.status = cur.status || 'downloading'; if(cur.path) ent.path = cur.path;
         applyDownloadedFrom(ent, cur);
         if(cur.audioNotice) ent.audioNotice = cur.audioNotice;
-        saveDownloads(); renderDownloads();
+        if (Date.now() - lastSave > 1000) { lastSave = Date.now(); saveDownloads(); }
+        requestDlRender();
         if (cur.status === 'failed') {
           clearInterval(poll); activeDownloadIds.delete(jj.downloadId);
           ent.error = cur.error || t('ds.dlFailed');
@@ -118,6 +120,7 @@ export async function startTrackDownload(tk, { reuseEntry = null, onTick = null,
           if (onFailed) onFailed(ent);
         } else if (cur.status === 'done' || pct >= 100) {
           clearInterval(poll); activeDownloadIds.delete(jj.downloadId);
+          saveDownloads(); renderDownloads();
           if (cur.audioNotice) showAudioNotice(tk, cur.audioNotice, ent.downloadedFrom);
           if (cur.audioNotice && cur.audioNotice.enhanced && cur.path) { try { await markEnhanced(cur.path); } catch {}}
           if (onDone) onDone(ent);

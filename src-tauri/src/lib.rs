@@ -2,7 +2,10 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use lofty::prelude::*;
 use lofty::probe::Probe;
 use serde::Serialize;
+use std::collections::HashMap;
 use std::path::Path;
+use std::sync::{Mutex, OnceLock};
+use std::time::UNIX_EPOCH;
 use tauri::Manager;
 
 mod cuda_setup;
@@ -28,6 +31,48 @@ pub struct TrackMeta {
 }
 
 const SUPPORTED: [&str; 6] = ["mp3", "m4a", "aac", "wav", "flac", "ogg"];
+
+struct ScanCacheEntry {
+    mtime: u64,
+    len: u64,
+    sidecar: (u64, u64),
+    meta: TrackMeta,
+}
+
+const SCAN_CACHE_MAX: usize = 20_000;
+
+fn scan_cache() -> &'static Mutex<HashMap<String, ScanCacheEntry>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, ScanCacheEntry>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn dir_mtime(dir: &Path) -> u64 {
+    std::fs::metadata(dir)
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn find_mdx_dir(parent: &Path) -> Option<std::path::PathBuf> {
+    let direct = parent.join("mdx_extra");
+    if direct.exists() {
+        return Some(direct);
+    }
+    let entries = std::fs::read_dir(parent).ok()?;
+    for e in entries.filter_map(|e| e.ok()) {
+        let p = e.path();
+        if p.is_dir() {
+            if let Some(name) = p.file_name().and_then(|s| s.to_str()) {
+                if name.eq_ignore_ascii_case("mdx_extra") {
+                    return Some(p);
+                }
+            }
+        }
+    }
+    None
+}
 
 fn is_artifact_name(name_l: &str) -> bool {
     name_l.contains(".enh.tmp.")
@@ -134,28 +179,7 @@ fn extract_duration(path: &Path) -> (Option<f64>, String) {
 fn find_karaoke_for_track(track_path: &Path) -> Option<String> {
     let stem = track_path.file_stem()?.to_str()?;
     let parent = track_path.parent()?;
-    let mdx_dir = {
-        let direct = parent.join("mdx_extra");
-        if direct.exists() {
-            Some(direct)
-        } else {
-            let mut found = None;
-            if let Ok(entries) = std::fs::read_dir(parent) {
-                for e in entries.filter_map(|e| e.ok()) {
-                    let p = e.path();
-                    if p.is_dir() {
-                        if let Some(name) = p.file_name().and_then(|s| s.to_str()) {
-                            if name.eq_ignore_ascii_case("mdx_extra") {
-                                found = Some(p);
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-            found
-        }
-    }?;
+    let mdx_dir = find_mdx_dir(parent)?;
     let try_stem = |s: &str| -> Option<std::path::PathBuf> {
         let cand = mdx_dir.join(s);
         if cand.exists() && cand.is_dir() {
@@ -240,6 +264,14 @@ fn scan_music(dir: String) -> Vec<TrackMeta> {
         Ok(e) => e,
         Err(_) => return out,
     };
+    let sidecar = (dir_mtime(&root.join("Lyrics")), {
+        let mdx = find_mdx_dir(root).unwrap_or_else(|| Path::new("").to_path_buf());
+        if mdx.as_os_str().is_empty() {
+            0
+        } else {
+            dir_mtime(&mdx)
+        }
+    });
     for entry in entries.filter_map(|e| e.ok()) {
         let p = entry.path();
         if !p.is_file() {
@@ -260,6 +292,33 @@ fn scan_music(dir: String) -> Vec<TrackMeta> {
         if is_artifact_name(&name_l) {
             continue;
         }
+        let path_key = p.to_string_lossy().to_string();
+        let (mtime, len) = match std::fs::metadata(&p) {
+            Ok(m) => (
+                m.modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0),
+                m.len(),
+            ),
+            Err(_) => continue,
+        };
+
+        let cached = {
+            let guard = match scan_cache().lock() {
+                Ok(g) => g,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            guard.get(&path_key).cloned()
+        };
+        if let Some(entry) = cached {
+            if entry.mtime == mtime && entry.len == len && entry.sidecar == sidecar {
+                out.push(entry.meta);
+                continue;
+            }
+        }
+
         let file_name = p
             .file_stem()
             .and_then(|s| s.to_str())
@@ -274,23 +333,20 @@ fn scan_music(dir: String) -> Vec<TrackMeta> {
         let cover = extract_cover(&p);
         let album = extract_album(&p);
         let karaoke_path = find_karaoke_for_track(&p);
-        let (size, size_str) = match std::fs::metadata(&p) {
-            Ok(m) => {
-                let s = m.len();
-                let fmt = if s >= 1024 * 1024 {
-                    format!("{:.1} MB", s as f64 / (1024.0 * 1024.0))
-                } else if s >= 1024 {
-                    format!("{:.0} KB", s as f64 / 1024.0)
-                } else {
-                    format!("{} B", s)
-                };
-                (s, fmt)
-            }
-            Err(_) => (0, "--".to_string()),
+        let (size, size_str) = {
+            let s = len;
+            let fmt = if s >= 1024 * 1024 {
+                format!("{:.1} MB", s as f64 / (1024.0 * 1024.0))
+            } else if s >= 1024 {
+                format!("{:.0} KB", s as f64 / 1024.0)
+            } else {
+                format!("{} B", s)
+            };
+            (s, fmt)
         };
         let (duration, dur) = extract_duration(&p);
-        out.push(TrackMeta {
-            path: p.to_string_lossy().to_string(),
+        let fresh = TrackMeta {
+            path: path_key.clone(),
             file_name,
             title,
             artist,
@@ -303,7 +359,16 @@ fn scan_music(dir: String) -> Vec<TrackMeta> {
             lyric_path,
             cover,
             karaoke_path,
-        });
+        };
+        out.push(fresh.clone());
+        let mut guard = match scan_cache().lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if guard.len() > SCAN_CACHE_MAX {
+            guard.retain(|k, _| Path::new(k).exists());
+        }
+        guard.insert(path_key, ScanCacheEntry { mtime, len, sidecar, meta: fresh });
     }
     out.sort_by(|a, b| a.file_name.cmp(&b.file_name));
     out

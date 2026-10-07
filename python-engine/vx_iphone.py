@@ -148,13 +148,11 @@ def _sanitize_filename(name: str) -> str:
     return "".join(c for c in name if c.isalnum() or c in (" ", "-", "_")).strip() or "track"
 
 
-def usbmuxd_reachable(timeout: float = 0.6) -> bool:
-    """True kalau service Apple Mobile Device (usbmuxd) grudup di 127.0.0.1:27015.
+_USBMUXD_TTL = 10.0
+_usbmuxd_cache: dict = {"at": -1.0, "ok": False}
 
-    pymobiledevice3 bicara lewat usbmux, jadi tanpa service itu iPhone yang
-    tertancap tetap tidak bisa dibaca. Cek ini murni socket dan tidak butuh
-    pymobiledevice3 terpasang, jadi aman dipakai untuk pesan prasyarat.
-    """
+
+def _probe_usbmuxd(timeout: float) -> bool:
     import socket
     for _ in range(2):
         try:
@@ -163,6 +161,31 @@ def usbmuxd_reachable(timeout: float = 0.6) -> bool:
         except Exception:
             continue
     return False
+
+
+def usbmuxd_reachable(timeout: float = 0.6) -> bool:
+    """True kalau service Apple Mobile Device (usbmuxd) grudup di 127.0.0.1:27015.
+
+    pymobiledevice3 bicara lewat usbmux, jadi tanpa service itu iPhone yang
+    tertancap tetap tidak bisa dibaca. Cek ini murni socket dan tidak butuh
+    pymobiledevice3 terpasang, jadi aman dipakai untuk pesan prasyarat.
+
+    Hasil di-cache sebentar: probe ini blocking (2x connect dengan timeout),
+    sedangkan frontend meny polls endpoint ini secara berkala. Tanpa cache,
+    tiap panggilan menahan event loop asyncio FastAPI.
+    """
+    now = time.monotonic()
+    if _usbmuxd_cache["at"] >= 0 and (now - _usbmuxd_cache["at"]) < _USBMUXD_TTL:
+        return _usbmuxd_cache["ok"]
+    ok = _probe_usbmuxd(timeout)
+    _usbmuxd_cache["at"] = now
+    _usbmuxd_cache["ok"] = ok
+    return ok
+
+
+async def usbmuxd_reachable_async(timeout: float = 0.6) -> bool:
+    """usbmuxd_reachable() tanpa memblokir event loop."""
+    return await asyncio.to_thread(usbmuxd_reachable, timeout)
 
 
 def _apple_driver_error() -> dict:
@@ -179,7 +202,7 @@ def _apple_driver_error() -> dict:
 @router.get("/iphone/devices")
 async def iphone_devices():
     """List connected iPhones."""
-    if not usbmuxd_reachable():
+    if not await usbmuxd_reachable_async():
         return _apple_driver_error()
     lockdown = None
     try:
@@ -205,7 +228,7 @@ async def iphone_devices():
 @router.get("/iphone/driver")
 async def iphone_driver():
     """Status prasyarat driver Apple (untuk UI menampilkan panduan)."""
-    ready = usbmuxd_reachable()
+    ready = await usbmuxd_reachable_async()
     return {
         "ok": True,
         "ready": ready,
