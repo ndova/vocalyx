@@ -1,4 +1,5 @@
 """VocaLyx engine - download routes (Spotify/Deezer/YouTube/SC/4shared/Archive) plus enhance."""
+import asyncio
 import base64
 import hashlib
 import json
@@ -257,6 +258,45 @@ def _unlink_quiet(p) -> None:
         pass
 
 
+_INTERPRETER_PROBE: dict = {}
+_PREMIUM_MISSING: dict = {}  # alasan terakhir `_premium_backend` gagal resolve, per layanan, supaya pesan ke user menyebut penyebab nyata dan bukan selalu "paket tidak terbundel"
+_PREMIUM_PROCS: list = []  # child Spotify Connect milik proses server ini, supaya disconnect bisa menghentikannya (tanpa registry, proses yatim dari server lama tidak ikut)
+
+
+def _interpreter_usable(exe: str) -> bool:
+    """True kalau interpreter venv premium benar-benar bisa dijalankan.
+
+    Venv tidak bisa dipindah: `pyvenv.cfg` menyimpan `home` absolut ke Python
+    yang membuatnya. Kalau projectnya dipindah/rename, atau Python aslinya
+    di-uninstall, `Scripts/python.exe` masih ADA tapi isinya cuma launcher
+    yang gagal seketika:
+
+        No Python at '"...\\Programs\\Python\\Python311\\python.exe"'   (exit 103)
+
+    Kalau hanya dicek `.exists()`, venv rusak itu tetap dipilih, seluruh
+    premium child process langsung mati, dan Connect cuma berakhir sebagai
+    "timeout 120 detik" tanpa menyebut sebabnya. Hasil probe di-cache karena
+    interpreter tidak berubah selama engine hidup.
+    """
+    cached = _INTERPRETER_PROBE.get(exe)
+    if cached is not None:
+        return cached
+    ok = False
+    try:
+        proc = subprocess.run([exe, "-c", "pass"], capture_output=True,
+                              timeout=25, text=True)
+        ok = proc.returncode == 0
+        if not ok:
+            detail = (proc.stderr or proc.stdout or "").strip().splitlines()
+            log.warning("premium backend: interpreter rusak %s: %s", exe,
+                        detail[0][:160] if detail else "exit %s" % proc.returncode)
+    except Exception as e:
+        log.warning("premium backend: interpreter tidak jalan %s: %s", exe, e)
+        ok = False
+    _INTERPRETER_PROBE[exe] = ok
+    return ok
+
+
 def _premium_backend(service: str, script_name: str):
     """Resolve (interpreter, script, extra_env) backend premium per layanan.
 
@@ -270,20 +310,46 @@ def _premium_backend(service: str, script_name: str):
     for base in (Path.cwd() / "premium",
                  Path(__file__).resolve().parent.parent / "build" / "premium"):
         pkg = base / service
+        vault = pkg / f"{stem}.pyv"
+        loader = pkg / "vx_vault.pyc"
+        if vault.is_file() and loader.is_file():
+            extra = {"PYTHONPATH": str(pkg),
+                     "VX_VAULT_TARGET": str(vault)}
+            if os.environ.get("PYTHONPATH"):
+                extra["PYTHONPATH"] += os.pathsep + os.environ["PYTHONPATH"]
+            return str(sys.executable), str(loader), extra
         for cand in (pkg / f"{stem}.pyc", pkg / script_name):
             if cand.is_file():
                 extra = {"PYTHONPATH": str(pkg)}
                 if os.environ.get("PYTHONPATH"):
                     extra["PYTHONPATH"] += os.pathsep + os.environ["PYTHONPATH"]
                 return str(sys.executable), str(cand), extra
-    venv_py = next((p for p in (
-        Path.cwd() / "scripts" / f"{service}-venv" / "Scripts" / "python.exe",
-        Path.cwd() / "scripts" / f"{service}-venv" / "bin" / "python",
-    ) if p.exists()), None)
+    venv_dir = Path.cwd() / "scripts" / f"{service}-venv"
     script = Path.cwd() / "scripts" / script_name
-    if venv_py and script.is_file():
-        return str(venv_py), str(script), {}
+    saw_venv = False
+    for cand in (venv_dir / "Scripts" / "python.exe",
+                 venv_dir / "bin" / "python"):
+        if not cand.is_file():
+            continue
+        saw_venv = True
+        if not _interpreter_usable(str(cand)):
+            continue
+        if script.is_file():
+            return str(cand), str(script), {}
+    _PREMIUM_MISSING[service] = (
+        f"venv {venv_dir.name} ada tapi interpreter-nya tidak bisa dijalankan "
+        f"(Python pembuat venv sudah tidak ada / project dipindah). "
+        f"Hapus folder itu lalu rebuild: python scripts/stage_premium.py"
+        if saw_venv else
+        f"paket premium belum ter-stage untuk {service}"
+    )
     return None
+
+
+def _premium_missing_error(service: str, fallback: str) -> str:
+    """Pesan 'backend tidak ada' yang menyebut penyebab sebenarnya."""
+    note = _PREMIUM_MISSING.get(service)
+    return f"{fallback} ({note})" if note else fallback
 
 
 def _spotify_try_premium(track: dict, out_path: Path, options: dict, download_id: str) -> dict:
@@ -1379,6 +1445,31 @@ async def deezer_arl(payload: dict):
         return JSONResponse({"ok": False, "error": str(e)[:300]}, status_code=500)
 
 
+_PREMIUM_RAW_HINTS = (  # pola output mentah child premium yang TIDAK pernah jadi JSON, dipetakan ke aksi yang bisa dilakukan user; tanpa ini `connect-status` hanya melihat baris non-JSON, deempatkan `waiting: True`, dan UI baru memberi tahu "timeout 120 detik" padahal prosesnya sudah mati di detik pertama karena sebab yang jauh lebih jelas
+    ("no python at",
+     "Interpreter venv Spotify Premium rusak - Python yang membuat venv sudah "
+     "tidak ada di mesin ini. Rebuild paket premium: python scripts/stage_premium.py"),
+    ("no module named",
+     "Backend Spotify Premium tidak lengkap di paket staged. Rebuild: "
+     "python scripts/stage_premium.py"),
+    ("bad magic number",
+     "Versi Python engine tidak cocok dengan paket premium. Rebuild runtime: "
+     "python scripts/build_runtime.py --repack"),
+    ("the system cannot find",
+     "File backend Spotify Premium tidak ditemukan. Rebuild paket premium: "
+     "python scripts/stage_premium.py"),
+)
+
+
+def _premium_error_text(raw: str) -> str:
+    """Terjemahkan output mentah child premium jadi pesan yang bisa ditindaklanjuti."""
+    low = raw.lower()
+    for key, msg in _PREMIUM_RAW_HINTS:
+        if key in low:
+            return msg
+    return raw[:300]
+
+
 @router.post("/spotify/validate")
 async def spotify_validate(payload: dict):
 
@@ -1403,10 +1494,19 @@ async def spotify_premium(payload: dict):
     if action == "status":
         return {"connected": cred_path.exists() and cred_path.stat().st_size > 16, "deviceName": f"VocaLyx-{device_path.read_text().strip()[-4:] if device_path.exists() else 'XXXX'}"}
     if action == "disconnect":
-        try:
-            if cred_path.exists(): cred_path.unlink()
-        except Exception:
-            pass
+        for p in list(_PREMIUM_PROCS):  # hentikan sisa child Connect (librespot) supaya tidak jalan tanpa sesi
+            try:
+                if p.poll() is None:
+                    p.terminate()
+            except Exception:
+                pass
+        _PREMIUM_PROCS[:] = [p for p in _PREMIUM_PROCS if p.poll() is None]
+        for f in (cred_path, device_path, cred_path.parent / "connect-last.log"):  # creds + sisa sesi basi (device/log lama membingungkan connect-status berikutnya)
+            try:
+                if f.exists():
+                    f.unlink()
+            except Exception:
+                pass
         return {"ok": True}
     if action == "test":
         if not (cred_path.exists() and cred_path.stat().st_size > 16):
@@ -1414,7 +1514,8 @@ async def spotify_premium(payload: dict):
         try:
             be = _premium_backend("spotify", "spotify_premium_download.py")
             if not be:
-                return {"ok": False, "error": "Backend Spotify Premium tidak ada (paket premium tidak terbundel; jalankan stage_premium.py lalu build ulang)"}
+                return {"ok": False, "error": _premium_missing_error(
+                    "spotify", "Backend Spotify Premium tidak ada")}
             venv_py, script, prem_env = be
             cmd = [str(venv_py), str(script), "--test-login", "--stored-creds", str(cred_path)]
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=45,
@@ -1454,7 +1555,8 @@ async def spotify_premium(payload: dict):
         try:
             be = _premium_backend("spotify", "spotify_premium_auth.py")
             if not be:
-                return {"ok": False, "error": "Backend Spotify Connect tidak ada (paket premium tidak terbundel; jalankan stage_premium.py lalu build ulang)"}
+                return {"ok": False, "error": _premium_missing_error(
+                    "spotify", "Backend Spotify Connect tidak ada")}
             venv_py, script, prem_env = be
 
             sid = str(uuid.uuid4())[:8]
@@ -1467,8 +1569,9 @@ async def spotify_premium(payload: dict):
             except Exception:
                 pass
             log_f = None
+            log_path = cred_path.parent / "connect-last.log"
             try:
-                log_f = open(str(cred_path.parent / "connect-last.log"), "w", encoding="utf-8")
+                log_f = open(str(log_path), "w", encoding="utf-8")
             except Exception:
                 log_f = None
             proc = subprocess.Popen(
@@ -1482,18 +1585,54 @@ async def spotify_premium(payload: dict):
                     log_f.close()  # child memegang dup-nya sendiri
                 except Exception:
                     pass
+            _PREMIUM_PROCS.append(proc)  # catat supaya disconnect bisa terminate; entri mati dibersihkan di sana
+            await asyncio.sleep(1.2)  # child yang langsung mati (venv rusak, import gagal, PYTHONPATH keliru) terlihat sebagai `returncode` dalam hitungan milidetik; tanpa jeda ini UI menganggap Connect berjalan lalu menunggu 120 detik dan menampilkan "timeout", padahal prosesnya sudah selesai di detik pertama. `await`, bukan `time.sleep`, supaya loop event engine tetap melayani request lain selama jeda.
+            rc = proc.poll()
+            if rc is not None:
+                detail = ""
                 try:
-                    proc.poll()
+                    if log_path.is_file():
+                        txt = log_path.read_text(encoding="utf-8",
+                                                 errors="replace").strip()
+                        detail = txt.splitlines()[-1][:240] if txt else ""
                 except Exception:
                     pass
+                log.error("connect-start: child berhenti langsung rc=%s: %s", rc, detail)
+                return {"ok": False,
+                        "error": _premium_error_text(
+                            detail or "Proses Spotify Connect berhenti (exit %s)" % rc)}
             return {"sessionId": sid, "deviceName": device_name}
         except Exception as e:
             log.error("connect-start failed: %s", e)
             return {"ok": False, "error": f"Gagal memulai Spotify Connect: {str(e)[:200]}"}
     if action == "connect-status":
-    
         if cred_path.exists() and cred_path.stat().st_size > 16:
             did = device_path.read_text().strip()[-4:] if device_path.exists() else "XXXX"
             return {"connected": True, "deviceName": f"VocaLyx-{did}"}
+        try:  # kegagalan auth (Zeroconf/firewall/timeout/import) ada di log: tampilkan, jangan waiting buta
+            logp = cred_path.parent / "connect-last.log"
+            if logp.exists():
+                plain = ""
+                for line in reversed(logp.read_text(encoding="utf-8", errors="replace").splitlines()):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if not line.startswith("{"):  # launcher venv yang rusak, galat runtime, atau traceback tidak pernah jadi JSON; simpan baris pertamanya supaya penyebabnya bisa dilaporkan, bukan dibiarkan jadi "menunggu" sampai UI ke timeout 120 detik
+                        if not plain:
+                            plain = line
+                        continue
+                    try:
+                        j = json.loads(line)
+                    except Exception:
+                        continue
+                    if isinstance(j, dict) and "ok" in j:
+                        if j.get("ok") is False and j.get("error"):
+                            return {"connected": False, "error": str(j["error"])[:500]}
+                        plain = ""
+                        break
+                if plain:
+                    return {"connected": False, "error": _premium_error_text(plain)}
+        except Exception:
+            pass
         return {"connected": False, "waiting": True}
     return {"ok": False, "error": "Unknown action"}

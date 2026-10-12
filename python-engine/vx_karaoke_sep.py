@@ -19,9 +19,11 @@ instrumental dibangun sendiri lewat ``vx_karaoke_dsp.build_instrumental``.
 from __future__ import annotations
 
 import gc
+import json
 import logging
 import os
 import shutil
+import socket
 import sys
 import threading
 import time
@@ -72,6 +74,205 @@ DEREVERB_CHAIN = (
 
 MIN_MODEL_BYTES = 8 * 1024 * 1024
 
+# Checkpoint torch (.ckpt/.pth) adalah arsip zip; model ONNX adalah protobuf
+# dan TIDAK boleh dicek sebagai zip.
+_ARCHIVE_SUFFIXES = (".ckpt", ".pth", ".pt", ".th")
+
+# Tanda file checkpoint rusak (unduhan terpotong). Dipakai untuk self-heal:
+# hapus + unduh ulang + retry sekali, bukan fallback preset.
+_CORRUPT_HINTS = (
+    "central directory",
+    "pytorchstreamreader",
+    "failed reading zip archive",
+    "miniz",
+    "badzipfile",
+    "bad zip",
+    "truncated",
+    "unexpected eof",
+)
+
+
+def _archive_ok(p: Path) -> bool:
+    """True bila arsip checkpoint utuh (central directory terbaca).
+
+    Murah: hanya membaca ekor + direktori pusat, bukan seluruh isi.
+    """
+    try:
+        import zipfile
+
+        return bool(zipfile.is_zipfile(p))
+    except Exception:
+        return False
+
+
+def _looks_corrupt(ex: BaseException) -> bool:
+    """True bila error load model menandakan file rusak (bukan OOM/config)."""
+    try:
+        s = f"{type(ex).__name__}: {ex}".lower()
+    except Exception:
+        return False
+    return any(h in s for h in _CORRUPT_HINTS)
+
+
+# File meta kecil yang DIUNDUH audio-separator di dalam sep.load_model
+# (single-attempt requests tanpa retry/resume): download_checks.json untuk
+# daftar model, vr_model_data.json + mdx_model_data.json untuk pemetaan
+# hash->parameter. Kasus nyata (CPU, Inst_HQ_4): .onnx sudah lengkap tapi
+# unduhan salah satu JSON ini putus (ConnectionReset 10054) lalu job failed,
+# dan file JSON setengah jadi yang tertinggal membuat run berikutnya gagal
+# lagi (di-skip karena "sudah ada", lalu json.load meledak). Karena itu
+# diambil alih: diunduh dulu dengan retry + validasi di sini, sehingga
+# audio-separator selalu menemukan file valid dan tidak menyentuh jaringan.
+_META_BASE = "https://raw.githubusercontent.com/TRvlvr/application_data/main"
+_META_JSONS = (
+    ("download_checks.json", f"{_META_BASE}/filelists/download_checks.json"),
+    ("vr_model_data.json", f"{_META_BASE}/vr_model_data/model_data_new.json"),
+    ("mdx_model_data.json", f"{_META_BASE}/mdx_model_data/model_data_new.json"),
+)
+
+_NET_ATTEMPTS = 3
+_NET_BACKOFF_S = (1.5, 3.0)
+
+_NET_HINTS = (
+    "connection aborted",
+    "connection reset",
+    "forcibly closed",
+    "connectionerror",
+    "connection refused",
+    "timed out",
+    "timeout",
+    "temporary failure",
+    "name resolution",
+    "nodename nor servname",
+    "no route to host",
+    "network is unreachable",
+    "chunkedencoding",
+    "incomplete read",
+    "remote disconnected",
+    "max retries",
+    "bad status line",
+)
+
+
+def _looks_network(ex: BaseException) -> bool:
+    """True bila error tampak seperti gangguan jaringan transien."""
+    seen = set()
+    cur: BaseException | None = ex
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        try:
+            import urllib.error
+
+            if isinstance(cur, urllib.error.URLError):
+                code = getattr(cur, "code", None)
+                if code is not None and isinstance(code, int) and 400 <= code < 500 and code not in (408, 429):
+                    return False
+                return True
+            if isinstance(cur, (ConnectionError, TimeoutError, socket.timeout)):
+                return True
+            try:
+                import requests
+
+                if isinstance(cur, (requests.ConnectionError, requests.Timeout,
+                                    requests.exceptions.ChunkedEncodingError)):
+                    return True
+            except Exception:
+                pass
+        except Exception:
+            pass
+        try:
+            s = f"{type(cur).__name__}: {cur}".lower()
+        except Exception:
+            s = ""
+        if s and any(h in s for h in _NET_HINTS):
+            return True
+        cur = getattr(cur, "__cause__", None) or getattr(cur, "__context__", None)
+        if cur is ex:
+            break
+    return False
+
+
+def _meta_ok(p: Path) -> bool:
+    """True bila file meta JSON ada dan bisa di-parse (tidak setengah jadi)."""
+    try:
+        if not (p.is_file() and p.stat().st_size > 0):
+            return False
+        with open(p, encoding="utf-8") as fh:
+            json.load(fh)
+        return True
+    except Exception:
+        return False
+
+
+def _fetch_meta(url: str, dest: Path, timeout: int = 30) -> bool:
+    """Unduh satu file meta JSON secara atomik (.part lalu rename).
+
+    Menolak sukses palsu: hasil wajib lolos json.load sebelum rename.
+    Gagal total -> False (.part rusak dibuang supaya tidak meracuni resume).
+    """
+    import urllib.request
+
+    tmp = dest.with_suffix(dest.suffix + ".part")
+    last_ex: Exception | None = None
+    for attempt in range(1, _NET_ATTEMPTS + 1):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "VocaLyx/0.1"})
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                body = resp.read()
+            try:
+                json.loads(body.decode("utf-8"))
+            except Exception as ex:
+                raise ValueError(f"isi {dest.name} bukan JSON valid: {ex}")
+            try:
+                MODEL_DIR.mkdir(parents=True, exist_ok=True)
+            except Exception as ex:
+                eprint(f"[KaraokeSep] gagal buat {MODEL_DIR}: {ex}")
+                return False
+            tmp.write_bytes(body)
+            tmp.replace(dest)
+            return True
+        except Exception as ex:
+            last_ex = ex
+            try:
+                tmp.unlink(missing_ok=True)
+            except Exception:
+                pass
+            if attempt < _NET_ATTEMPTS and _looks_network(ex):
+                wait = _NET_BACKOFF_S[min(attempt - 1, len(_NET_BACKOFF_S) - 1)]
+                eprint(f"[KaraokeSep] unduh {dest.name} gagal ({ex}); coba lagi {attempt + 1}/{_NET_ATTEMPTS} dalam {wait} dtk")
+                time.sleep(wait)
+                continue
+            break
+    eprint(f"[KaraokeSep] unduh {dest.name} gagal: {last_ex}")
+    return False
+
+
+def ensure_model_meta(allow_download: bool = True, force: bool = False) -> bool:
+    """Pastikan 3 JSON meta audio-separator valid sebelum sep.load_model.
+
+    Mengembalikan True bila semuanya valid (atau sudah valid dari awal).
+    File yang ada tapi korup (bekas unduhan putus) dibuang + diunduh ulang.
+    """
+    ok_all = True
+    for name, url in _META_JSONS:
+        dest = MODEL_DIR / name
+        if not force and _meta_ok(dest):
+            continue
+        if force:
+            try:
+                dest.unlink(missing_ok=True)
+                dest.with_suffix(dest.suffix + ".part").unlink(missing_ok=True)
+            except Exception:
+                pass
+        if not allow_download:
+            eprint(f"[KaraokeSep] meta {name} tidak ada dan unduhan dilarang")
+            ok_all = False
+            continue
+        eprint(f"[KaraokeSep] unduh meta {name} ...")
+        if not _fetch_meta(url, dest):
+            ok_all = False
+    return ok_all
+
 # Inferensi native float16. audio-separator 0.47.0 memverifikasi jalur ini untuk
 # (cuda, bs_roformer) dan (cuda, mel_band_roformer) di
 # separator/execution_policy.py::NATIVE_FP16_CAPABILITIES; model di luar daftar
@@ -91,6 +292,14 @@ def eprint(*a) -> None:
 
 def emit_progress(pct: float, stage: str) -> None:
     dsp.emit_progress(pct, stage)
+
+
+def emit_span(lo: float, hi: float, stage: str) -> None:
+    try:
+        sys.stdout.write(json.dumps({"karaoke_span": [round(float(lo), 1), round(float(hi), 1)], "karaoke_stage": str(stage)}) + "\n")
+        sys.stdout.flush()
+    except Exception:
+        pass
 
 
 def free_vram(tag: str) -> None:
@@ -142,9 +351,17 @@ def model_path(model_file: str) -> Path:
 def have_model(model_file: str) -> bool:
     p = model_path(model_file)
     try:
-        return p.is_file() and p.stat().st_size >= MIN_MODEL_BYTES
+        if not (p.is_file() and p.stat().st_size >= MIN_MODEL_BYTES):
+            return False
     except Exception:
         return False
+    # Ukuran saja tidak cukup: unduhan terpotong bisa tetap > 8 MB (kasus
+    # nyata: 91,9 MB tapi central directory hilang) lalu meledak saat
+    # load_model. Arsip rusak dianggap tidak ada supaya ensure_model
+    # mengunduh ulang.
+    if p.suffix.lower() in _ARCHIVE_SUFFIXES and not _archive_ok(p):
+        return False
+    return True
 
 
 def _download_one(url: str, dest: Path) -> bool:
@@ -211,6 +428,14 @@ def _download_one(url: str, dest: Path) -> bool:
                         else:
                             eprint(f"[KaraokeSep] {dest.name}: {got/1e6:.0f} MB ({rate:.2f} MB/s)")
         size = tmp.stat().st_size
+        # Sukses palsu: koneksi putus diam-diam (read pulang b"" normal)
+        # menghasilkan file terpotong yang TETAP bisa > MIN_MODEL_BYTES.
+        # Tanpa cek ini, file cacat di-rename jadi resmi dan meledak saat
+        # load_model di semua PC dengan koneksi tidak stabil.
+        if total is not None and got < total:
+            eprint(f"[KaraokeSep] unduhan {dest.name} tidak lengkap "
+                   f"({got/1e6:.0f}/{total/1e6:.0f} MB) — .part disimpan, lanjutkan run berikutnya")
+            return False
         if size < MIN_MODEL_BYTES and dest.suffix.lower() != ".yaml":
             eprint(f"[KaraokeSep] unduhan {dest.name} terpotong ({size} byte) — .part disimpan, bisa dilanjutkan")
             return False
@@ -218,6 +443,15 @@ def _download_one(url: str, dest: Path) -> bool:
             eprint(f"[KaraokeSep] unduhan {dest.name} kosong")
             return False
         tmp.replace(dest)
+        # Lapisan terakhir saat total tak diketahui server (chunked): pastikan
+        # arsip checkpoint benar-benar bisa dibuka sebelum dinyatakan siap.
+        if dest.suffix.lower() in _ARCHIVE_SUFFIXES and not _archive_ok(dest):
+            eprint(f"[KaraokeSep] {dest.name} lengkap {size/1e6:.1f} MB tapi arsip rusak — dibuang, unduh ulang dari nol berikutnya")
+            try:
+                dest.unlink(missing_ok=True)
+            except Exception:
+                pass
+            return False
         eprint(f"[KaraokeSep] {dest.name} siap ({size/1e6:.1f} MB, {time.time()-started:.0f}s)")
         return True
     except Exception as ex:
@@ -231,15 +465,59 @@ def _download_one(url: str, dest: Path) -> bool:
         return False
 
 
-def ensure_model(model_file: str, allow_download: bool = True) -> bool:
-    """Pastikan file model ada; unduh sekali bila perlu.
+def _quarantine(model_file: str) -> None:
+    """Buang file model rusak + sisa .part supaya unduhan berikutnya dari nol.
+
+    Resume dari .part rusak hanya mengulang data rusak yang sama.
+    """
+    dest = model_path(model_file)
+    tmp = dest.with_suffix(dest.suffix + ".part")
+    for p in (dest, tmp):
+        try:
+            p.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+def ensure_model(model_file: str, allow_download: bool = True,
+                 force_fresh: bool = False) -> bool:
+    """Pastikan file model ada; unduh (dengan retry) bila perlu.
 
     Model ONNX dari repo publik UVR (satu file). Model RoFormer (.ckpt)
     butuh pasangan config .yaml dari repo audio-separator — keduanya
     diunduh bila belum ada.
+
+    `force_fresh=True`: buang dulu file + .part yang ada (dipakai jalur
+    self-heal saat file terbukti corrupt), lalu unduh dari nol.
+
+    Unduhan besar dari GitHub releases rawan ConnectionReset di tengah
+    jalan; tiap file dicoba ulang selama .part-nya TUMBUH (server masih
+    mengalirkan data) atau belum ada byte sama sekali (gagal di awal,
+    kemungkinan transien). Berhenti begitu tidak ada kemajuan supaya
+    tidak mengulang tanpa harapan; .part disimpan untuk resume run berikut.
     """
+    def _dl_retry(url: str, dest: Path) -> bool:
+        prev = -1
+        for attempt in range(1, _NET_ATTEMPTS + 1):
+            if _download_one(url, dest):
+                return True
+            try:
+                tmp = dest.with_suffix(dest.suffix + ".part")
+                cur = tmp.stat().st_size if tmp.is_file() else 0
+            except Exception:
+                cur = -1
+            if cur <= prev or attempt >= _NET_ATTEMPTS:
+                break
+            prev = cur
+            wait = _NET_BACKOFF_S[min(attempt - 1, len(_NET_BACKOFF_S) - 1)]
+            eprint(f"[KaraokeSep] jeda {wait} dtk sebelum unduhan {dest.name} dicoba lagi")
+            time.sleep(wait)
+        return False
+
     dest = model_path(model_file)
-    if have_model(model_file):
+    if force_fresh:
+        _quarantine(model_file)
+    elif have_model(model_file):
         # Untuk ckpt, pastikan yaml pasangannya juga ada.
         cfg = ROFORMER_CONFIGS.get(model_file)
         if cfg and not model_path(cfg).is_file():
@@ -250,7 +528,7 @@ def ensure_model(model_file: str, allow_download: bool = True) -> bool:
             except Exception as ex:
                 eprint(f"[KaraokeSep] gagal buat {MODEL_DIR}: {ex}")
                 return False
-            return _download_one(f"{ROFORMER_REPO}/{cfg}", model_path(cfg))
+            return _dl_retry(f"{ROFORMER_REPO}/{cfg}", model_path(cfg))
         return True
     if not allow_download:
         return False
@@ -264,10 +542,10 @@ def ensure_model(model_file: str, allow_download: bool = True) -> bool:
         if not cfg:
             eprint(f"[KaraokeSep] {model_file}: config yaml tidak dikenal, lewati")
             return False
-        ok_ckpt = _download_one(f"{ROFORMER_REPO}/{model_file}", dest)
-        ok_yaml = _download_one(f"{ROFORMER_REPO}/{cfg}", model_path(cfg))
+        ok_ckpt = _dl_retry(f"{ROFORMER_REPO}/{model_file}", dest)
+        ok_yaml = _dl_retry(f"{ROFORMER_REPO}/{cfg}", model_path(cfg))
         return ok_ckpt and ok_yaml
-    return _download_one(f"{PUBLIC_REPO}/{model_file}", dest)
+    return _dl_retry(f"{PUBLIC_REPO}/{model_file}", dest)
 
 
 def available_models(weights) -> list[tuple[str, float]]:
@@ -452,7 +730,8 @@ def _pick_secondary(outputs, out_dir: Path, primary_path: Path | None) -> Path |
     return None
 
 
-def separate_one(model_file: str, inp: Path, work_dir: Path, device: str
+def separate_one(model_file: str, inp: Path, work_dir: Path, device: str,
+                 lo: float = 10.0, hi: float = 68.0
                  ) -> tuple[Path, str, Path | None]:
     """Jalankan satu model; kembalikan (stem primer, primary_stem, stem sekunder|None).
 
@@ -471,12 +750,37 @@ def separate_one(model_file: str, inp: Path, work_dir: Path, device: str
     for ov in attempts:
         sep = None
         try:
+            free_vram("preload " + model_file)
             sep = _new_separator(out_dir, overlap=ov)
-            sep.load_model(model_filename=model_file)
+            try:
+                sep.load_model(model_filename=model_file)
+            except Exception as load_ex:
+                # Self-heal (bukan fallback preset): file yang lolos validasi
+                # tapi ternyata corrupt (mis. rusak di luar unduhan) diunduh
+                # ulang sekali lalu load dicoba sekali lagi. Selain tanda
+                # corrupt (OOM, config, dvll) langsung diteruskan.
+                if _looks_corrupt(load_ex):
+                    eprint(f"[KaraokeSep] {model_file} corrupt saat load "
+                           f"({load_ex}); unduh ulang dari nol lalu coba sekali lagi")
+                    if ensure_model(model_file, allow_download=True, force_fresh=True):
+                        sep.load_model(model_filename=model_file)
+                    else:
+                        raise
+                elif _looks_network(load_ex):
+                    eprint(f"[KaraokeSep] {model_file} gagal jaringan saat load "
+                           f"({load_ex}); segarkan meta lalu coba sekali lagi")
+                    try:
+                        ensure_model_meta(allow_download=True, force=True)
+                    except Exception as meta_ex:
+                        eprint(f"[KaraokeSep] segarkan meta gagal: {meta_ex}")
+                    sep.load_model(model_filename=model_file)
+                else:
+                    raise
             primary = _primary_name(sep)
             eprint(f"[KaraokeSep] {model_file} primary={primary or '?'} device={device} "
                    f"overlap={ov if ov is not None else 'yaml-default'}")
-            hb = Heartbeat(f"separate:{model_path(model_file).stem}")
+            hb = Heartbeat(f"separate:{model_path(model_file).stem}", lo=lo, hi=hi)
+            emit_span(lo, hi, f"separate:{model_path(model_file).stem}")
             hb.start()
             try:
                 outputs = sep.separate(str(inp))
@@ -605,10 +909,17 @@ def build_instrumental_from_models(weights, inp: Path, out_dir: Path, device: st
     Semua model dikonversi ke instrumental dulu sebelum dijumlahkan, jadi tidak
     ada lagi ``amix`` ffmpeg yang menjumlahkan stem dengan level beda-beda.
     """
+    # Meta JSON audio-separator (download_checks + vr/mdx model_data) diambil
+    # dulu dengan retry: tanpa ini, sep.load_model mengunduhnya single-attempt
+    # dan ConnectionReset di tengah jalan menggagalkan seluruh job.
+    emit_progress(3.0, "download:model-meta")
+    ensure_model_meta(allow_download=allow_download)
     todo = []
     for name, w in weights:
         if w <= 0:
             continue
+        if not have_model(name):
+            emit_progress(4.0, f"download:{model_path(name).stem}")
         if not ensure_model(name, allow_download=allow_download):
             eprint(f"[KaraokeSep] model tidak tersedia: {name}")
             continue
@@ -654,7 +965,7 @@ def build_instrumental_from_models(weights, inp: Path, out_dir: Path, device: st
         done += w
         emit_progress(f0, f"separate:{stem_name}")
         try:
-            found, primary, second = separate_one(name, inp, work_dir, device)
+            found, primary, second = separate_one(name, inp, work_dir, device, f0, f1)
 
             # Jalur sederhana: pakai STEM INSTRUMENTAL dari model apa adanya.
             #

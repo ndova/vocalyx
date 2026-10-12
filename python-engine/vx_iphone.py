@@ -98,7 +98,7 @@ async def _get_iphone_library_count() -> dict:
     try:
         from pymobiledevice3.lockdown import create_using_usbmux
         from pymobiledevice3.services.afc import AfcService
-        lockdown = await create_using_usbmux()
+        lockdown = await _open_lockdown()
         async with AfcService(lockdown) as afc:
             count = 0
             for folder in [f"F{i:02d}" for i in range(100)]:
@@ -188,41 +188,202 @@ async def usbmuxd_reachable_async(timeout: float = 0.6) -> bool:
     return await asyncio.to_thread(usbmuxd_reachable, timeout)
 
 
+async def usbmuxd_reachable_fresh(timeout: float = 0.6) -> bool:
+    """Probe segar tanpa cache (untuk retry sebelum menyerah).
+
+    Cache 10 detik di atas bisa basi tepat saat user mencolokkan iPhone /
+    service Apple baru start: `iphone_devices` akan membalas driver-missing
+    padahal service sudah jalan. Fungsi ini memaksa probe baru dan
+    memperbarui cache, dipakai maksimal sekali per request gagal.
+    """
+    ok = await asyncio.to_thread(_probe_usbmuxd, timeout)
+    _usbmuxd_cache["at"] = time.monotonic()
+    _usbmuxd_cache["ok"] = ok
+    return ok
+
+
 def _apple_driver_error() -> dict:
     """Bentuk respons ketika driver Apple tidak ada."""
     return {
         "ok": False,
         "code": "ERR_APPLE_DRIVER_MISSING",
         "error": "Apple Mobile Device Support tidak terpasang (service usbmuxd tidak merespons)",
+        "hint": "Pasang iTunes for Windows / Apple Devices dari Apple, jalankan sebagai administrator, "
+                "sambungkan iPhone via kabel data USB, buka kunci layar, lalu ketuk Trust.",
         "devices": [],
     }
+
+
+def _classify_iphone_error(exc: BaseException) -> tuple:
+    """Petakan exception pymobiledevice3/usbmux ke (code, hint).
+
+    Frontend memakai `code` untuk menampilkan pesan yang bisa ditindaklanjuti
+    (buka kunci / ketuk Trust / ganti kabel), bukan sekadar "tidak terhubung".
+    """
+    name = type(exc).__name__ or ""
+    msg = str(exc) or name
+    low = f"{name} {msg}".lower()
+    if "notpaired" in low.replace("_", "") or "not paired" in low:
+        return ("ERR_NOT_TRUSTED",
+                "iPhone belum di-trust: buka kunci iPhone, cabut-colok kabel USB, lalu ketuk Trust saat dialog muncul.")
+    if "pair" in low and ("trust" in low or "accept" in low or "dialog" in low or "timeout" in low):
+        return ("ERR_NOT_TRUSTED",
+                "Pairing belum disetujui: ketuk Trust di iPhone (buka kunci dulu), lalu Refresh.")
+    if "locked" in low or "passcode" in low:
+        return ("ERR_DEVICE_LOCKED",
+                "iPhone terkunci: masukkan passcode / buka kunci layar, biarkan menyala, lalu Refresh.")
+    if ("no device" in low or "no mux device" in low or "device not found" in low
+            or "no device found" in low or "empty" in low and "device" in low):
+        return ("ERR_NO_DEVICE",
+                "Tidak ada iPhone di usbmux: pakai kabel DATA USB (bukan kabel cas saja), "
+                "colok langsung ke PC (bukan hub), lalu ketuk Trust.")
+    if "usbmux" in low or "mux" in low or "connection refused" in low or "winerror" in low:
+        return ("ERR_USBMUX",
+                "Service Apple (usbmuxd) tidak merespons: pastikan Apple Mobile Device Service berjalan, "
+                "jalankan VocaLyx sebagai administrator, lalu colok ulang iPhone.")
+    return ("ERR_IPHONE", msg)
+
+
+def _mask_serial(serial: str) -> str:
+    s = str(serial or "")
+    if len(s) <= 8:
+        return (s[:2] + "…" + s[-2:]) if len(s) > 4 else "…"
+    return s[:4] + "…" + s[-4:]
+
+
+async def _mux_devices_snapshot(timeout: float = 10.0) -> list:
+    """Daftar device yang terlihat usbmux (USB didahulukan). Tak pernah melempar."""
+    try:
+        from pymobiledevice3 import usbmux
+        devs = await asyncio.wait_for(usbmux.list_devices(), timeout)
+        return sorted(list(devs or []), key=lambda d: (0 if getattr(d, "is_usb", False) else 1,
+                                                      getattr(d, "devid", 0)))
+    except Exception as e:
+        log.debug("mux list_devices: %s", e)
+        return []
+
+
+async def _open_lockdown(timeout: float = 90.0):
+    """Buka lockdown ke iPhone, preferensi USB.
+
+    `create_using_usbmux()` tanpa serial mengambil device pertama apa adanya —
+    itu bisa device Network (WiFi sync) yang stale, sehingga iPhone yang
+    tertancap USB tetap "tidak bisa konek". Di sini daftar usbmux dibaca dulu,
+    USB dicoba lebih dulu per serial, baru fallback ke perilaku default bila
+    daftar gagal dibaca.
+    """
+    from pymobiledevice3 import usbmux
+    from pymobiledevice3.lockdown import create_using_usbmux
+    try:
+        devs = await asyncio.wait_for(usbmux.list_devices(), 10)
+    except Exception:
+        devs = []
+    ordered = sorted(list(devs or []), key=lambda d: (0 if getattr(d, "is_usb", False) else 1,
+                                                     getattr(d, "devid", 0)))
+    if ordered:
+        last = None
+        for md in ordered:
+            try:
+                return await asyncio.wait_for(
+                    create_using_usbmux(serial=getattr(md, "serial", None)), timeout)
+            except Exception as e:
+                last = e
+                continue
+        if last is not None:
+            raise last
+    return await asyncio.wait_for(create_using_usbmux(), timeout)
 
 
 
 @router.get("/iphone/devices")
 async def iphone_devices():
-    """List connected iPhones."""
+    """List connected iPhones (USB didahulukan, error terkode untuk UI)."""
     if not await usbmuxd_reachable_async():
-        return _apple_driver_error()
+        if not await usbmuxd_reachable_fresh():
+            return _apple_driver_error()
+    mux = await _mux_devices_snapshot()
+    if not mux:
+        # usbmux jalan tapi tak ada device: bukan error driver, melainkan
+        # kabel/belum trust/belum unlock. Kembalikan ok=True + devices kosong
+        # supaya frontend menampilkan hint kabel, bukan panduan install driver.
+        return {"ok": True, "devices": [], "code": "ERR_NO_DEVICE",
+                "error": "tidak ada iPhone di usbmux",
+                "hint": "Tidak ada iPhone terdeteksi: pakai kabel DATA USB, colok langsung ke PC, "
+                        "buka kunci layar, lalu ketuk Trust."}
+    devices = []
+    last_code, last_err = "ERR_NO_DEVICE", "tidak ada device yang bisa dibuka"
+    for md in mux:
+        lockdown = None
+        try:
+            from pymobiledevice3.lockdown import create_using_usbmux
+            lockdown = await asyncio.wait_for(
+                create_using_usbmux(serial=getattr(md, "serial", None)), 60)
+            info = {
+                "name": lockdown.display_name,
+                "ios": lockdown.product_version,
+                "identifier": lockdown.identifier or "",
+                "model": lockdown.product_type or "",
+                "connection_type": getattr(md, "connection_type", ""),
+                "serial": getattr(md, "serial", ""),
+            }
+            devices.append(info)
+        except Exception as e:
+            last_code, hint = _classify_iphone_error(e)
+            last_err = str(e) or last_code
+            log.warning("iphone device %s fail: %s", _mask_serial(getattr(md, "serial", "")), e)
+        finally:
+            if lockdown:
+                try:
+                    await lockdown.close()
+                except Exception:
+                    pass
+    if devices:
+        return {"ok": True, "devices": devices, "code": ""}
+    _, hint = _classify_iphone_error(Exception(last_err))
+    return {"ok": False, "code": last_code, "error": last_err, "hint": hint, "devices": [],
+            "mux": [{"serial": _mask_serial(getattr(m, "serial", "")),
+                     "connection_type": getattr(m, "connection_type", "")} for m in mux]}
+
+
+@router.get("/iphone/diagnose")
+async def iphone_diagnose():
+    """Diagnostik koneksi iPhone untuk UI / salin-info (tanpa data sensitif)."""
+    mux_ok = await usbmuxd_reachable_async()
+    mux = await _mux_devices_snapshot() if mux_ok else []
+    out = {
+        "ok": True,
+        "usbmux_reachable": mux_ok,
+        "port": 27015,
+        "mux_count": len(mux),
+        "mux": [{"serial": _mask_serial(getattr(m, "serial", "")),
+                 "connection_type": getattr(m, "connection_type", ""),
+                 "usb": bool(getattr(m, "is_usb", False))} for m in mux],
+        "code": "" if (mux_ok and mux) else ("ERR_APPLE_DRIVER_MISSING" if not mux_ok else "ERR_NO_DEVICE"),
+        "hint": "",
+    }
+    if not mux_ok:
+        out["hint"] = "Service Apple tidak merespons di 127.0.0.1:27015. Pasang iTunes/Apple Devices, " \
+                      "jalankan VocaLyx sebagai administrator, pastikan Apple Mobile Device Service berjalan."
+        return out
+    if not mux:
+        out["hint"] = "usbmux jalan tapi iPhone tak terlihat. Ganti kabel data USB, colok langsung ke PC, " \
+                      "buka kunci layar, ketuk Trust."
+        return out
     lockdown = None
     try:
-        from pymobiledevice3.lockdown import create_using_usbmux
-        lockdown = await create_using_usbmux()
-        info = {
-            "name": lockdown.display_name,
-            "ios": lockdown.product_version,
-            "identifier": lockdown.identifier or "",
-            "model": lockdown.product_type or "",
-        }
-        return {"ok": True, "devices": [info]}
+        lockdown = await _open_lockdown(timeout=60)
+        out["lockdown"] = {"name": lockdown.display_name, "ios": lockdown.product_version,
+                           "model": lockdown.product_type or ""}
     except Exception as e:
-        return {"ok": False, "error": str(e), "devices": []}
+        code, hint = _classify_iphone_error(e)
+        out["code"], out["error"], out["hint"] = code, str(e) or code, hint
     finally:
         if lockdown:
             try:
                 await lockdown.close()
             except Exception:
                 pass
+    return out
 
 
 @router.get("/iphone/driver")
@@ -251,7 +412,7 @@ async def iphone_library_tracks(limit: int = 200, offset: int = 0):
     try:
         from pymobiledevice3.lockdown import create_using_usbmux
         from pymobiledevice3.services.afc import AfcService
-        lockdown = await create_using_usbmux()
+        lockdown = await _open_lockdown()
         async with AfcService(lockdown) as afc:
             data = await afc.get_file_contents('/iTunes_Control/iTunes/MediaLibrary.sqlitedb')
             tmp = tempfile.mktemp(suffix='.db')
@@ -320,7 +481,7 @@ async def iphone_track_cover(item_pid: int = 0):
     try:
         from pymobiledevice3.lockdown import create_using_usbmux
         from pymobiledevice3.services.afc import AfcService
-        lockdown = await asyncio.wait_for(create_using_usbmux(), 90)
+        lockdown = await _open_lockdown(timeout=90)
         async with AfcService(lockdown) as afc:
             tmp = await _pull_media_db(afc)
             conn = sqlite3.connect(tmp)
@@ -396,7 +557,7 @@ async def iphone_artwork_debug(item_pid: int = 0):
     try:
         from pymobiledevice3.lockdown import create_using_usbmux
         from pymobiledevice3.services.afc import AfcService
-        lockdown = await asyncio.wait_for(create_using_usbmux(), 90)
+        lockdown = await _open_lockdown(timeout=90)
         async with AfcService(lockdown) as afc:
             tmp = await _pull_media_db(afc)
             conn = sqlite3.connect(tmp)
@@ -484,7 +645,7 @@ async def iphone_export(item_pid: int = 0):
     try:
         from pymobiledevice3.lockdown import create_using_usbmux
         from pymobiledevice3.services.afc import AfcService
-        lockdown = await create_using_usbmux()
+        lockdown = await _open_lockdown()
         async with AfcService(lockdown) as afc:
             full_path = None
             title = "track"
@@ -575,7 +736,7 @@ async def _run_export_batch(job_id: str, pids: list, output_dir: str):
         from pymobiledevice3.lockdown import create_using_usbmux
         from pymobiledevice3.services.afc import AfcService
 
-        lockdown = await create_using_usbmux()
+        lockdown = await _open_lockdown()
         async with AfcService(lockdown) as afc:
             data = await afc.get_file_contents('/iTunes_Control/iTunes/MediaLibrary.sqlitedb')
             tmp = tempfile.mktemp(suffix='.db')
@@ -699,7 +860,7 @@ async def iphone_delete(item_pid: int = 0):
     try:
         from pymobiledevice3.lockdown import create_using_usbmux
         from pymobiledevice3.services.afc import AfcService
-        lockdown = await create_using_usbmux()
+        lockdown = await _open_lockdown()
         async with AfcService(lockdown) as afc:
             data = await afc.get_file_contents('/iTunes_Control/iTunes/MediaLibrary.sqlitedb')
             tmp = await _pull_media_db(afc)
@@ -790,7 +951,7 @@ async def iphone_track_cover(payload: dict):
         from pymobiledevice3.lockdown import create_using_usbmux
         from pymobiledevice3.services.afc import AfcService
 
-        lockdown = await asyncio.wait_for(create_using_usbmux(), 90)
+        lockdown = await _open_lockdown(timeout=90)
         async with AfcService(lockdown) as afc:
             tmp = await _pull_media_db(afc)
             conn = sqlite3.connect(tmp)
@@ -941,7 +1102,7 @@ async def iphone_track_edit(payload: dict):
         from pymobiledevice3.lockdown import create_using_usbmux
         from pymobiledevice3.services.afc import AfcService
 
-        lockdown = await asyncio.wait_for(create_using_usbmux(), 90)
+        lockdown = await _open_lockdown(timeout=90)
         async with AfcService(lockdown) as afc:
             tmp = await _pull_media_db(afc)
             conn = sqlite3.connect(tmp)
@@ -1823,7 +1984,7 @@ async def iphone_import(payload: dict):
         from pymobiledevice3.lockdown import create_using_usbmux
         from pymobiledevice3.services.afc import AfcService
 
-        lockdown = await create_using_usbmux()
+        lockdown = await _open_lockdown()
         async with AfcService(lockdown) as afc:
             tmp = await _pull_media_db(afc)
 
@@ -1889,7 +2050,7 @@ async def _run_import_batch(job_id: str, files: list, delete_pids=None):
         from pymobiledevice3.lockdown import create_using_usbmux
         from pymobiledevice3.services.afc import AfcService
 
-        lockdown = await asyncio.wait_for(create_using_usbmux(), 90)
+        lockdown = await _open_lockdown(timeout=90)
         async with AfcService(lockdown) as afc:
             tmp = await _pull_media_db(afc)
             try:

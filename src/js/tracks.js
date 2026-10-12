@@ -3,7 +3,7 @@ import { S } from './state.js';
 import { trackListEl } from './dom.js';
 import { localLibraryTracks, albumKeyOf, clearPlaylistPlayback, clearCollectionPlayback, clearDownloadPlayback, playlistTracks, plPathIndex, savePlaylists, uid } from './library.js';
 import { syncSelHeader, selKeyLocal, toggleSelLocal } from './bulk-select.js';
-import { karaokeBadgeHtml, karaokeProgressHtml, showToast } from './engine.js';
+import { karaokeBadgeHtml, karaokeProgressHtml, showToast, separate, isKaraokeBlocked } from './engine.js';
 import { coverHtml, escAttr } from './format.js';
 import { ICON } from './icons.js';
 import { load } from './player.js';
@@ -106,7 +106,7 @@ export function renderTracks(filter = '') {
       <span class="c-type">${(tk.ext || '').toUpperCase()}</span>
       <span class="c-size">${tk.size_str || '--'}</span>
       <span class="c-dur">${tk.dur || '--:--'}</span>
-      <span class="c-more"><div class="more-menu" data-menu="${i}"><button data-edit-track="${i}">${ICON.pencil} ${t('me.editInfo')}</button><button data-enhance-track="${i}">${ICON.sparkles} ${t('me.enhanceFile')}</button><button data-iphone-import="${i}">${ICON.upload} ${t('me.importToIphone')}</button><button data-del-track="${i}">${ICON.trash} ${t('modal.delete')}</button><button data-action="addToPlaylist" data-idx="${i}">${ICON.listPlus} ${t('me.addToPlaylist')} ${ICON.chevronRight}</button><div class="submenu" id="submenu-${i}"></div></div></span>`;
+      <span class="c-more"><div class="more-menu" data-menu="${i}"><button data-karaoke-row="${i}" style="display:none"></button><button data-edit-track="${i}">${ICON.pencil} ${t('me.editInfo')}</button><button data-enhance-track="${i}">${ICON.sparkles} ${t('me.enhanceFile')}</button><button data-iphone-import="${i}">${ICON.upload} ${t('me.importToIphone')}</button><button data-del-track="${i}">${ICON.trash} ${t('modal.delete')}</button><button data-action="addToPlaylist" data-idx="${i}">${ICON.listPlus} ${t('me.addToPlaylist')} ${ICON.chevronRight}</button><div class="submenu" id="submenu-${i}"></div></div></span>`;
     const selBox = b.querySelector('[data-sel]');
     if (selBox) {
       selBox.onchange = ()=>{ toggleSelLocal(tk.path); };
@@ -189,8 +189,8 @@ function openRowMenu(row, anchor){
   const ebDl = menu.querySelector('[data-enhance-dl]');
   if (ebDl && menu._dlRow) paintEnhanceItem(ebDl, menu._dlRow.d.path, menu._dlRow.d.format, menu._dlRow.ready);
   const submenu = menu.querySelector('.submenu');
+  const idx = menu.dataset.menu;
   if (submenu) {
-    const idx = menu.dataset.menu;
     const head = `<div class="submenu-head">${t('pl.playlist')}</div>`;
     if (S.playlists.length===0) {
       submenu.innerHTML = head + `<button data-create="${idx}" class="submenu-create">${ICON.plus} ${t('me.newPlaylist')}</button>`;
@@ -200,9 +200,40 @@ function openRowMenu(row, anchor){
       submenu.classList.add('open');
     }
   }
+  const kRow = menu.querySelector('[data-karaoke-row]');
+  if (kRow) {
+    const tk = S.tracks[parseInt(menu.dataset.menu, 10)];
+    const running = !!(tk && tk.karaoke_job);
+    const hasResult = !!(tk && tk.karaoke_path);
+    if (hasResult || !tk) {
+      kRow.style.display = 'none';
+    } else {
+      kRow.style.display = '';
+      kRow.innerHTML = running
+        ? `${ICON.x} ${t('me.karaokeCancel')}`
+        : `${ICON.musicSm} ${t('me.karaokeMake')}`;
+      kRow.disabled = !running && (isKaraokeBlocked(tk) || !!S.karaokeJobId);
+    }
+  }
 }
 const menuScopeOk = (el) => !!el && (trackListEl.contains(el) || !!el.closest('#menuPortal'));
 document.addEventListener('click', (e)=>{
+  const closeRowMenu = (btn) => {
+    btn.closest('.more-menu')?.classList.remove('open');
+    closePortalMenu();
+    document.querySelectorAll('.submenu.open').forEach(m=>m.classList.remove('open'));
+  };
+  const kRow = e.target.closest('[data-karaoke-row]');
+  if (kRow && menuScopeOk(kRow)) {
+    e.stopPropagation();
+    if (kRow.disabled) return;
+    const tIdx = parseInt(kRow.dataset.karaokeRow, 10);
+    const t = S.tracks[tIdx];
+    closeRowMenu(kRow);
+    if (!t || t.karaoke_path || (S.karaokeJobId && !t.karaoke_job)) return;
+    separate('karaoke', tIdx).catch(() => {});
+    return;
+  }
   const editBtn = e.target.closest('[data-edit-track]');
   if (editBtn && menuScopeOk(editBtn)) {
     e.stopPropagation();

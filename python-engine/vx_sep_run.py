@@ -1,7 +1,9 @@
 import json
 import os
+import re
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -14,6 +16,8 @@ def _spawn_env(force_cpu: bool = False) -> dict:
     env = os.environ.copy()
     if force_cpu:
         env["CUDA_VISIBLE_DEVICES"] = ""
+    else:
+        env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     try:
         ff = ffmpeg_bin()
     except Exception:
@@ -28,13 +32,43 @@ def _spawn_env(force_cpu: bool = False) -> dict:
     return env
 
 
-_KARAOKE_PY_CACHE: dict | None = None
+_KARAOKE_PY_CACHE: dict[str, tuple] = {}
 _KARAOKE_PROBE_CODE = "import audio_separator, torch, onnxruntime"
+# Probe CUDA: selain paket wajib, torch harus benar-benar MELIHAT GPU.
+# BUG LAMA yang diperbaiki di sini: tanpa syarat ini, interpreter CPU
+# (runtime bawaan, torch 2.14.1+cpu) selalu lolos probe pertama dan karaoke
+# diam-diam jalan di CPU meski user memilih CUDA. Terukur di RTX 3050 4 GB:
+# aufr33 audio 30 dtk = 391 dtk di CPU vs 28 dtk di GPU (14x).
+_KARAOKE_PROBE_CUDA_CODE = (
+    "import audio_separator, torch, onnxruntime\n"
+    "assert torch.cuda.is_available(), 'torch tanpa CUDA'\n"
+)
 _KARAOKE_PROBE_TIMEOUT = 45
 
 
-def _interpreter_candidates() -> list:
+def _py_cuda_python() -> Path | None:
+    """Venv CUDA buatan tombol Install CUDA dependencies (%APPDATA%\\VocaLyx\\py-cuda)."""
+    _appdata = os.environ.get("APPDATA") or ""
+    if not _appdata:
+        return None
+    p = Path(_appdata) / "VocaLyx" / "py-cuda" / "Scripts" / "python.exe"
+    return p if p.is_file() else None
+
+
+def _interpreter_candidates(device: str = "cpu") -> list:
+    """Kandidat interpreter karaoke, DIURUTKAN sesuai device.
+
+    cuda: venv py-cuda dulu (satu-satunya yang punya torch CUDA di mesin
+    standar), lalu sys.executable (engine memang berjalan dengan Python CUDA
+    saat device=cuda), runtime CPU hanya cadangan terakhir.
+    cpu : runtime bawaan dulu (PyTorch CPU), lalu sys.executable.
+    """
     raw = []
+    dev = (device or "cpu").lower()
+    if dev in ("cuda", "gpu"):
+        venv = _py_cuda_python()
+        if venv is not None:
+            raw.append(venv)
     try:
         raw.append(Path(__file__).resolve().parent.parent / "build" / "runtime" / "python.exe")
     except Exception:
@@ -57,10 +91,11 @@ def _interpreter_candidates() -> list:
     return out
 
 
-def _probe_karaoke_python(exe: str) -> bool:
+def _probe_karaoke_python(exe: str, require_cuda: bool = False) -> bool:
+    code = _KARAOKE_PROBE_CUDA_CODE if require_cuda else _KARAOKE_PROBE_CODE
     try:
         r = subprocess.run(
-            [exe, "-c", _KARAOKE_PROBE_CODE],
+            [exe, "-c", code],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             timeout=_KARAOKE_PROBE_TIMEOUT,
         )
@@ -69,32 +104,57 @@ def _probe_karaoke_python(exe: str) -> bool:
         return False
 
 
-def _karaoke_python() -> tuple:
-    global _KARAOKE_PY_CACHE
-    if _KARAOKE_PY_CACHE is not None:
-        return _KARAOKE_PY_CACHE
+def _karaoke_python(device: str = "cpu") -> tuple:
+    """Interpreter untuk job karaoke.
+
+    `device` menentukan urutan kandidat DAN syarat probe: cuda wajib lolos
+    probe CUDA (torch.cuda.is_available()). Kalau tak ada satu pun interpreter
+    dengan CUDA, jatuh ke probe biasa dengan peringatan jujur — karaoke tetap
+    jalan, tapi di CPU (lebih lambat), bukan gagal.
+    """
+    dev = (device or "cpu").lower()
+    want_cuda = dev in ("cuda", "gpu")
+    cached = _KARAOKE_PY_CACHE.get(dev)
+    if cached is not None:
+        return cached
     me = ""
     try:
         me = Path(sys.executable).resolve().as_posix().lower()
     except Exception:
         me = str(sys.executable).lower()
-    for exe in _interpreter_candidates():
-        if _probe_karaoke_python(exe):
-            try:
-                is_me = Path(exe).resolve().as_posix().lower() == me
-            except Exception:
-                is_me = str(exe).lower() == me
-            _KARAOKE_PY_CACHE = (exe, True)
-            if not is_me:
-                log.info("karaoke: pakai interpreter ber-deps %s (bukan sys.executable)", exe)
-            return _KARAOKE_PY_CACHE
-    _KARAOKE_PY_CACHE = (sys.executable, False)
+
+    def _is_me(exe: str) -> bool:
+        try:
+            return Path(exe).resolve().as_posix().lower() == me
+        except Exception:
+            return str(exe).lower() == me
+
+    def _pick(exe: str, ok: bool) -> tuple:
+        _KARAOKE_PY_CACHE[dev] = (exe, ok)
+        if ok and not _is_me(exe):
+            log.info("karaoke[%s]: pakai interpreter ber-deps %s (bukan sys.executable)",
+                     dev, exe)
+        return _KARAOKE_PY_CACHE[dev]
+
+    # Pass 1: probe sesuai device (cuda -> wajib torch.cuda.is_available()).
+    for exe in _interpreter_candidates(dev):
+        if _probe_karaoke_python(exe, require_cuda=want_cuda):
+            return _pick(exe, True)
+    # Pass 2 (cuda saja): tak ada CUDA di mana pun -> pakai kandidat ber-deps
+    # apa adanya, dengan peringatan supaya user tahu ini jadi CPU.
+    if want_cuda:
+        log.warning("karaoke[cuda]: tak ada interpreter dengan torch CUDA; "
+                    "karaoke dijalankan di CPU (lebih lambat)")
+        for exe in _interpreter_candidates(dev):
+            if _probe_karaoke_python(exe, require_cuda=False):
+                return _pick(exe, True)
+    _KARAOKE_PY_CACHE[dev] = (sys.executable, False)
     log.warning("karaoke: tak ada interpreter dengan audio_separator; pakai %s (job akan gagal dengan panduan)", sys.executable)
-    return _KARAOKE_PY_CACHE
+    return _KARAOKE_PY_CACHE[dev]
 
 
-def _karaoke_missing_deps_message() -> str:
-    py, _ok = _karaoke_python()
+def _karaoke_missing_deps_message(device: str = "cpu") -> str:
+    py, _ok = _karaoke_python(device)
     return (
         "Karaoke butuh paket audio_separator, tapi tak ada interpreter lengkap yang ditemukan. "
         "Pasang runtime VocaLyx (banner Runtime di Settings, atau rilis runtime-0.1.0-beta) "
@@ -103,14 +163,84 @@ def _karaoke_missing_deps_message() -> str:
     )
 
 
+def _script_cmd(py_exe: str, script: Path, args: list) -> list:
+    if Path(script).suffix == ".pyv":
+        import vx_vault
+        loader = Path(vx_vault.__file__).parent / "vx_vault.pyc"
+        if not loader.is_file():
+            loader = Path(vx_vault.__file__).parent / "vx_vault.py"
+        return [py_exe, "-u", str(loader), str(script), *args]
+    return [py_exe, "-u", str(script), *args]
+
+
+_TQDM_PCT = re.compile(r"(\d+(?:\.\d+)?)%\|")
+_TQDM_FRAC = re.compile(r"(\d+)\s*/\s*(\d+)\s*\[[^\]\n]*\]")
+_TQDM_RATE = re.compile(r"([\d.]+)\s*s/it")
+
+
+def _tqdm_watch(job_id: str, log_path: Path, stop_ev: threading.Event) -> None:
+    while not stop_ev.wait(3.0):
+        try:
+            with _JOBS_LOCK:
+                job = _JOBS.get(job_id)
+                if not job or job.get("status") != "processing":
+                    return
+                span = job.get("span") or []
+                cur = float(job.get("pct") or 0)
+            if len(span) != 2:
+                continue
+            try:
+                with open(log_path, "rb") as fh:
+                    try:
+                        fh.seek(-4096, 2)
+                    except Exception:
+                        fh.seek(0)
+                    tail = fh.read().decode("utf-8", errors="replace")
+            except Exception:
+                continue
+            frac = None
+            for m in _TQDM_PCT.finditer(tail):
+                try:
+                    frac = float(m.group(1)) / 100.0
+                except Exception:
+                    pass
+            if frac is None:
+                for m in _TQDM_FRAC.finditer(tail):
+                    try:
+                        frac = float(m.group(1)) / float(m.group(2))
+                    except Exception:
+                        pass
+            if frac is None:
+                continue
+            frac = max(0.0, min(1.0, frac))
+            pct = round(span[0] + frac * (span[1] - span[0]), 1)
+            rate = None
+            for m in _TQDM_RATE.finditer(tail):
+                rate = m.group(1) + " s/it"
+            with _JOBS_LOCK:
+                job = _JOBS.get(job_id)
+                if not job or job.get("status") != "processing":
+                    return
+                if pct > float(job.get("pct") or 0):
+                    job["pct"] = pct
+                    job["at"] = time.time()
+                if rate:
+                    job["it_s"] = rate
+        except Exception:
+            pass
+
+
 def _run_script(job_id: str, script: Path, args: list, log_path: Path,
                Heartbeat_stage: str = "separate"):
     final = {}
-    py_exe, py_ok = _karaoke_python()
+    # Device job ini (args[2]) menentukan pemilihan interpreter: tanpa ini,
+    # karaoke CUDA bisa diam-diam jatuh ke interpreter CPU (bug 14x lambat).
+    dev_for_py = str(args[2]).lower() if len(args) >= 3 else "cpu"
+    py_exe, py_ok = _karaoke_python(dev_for_py)
     if not py_ok:
         with _JOBS_LOCK:
             if job_id in _JOBS:
-                _JOBS[job_id]["script_error"] = _karaoke_missing_deps_message()
+                _JOBS[job_id]["script_error"] = _karaoke_missing_deps_message(dev_for_py)
         log.warning("karaoke script %s dilewati: interpreter tanpa audio_separator", script.name)
         return None, {}
     try:
@@ -119,16 +249,21 @@ def _run_script(job_id: str, script: Path, args: list, log_path: Path,
     except Exception:
         log_fh = None
     proc = None
+    watch_stop = None
     try:
         dev_arg = str(args[2]).lower() if len(args) >= 3 else ""
         proc = subprocess.Popen(
-            [py_exe, "-u", str(script), *args],
+            _script_cmd(py_exe, script, args),
             stdout=subprocess.PIPE, stderr=log_fh,
             text=True, bufsize=1, env=_spawn_env(force_cpu=(dev_arg == "cpu")),
         )
         with _JOBS_LOCK:
             if job_id in _JOBS:
                 _JOBS[job_id]["proc"] = proc
+                _JOBS[job_id]["interp"] = py_exe
+        watch_stop = threading.Event()
+        watcher = threading.Thread(target=_tqdm_watch, args=(job_id, log_path, watch_stop), daemon=True)
+        watcher.start()
         assert proc.stdout is not None
         for line in proc.stdout:
             with _JOBS_LOCK:
@@ -146,7 +281,15 @@ def _run_script(job_id: str, script: Path, args: list, log_path: Path,
                 obj = json.loads(line)
             except Exception:
                 continue
-            if "karaoke_progress" in obj:
+            if "karaoke_span" in obj:
+                try:
+                    lo, hi = float(obj["karaoke_span"][0]), float(obj["karaoke_span"][1])
+                    with _JOBS_LOCK:
+                        if job_id in _JOBS:
+                            _JOBS[job_id]["span"] = [lo, hi]
+                except Exception:
+                    pass
+            elif "karaoke_progress" in obj:
                 try:
                     pct = float(obj["karaoke_progress"])
                 except Exception:
@@ -173,6 +316,11 @@ def _run_script(job_id: str, script: Path, args: list, log_path: Path,
         log.warning("karaoke spawn gagal: %s", e)
         return None, {}
     finally:
+        try:
+            if watch_stop is not None:
+                watch_stop.set()
+        except Exception:
+            pass
         try:
             if log_fh:
                 log_fh.close()

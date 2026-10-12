@@ -23,6 +23,22 @@ import sys
 import tempfile
 import time
 
+# Self-bootstrap: interpreter bundled (embeddable, isolated) mengabaikan
+# PYTHONPATH, jadi paket staging (librespot/...) di direktori file ini harus
+# dimasukkan ke sys.path secara eksplisit. Tanpa ini: No module named 'librespot'.
+def _vx_bootstrap():
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        for cand in (os.environ.get("VX_PREMIUM_PKG") or "", here):
+            if cand and os.path.isdir(cand) and cand not in sys.path:
+                sys.path.insert(0, cand)
+    except Exception:
+        pass
+
+
+_vx_bootstrap()
+del _vx_bootstrap
+
 logging.basicConfig(level=logging.CRITICAL)
 
 _TMP_DIRS = []
@@ -73,7 +89,7 @@ def main():
         from librespot.core import Session
         from librespot.zeroconf import ZeroconfServer
     except Exception as e:
-        fail("Paket librespot belum terinstall di spotify-venv: " + str(e)[:200])
+        fail("Paket librespot belum terinstall di paket premium: " + str(e)[:200])
 
     tmpdir = tempfile.mkdtemp(prefix="sp-auth-")
     _TMP_DIRS.append(tmpdir)

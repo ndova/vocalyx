@@ -27,6 +27,12 @@ Pemakaian:
   python scripts/stage_premium.py --force    # paksa stage ulang
   python scripts/stage_premium.py --check    # verifikasi hasil, exit 1 bila baku
 
+Bila venv tak ada (fresh clone / PC builder lain, karena scripts/*-venv
+di-gitignore), otomatis ambil bundel prebuilt premium-<versi>.zip + .sha256
+dari vocalyx-releases (bisa dioverride --fetch-url, dukung file://), lalu
+verifikasi sha + manifest (+ impor bila interpreter 3.11 tersedia).
+Pakai --no-fetch untuk memaksa gagal cepat bila venv tak ada.
+
 Dijalankan otomatis lewat `beforeBuildCommand` Tauri (lihat tauri.conf.json).
 """
 from __future__ import annotations
@@ -43,6 +49,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUT = ROOT / "build" / "premium"
 PY_TAG = (3, 11)
+
+# Bundel premium prebuilt untuk mesin tanpa venv (fresh clone / PC builder lain).
+# Format zip: root berisi `spotify/`, `deezer/`, `manifest.json` + file
+# `<nama>.sha256` di sampingnya. Konvensi tag sama seperti runtime-cpu
+# (lihat src/js/runtime.js): .../releases/download/runtime-<ver>/premium-<ver>.zip
+RELEASES = "https://github.com/ndova/vocalyx-releases/releases/download"
 
 SERVICES: dict[str, dict] = {
     "spotify": {
@@ -124,11 +136,12 @@ def log(msg: str) -> None:
     print(f"[stage-premium] {msg}", flush=True)
 
 
-def _run(code: str, args: list[str], cwd: Path | None = None) -> tuple[int, str, str]:
+def _run(code: str, args: list[str], cwd: Path | None = None,
+         python: str | None = None) -> tuple[int, str, str]:
     env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
     env["PYTHONNOUSERSITE"] = "1"
     proc = subprocess.run(
-        [sys.executable, "-c", code, *args],
+        [python or sys.executable, "-c", code, *args],
         capture_output=True, text=True, timeout=300, cwd=str(cwd or ROOT), env=env,
     )
     return proc.returncode, proc.stdout, proc.stderr
@@ -161,9 +174,81 @@ def _load_manifest(out: Path) -> dict:
         return {}
 
 
-def verify_imports(dest: Path, roots: list[str]) -> tuple[bool, str]:
-    rc, out, err = _run(VERIFY, [str(dest), *roots])
+def verify_imports(dest: Path, roots: list[str], python: str | None = None) -> tuple[bool, str]:
+    rc, out, err = _run(VERIFY, [str(dest), *roots], python=python)
     return rc == 0 and "verify-ok" in out, (err or out).strip()[-800:]
+
+
+def app_version() -> str:
+    try:
+        data = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
+        return str(data.get("version") or "0.0.0")
+    except Exception:
+        return "0.0.0"
+
+
+def bundle_url(version: str) -> str:
+    return f"{RELEASES}/runtime-{version}/premium-{version}.zip"
+
+
+def runtime_python() -> str | None:
+    for cand in (ROOT / "build" / "runtime" / "python.exe",
+                 Path(os.environ.get("APPDATA") or "") / "VocaLyx" / "runtime" / "python.exe"):
+        if cand.is_file():
+            return str(cand)
+    return None
+
+
+def fetch_bundle(out: Path, url: str) -> bool:
+    import urllib.request
+    out.mkdir(parents=True, exist_ok=True)
+    log(f"venv tidak ada, ambil bundel prebuilt: {url}")
+    try:
+        tmp = out / "premium-bundle.zip.part"
+        req = urllib.request.Request(url, headers={"User-Agent": "VocaLyx/0.1 bundler"})
+        with urllib.request.urlopen(req, timeout=120) as r, open(tmp, "wb") as f:
+            shutil.copyfileobj(r, f, length=1 << 20)
+        sha_url = url + ".sha256"
+        log(f"verifikasi {sha_url}")
+        with urllib.request.urlopen(sha_url, timeout=60) as r:
+            expect = r.read().decode("ascii", "replace").split()[0]
+        h = hashlib.sha256()
+        with open(tmp, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
+        if h.hexdigest() != expect:
+            log(f"GAGAL: sha256 tidak cocok (dapat {h.hexdigest()[:16]}...)")
+            tmp.unlink(missing_ok=True)
+            return False
+        import zipfile
+        with zipfile.ZipFile(tmp) as z:
+            bad = [n for n in z.namelist() if n.startswith("/") or ".." in n.split("/")]
+            if bad:
+                log(f"GAGAL: entri zip tidak aman: {bad[:3]}")
+                tmp.unlink(missing_ok=True)
+                return False
+            z.extractall(out)
+        tmp.unlink(missing_ok=True)
+    except Exception as e:
+        log(f"GAGAL: unduh bundel premium ({e}); sediakan {SERVICES['spotify']['venv'].relative_to(ROOT)} "
+            f"atau unggah premium-<versi>.zip + .sha256 ke vocalyx-releases")
+        return False
+    man = _load_manifest(out)
+    if not man.get("spotify") or not man.get("deezer"):
+        log("GAGAL: manifest bundel tak lengkap (spotify/deezer)")
+        return False
+    py311 = runtime_python()
+    if py311:
+        for name, spec in SERVICES.items():
+            roots = list((man[name] or {}).get("roots") or [])
+            ok, detail = verify_imports(out / name, roots, python=py311)
+            if not ok:
+                log(f"GAGAL: verifikasi impor bundel {name}: {detail}")
+                return False
+    else:
+        log("PERINGATAN: tanpa interpreter 3.11, impor bundel tak diverifikasi (percaya sha256+manifest)")
+    log(f"bundel prebuilt OK: {', '.join(sorted(man))}")
+    return True
 
 
 def stage_service(name: str, spec: dict, out: Path, force: bool) -> bool:
@@ -234,22 +319,81 @@ def stage_service(name: str, spec: dict, out: Path, force: bool) -> bool:
     for g in glues:
         shutil.copy2(g, dest / g.name)
 
-    rc, _, err = _run(
-        "import compileall, sys; sys.exit(0 if compileall.compile_dir("
-        "sys.argv[1], quiet=1, force=True, legacy=True) else 1)",
-        [str(dest)],
-    )
-    if rc != 0:
-        log(f"GAGAL: compileall {name}: {err.strip()[-600:]}")
+    # Loader vault: salinan python-engine/vx_vault.py dikunci shareA acak per
+    # service LALU ikut hardening (tetap .pyc clear, tak pernah di-vault).
+    sys.path.insert(0, str(ROOT / "scripts"))
+    try:
+        from _pyc_hardening import check_tree_hardened, compile_tree_hardened
+        from _vault_stage import fresh_share, key_loader_text, vault_stems
+        loader_text = (ROOT / "python-engine" / "vx_vault.py").read_text(encoding="utf-8")
+        share = fresh_share()
+        (dest / "vx_vault.py").write_text(
+            key_loader_text(loader_text, share), encoding="utf-8")
+        n, left = compile_tree_hardened(dest)
+        issues = check_tree_hardened(dest)
+    finally:
+        try:
+            sys.path.remove(str(ROOT / "scripts"))
+        except ValueError:
+            pass
+    if left:
+        log(f"GAGAL: kompilasi {name}: {left}")
         shutil.rmtree(dest, ignore_errors=True)
         return False
-    leaked = list(dest.rglob("*.py"))
-    for p in leaked:
-        p.unlink()
+    if issues:
+        log(f"GAGAL: hardening {name} bocor:")
+        for i in issues[:10]:
+            log(f"  - {i}")
+        shutil.rmtree(dest, ignore_errors=True)
+        return False
+    log(f"{name}: hardening OK ({n} .pyc, tanpa docstring/path absolut)")
+    if share.encode("ascii") not in (dest / "vx_vault.pyc").read_bytes():
+        log(f"GAGAL: loader {name} tak mengandung shareA (penguncian gagal)")
+        shutil.rmtree(dest, ignore_errors=True)
+        return False
     if list(dest.rglob("*.py")):
         log(f"GAGAL: masih ada .py di {name} setelah kompilasi")
         shutil.rmtree(dest, ignore_errors=True)
         return False
+
+    # Vault glue: <stem>.pyc -> <stem>.pyv (dibuka di memori oleh loader).
+    glue_stems = [g.stem for g in glues]
+    done, verr = vault_stems(dest, glue_stems, share)
+    if verr:
+        log(f"GAGAL: vault {name}: {verr}")
+        shutil.rmtree(dest, ignore_errors=True)
+        return False
+    log(f"{name}: vault OK ({done} .pyv)")
+
+    # Roundtrip via loader + interpreter ini (paket staged sebagai PYTHONPATH,
+    # tanpa ARL/kredensial: arl kosong -> ARL_KOSONG, --help -> rc 0).
+    loader_pyc = dest / "vx_vault.pyc"
+    rt_env = {k: v for k, v in os.environ.items()
+              if k not in ("PYTHONPATH", "DEEZER_ARL")}
+    rt_env["PYTHONPATH"] = str(dest)
+    rt_env["PYTHONNOUSERSITE"] = "1"
+
+    def _rt(vault: Path, args: list[str]) -> tuple[int, str, str]:
+        proc = subprocess.run(
+            [sys.executable, str(loader_pyc), str(vault), *args],
+            capture_output=True, text=True, timeout=300,
+            cwd=str(dest), env=rt_env)
+        return proc.returncode, proc.stdout, proc.stderr
+
+    probes: list[tuple[str, list[str], int, str]] = []
+    if name == "deezer":
+        probes = [("deezer_arl_test", [], 0, "ARL_KOSONG"),
+                  ("deezer_download", ["--help"], 0, "track")]
+    else:
+        probes = [("spotify_premium_auth", ["--help"], 0, "out"),
+                  ("spotify_premium_download", ["--help"], 0, "track")]
+    for stem, pargs, want_rc, want_in in probes:
+        rc, out_s, err_s = _rt(dest / f"{stem}.pyv", pargs)
+        if rc != want_rc or want_in not in (out_s + err_s):
+            log(f"GAGAL: roundtrip {name}/{stem} (rc={rc}): {(out_s + err_s).strip()[-300:]}")
+            shutil.rmtree(dest, ignore_errors=True)
+            return False
+    log(f"{name}: roundtrip loader OK ({len(probes)} probe)")
 
     ok, detail = verify_imports(dest, info["roots"])
     if not ok:
@@ -267,7 +411,8 @@ def stage_service(name: str, spec: dict, out: Path, force: bool) -> bool:
         "packages": copied,
         "files": len(files),
         "bytes": total,
-        "glue": sorted(g.name.replace(".py", ".pyc") for g in glues),
+        "glue": sorted(g.name.replace(".py", ".pyv") for g in glues),
+        "vault": {"version": 1, "files": sorted(f"{s}.pyv" for s in glue_stems)},
     }
     (out / "manifest.json").write_text(
         json.dumps(man_all, indent=2, sort_keys=True), encoding="utf-8")
@@ -291,8 +436,21 @@ def check(out: Path) -> int:
             log(f"GAGAL: {name} masih punya .py: {[p.name for p in leaked][:5]}")
             bad += 1
         for g in spec["glue"]:
-            if not (dest / g.replace(".py", ".pyc")).is_file():
-                log(f"GAGAL: glue {name}/{g.replace('.py', '.pyc')} tidak ada")
+            stem = g.replace(".py", "")
+            if not (dest / f"{stem}.pyv").is_file():
+                log(f"GAGAL: vault {name}/{stem}.pyv tidak ada")
+                bad += 1
+            if (dest / f"{stem}.pyc").is_file():
+                log(f"GAGAL: plaintext {name}/{stem}.pyc masih ada (vault bocor)")
+                bad += 1
+        loader = dest / "vx_vault.pyc"
+        if not loader.is_file():
+            log(f"GAGAL: loader {name}/vx_vault.pyc tidak ada")
+            bad += 1
+        for stem in [g.replace(".py", "") for g in spec["glue"]]:
+            v = dest / f"{stem}.pyv"
+            if v.is_file() and not v.read_bytes()[:8] == b"VXVAULT1":
+                log(f"GAGAL: {name}/{stem}.pyv bukan vault valid")
                 bad += 1
         venv_sp = _site_packages(spec["venv"])
         if venv_sp:
@@ -314,14 +472,24 @@ def main() -> int:
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT, help="folder tujuan (default build/premium)")
     ap.add_argument("--force", action="store_true", help="abaikan cache freshness")
     ap.add_argument("--check", action="store_true", help="hanya verifikasi hasil stage")
+    ap.add_argument("--fetch-url", default="", help="URL premium-<versi>.zip (default rilis resmi; dukung file://)")
+    ap.add_argument("--no-fetch", action="store_true", help="jangan unduh bundel; gagal bila venv tak ada")
     args = ap.parse_args()
 
-    if sys.version_info[:2] != PY_TAG:
-        log(f"GAGAL: jalankan dgn Python {PY_TAG[0]}.{PY_TAG[1]} (runtime), sekarang "
-            f"{sys.version_info[0]}.{sys.version_info[1]}")
-        return 1
     if args.check:
         return check(args.out)
+
+    missing_venv = [name for name, spec in SERVICES.items()
+                    if not _site_packages(spec["venv"]) ]
+    if missing_venv and not args.no_fetch:
+        url = args.fetch_url or bundle_url(app_version())
+        return 0 if fetch_bundle(args.out, url) else 1
+
+    if sys.version_info[:2] != PY_TAG:
+        log(f"GAGAL: stage dari venv butuh Python {PY_TAG[0]}.{PY_TAG[1]} (runtime), sekarang "
+            f"{sys.version_info[0]}.{sys.version_info[1]}; tanpa venv pakai mode fetch "
+            f"(otomatis bila venv tak ada) atau jalankan via build\\runtime\\python.exe")
+        return 1
 
     args.out.mkdir(parents=True, exist_ok=True)
     for name, spec in SERVICES.items():

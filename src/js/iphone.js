@@ -9,6 +9,7 @@ import { showToast } from './engine.js';
 import { showConfirm } from './modal.js';
 import { invokeTauri } from './tauri.js';
 import { AUDIO_EXT_RE, closePortalMenu, handleLibraryDrop, openPortalMenu } from '../app.js';
+import { refreshIPhoneCovers, setupIPhoneCoverLazy } from './iphone-cover.js';
 
 async function appleDriverStatus() {
   try {
@@ -43,48 +44,77 @@ async function renderDriverGuide(listEl) {
   return st;
 }
 
+async function readDevicesPayload() {
+  const r = await fetch('http://127.0.0.1:8001/iphone/devices', { cache: 'no-store' });
+  const text = await r.text();
+  let j = null;
+  try { j = text ? JSON.parse(text) : null; } catch { j = null; }
+  if (!j) return { http: r.status, raw: text.slice(0, 300), devices: [], ok: false };
+  return Object.assign({ http: r.status }, j);
+}
+async function showDriverGuide(hintText) {
+  await renderDriverGuide(document.getElementById('iphoneTrackList'));
+  const d = (id) => document.getElementById(id);
+  const st = d('deviceStatusText');
+  if (st) st.textContent = t('iph.driverMissingTitle');
+  if (hintText) {
+    const meta = d('deviceMeta');
+    if (meta) meta.textContent = hintText;
+  } else {
+    try {
+      const s = await appleDriverStatus();
+      const meta = d('deviceMeta');
+      if (meta) meta.textContent = s && s.executable ? t('iph.driverServiceStopped') : t('iph.driverNotInstalled');
+    } catch {}
+  }
+  const badge = d('iphoneLibraryCount');
+  if (badge) badge.style.display = 'none';
+  const exp = d('btnDeviceExportSelected'), del = d('btnDeviceDeleteSelected');
+  if (exp) exp.disabled = true;
+  if (del) del.disabled = true;
+  S._prevIPhoneConnected = false;
+}
 async function checkIPhoneConnected() {
   try {
-    const r = await fetch('http://127.0.0.1:8001/iphone/devices');
-    const j = await r.json();
+    const j = await readDevicesPayload();
     if (j.code === 'ERR_APPLE_DRIVER_MISSING') {
-      await renderDriverGuide(document.getElementById('iphoneTrackList'));
-      const statusEl = document.getElementById('deviceStatusText');
-      if (statusEl) statusEl.textContent = t('iph.driverMissingTitle');
-      S._prevIPhoneConnected = false;
+      await showDriverGuide(j.hint || '');
       return false;
     }
     const connected = !!(j.ok && j.devices?.length);
-    const statusEl = document.getElementById('deviceStatusText');
-    const metaEl = document.getElementById('deviceMeta');
-    const dot = document.getElementById('deviceConnDot');
-    const badge = document.getElementById('iphoneLibraryCount');
-    const listEl = document.getElementById('iphoneTrackList');
-    const countEl = document.getElementById('iphoneTrackCount');
+    const d = (id) => document.getElementById(id);
+    const dot = d('deviceConnDot'), badge = d('iphoneLibraryCount');
     if (connected) {
+      const d0 = j.devices[0] || {};
+      const extra = d0.connection_type && String(d0.connection_type).toLowerCase() !== 'usb' ? ` • ${d0.connection_type}` : '';
       if (dot) dot.style.background = 'var(--accent)';
-      if (statusEl) statusEl.textContent = t('iph.connected', { n: `${j.devices[0].name} • iOS ${j.devices[0].ios}` });
-      if (metaEl) metaEl.textContent = `${j.devices[0].model} • ${j.devices[0].identifier.slice(0,8)}…`;
+      const st = d('deviceStatusText');
+      if (st) st.textContent = t('iph.connected', { n: `${d0.name || 'iPhone'} • iOS ${d0.ios || '?'}${extra}` });
+      const meta = d('deviceMeta');
+      if (meta) meta.textContent = `${d0.model || ''} • ${String(d0.identifier || '').slice(0, 8)}…`;
       try {
-        const lr = await fetch('http://127.0.0.1:8001/iphone/library');
-        const lj = await lr.json();
+        const lj = await (await fetch('http://127.0.0.1:8001/iphone/library', { cache: 'no-store' })).json();
         if (badge && lj.ok) {
           badge.style.display = '';
-          badge.textContent = t('iph.libBadge', { n: t('std.songs', { n: lj.library_count }), ios: j.devices[0].ios });
+          badge.textContent = t('iph.libBadge', { n: t('std.songs', { n: lj.library_count }), ios: d0.ios });
         }
       } catch {}
       if (S._prevIPhoneConnected === false && S.activeView === 'device') loadIPhoneLibrary();
     } else {
       if (dot) dot.style.background = 'var(--muted)';
-      if (statusEl) statusEl.textContent = t('iph.notConnected');
-      if (metaEl) metaEl.textContent = '';
+      const st = d('deviceStatusText');
+      if (st) st.textContent = t('iph.notConnected');
+      const detail = j.hint || j.error || '';
+      const meta = d('deviceMeta');
+      if (meta) meta.textContent = detail;
       if (badge) badge.style.display = 'none';
-      if (listEl) listEl.innerHTML = `<div style="padding:12px; text-align:center; color:var(--muted); font-size:11px">${t('iph.notConnectedHint')}</div>`;
-      if (countEl) countEl.textContent = '';
+      const listEl = d('iphoneTrackList');
+      if (listEl) listEl.innerHTML = `<div style="padding:12px; text-align:center; color:var(--muted); font-size:11px">${t('iph.notConnectedHint')}${detail ? `<div style="font-size:11px;margin-top:6px;opacity:.9">${String(detail).slice(0, 280)}</div>` : ''}</div>`;
+      const ce = d('iphoneTrackCount');
+      if (ce) ce.textContent = '';
       S.iphoneTracks = [];
-      S.iphoneSelected.clear();
-      const exp = document.getElementById('btnDeviceExportSelected');
-      const del = document.getElementById('btnDeviceDeleteSelected');
+      try { S.iphoneSelected.clear(); } catch {}
+      const exp = d('btnDeviceExportSelected'), del = d('btnDeviceDeleteSelected');
       if (exp) exp.disabled = true;
       if (del) del.disabled = true;
     }
@@ -99,47 +129,27 @@ async function checkIPhoneConnected() {
 }
 export async function renderDeviceView(){
   const listEl = document.getElementById('iphoneTrackList');
-  const st = await appleDriverStatus();
-  if (st && !st.ready) {
-    await renderDriverGuide(listEl);
-    const statusEl = document.getElementById('deviceStatusText');
-    if (statusEl) statusEl.textContent = t('iph.driverMissingTitle');
-    const metaEl = document.getElementById('deviceMeta');
-    if (metaEl) metaEl.textContent = st.executable ? t('iph.driverServiceStopped') : t('iph.driverNotInstalled');
-    const badge = document.getElementById('iphoneLibraryCount');
-    if (badge) badge.style.display = 'none';
-    const exp = document.getElementById('btnDeviceExportSelected');
-    const del = document.getElementById('btnDeviceDeleteSelected');
-    if (exp) exp.disabled = true;
-    if (del) del.disabled = true;
+  const [st, dev] = await Promise.all([
+    appleDriverStatus().catch(() => null),
+    readDevicesPayload().catch(() => null),
+  ]);
+  if (dev && dev.ok && dev.devices?.length) {
     S._prevIPhoneConnected = false;
+    if (await checkIPhoneConnected()) { await loadIPhoneLibrary(); refreshIPhoneCovers(); }
     return;
   }
-  const connected = await checkIPhoneConnected();
-  if (connected) loadIPhoneLibrary();
+  if (dev && dev.code === 'ERR_APPLE_DRIVER_MISSING') {
+    await showDriverGuide(dev.hint || '');
+    return;
+  }
+  if (st && !st.ready && !(dev && (dev.devices?.length || (dev.mux && dev.mux.length)))) {
+    await showDriverGuide('');
+    return;
+  }
+  if (await checkIPhoneConnected()) { await loadIPhoneLibrary(); refreshIPhoneCovers(); }
   else if (listEl && !listEl.innerHTML) {
     listEl.innerHTML = `<div style="padding:12px; text-align:center; color:var(--muted); font-size:11px">${t('iph.notConnectedHint')}</div>`;
   }
-}
-function setupIPhoneCoverLazy(root) {
-  if (S._iphCoverObs) { S._iphCoverObs.disconnect(); S._iphCoverObs = null; }
-  if (!root || !('IntersectionObserver' in window)) return;
-  const obs = new IntersectionObserver((entries) => {
-    for (const e of entries) {
-      if (!e.isIntersecting) continue;
-      const el = e.target;
-      obs.unobserve(el);
-      const pid = el.dataset.iphCover;
-      if (!pid) continue;
-      const img = new Image();
-      img.className = 't-cover';
-      img.alt = 'cover';
-      img.src = `http://127.0.0.1:8001/iphone/track/cover?item_pid=${pid}&v=${el.dataset.iphCoverV || 0}`;
-      img.onload = () => el.replaceWith(img);
-    }
-  }, { root, rootMargin: '80px' });
-  root.querySelectorAll('[data-iph-cover]').forEach(el => obs.observe(el));
-  S._iphCoverObs = obs;
 }
 function setIPhoneHeadVisible(on){
   const head = document.getElementById('iphoneTableHead');

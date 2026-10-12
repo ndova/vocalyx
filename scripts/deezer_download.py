@@ -19,6 +19,21 @@ import time
 from copy import deepcopy
 from pathlib import Path
 
+# Self-bootstrap: lihat spotify_premium_auth.py (isolated interpreter
+# mengabaikan PYTHONPATH; paket staging deemix/deezer ada di direktori ini).
+def _vx_bootstrap():
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        for cand in (os.environ.get("VX_PREMIUM_PKG") or "", here):
+            if cand and os.path.isdir(cand) and cand not in sys.path:
+                sys.path.insert(0, cand)
+    except Exception:
+        pass
+
+
+_vx_bootstrap()
+del _vx_bootstrap
+
 AUDIO_EXTS = (".mp3", ".flac", ".m4a", ".ogg", ".opus", ".wav")
 
 

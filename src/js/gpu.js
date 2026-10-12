@@ -36,6 +36,13 @@ function autoRefreshCudaStatus(engineOnline) {
   }
 }
 
+function autoRefreshWithHint(engineOnline) { // status + hint dari kondisi aktual; terpisah agar autoRefreshCudaStatus murni
+  try { autoRefreshCudaStatus(engineOnline); } catch {}
+  if (engineOnline) {
+    try { applyDeviceHint(cached ? 'ready' : 'checking', lastDetected); } catch {}
+  }
+}
+
 let lastDetected = [];
 let cached = false;
 
@@ -49,6 +56,11 @@ function cudaGpuName(entries) {
 function applyDeviceHint(state, entries) {
   const hint = el('deviceCudaHint');
   if (!hint) return;
+  if (S._lastCudaOffline && !S._cudaRestartingAt && !S._deviceSwitching) { // offline: CPU pun butuh engine, jangan klaim model dipakai
+    hint.style.color = '#e5484d';
+    hint.textContent = t('set.deviceCudaHintOffline');
+    return;
+  }
   hint.style.color = 'var(--muted)';
   if (state === 'checking') { hint.textContent = t('set.deviceCudaHintChecking'); return; }
   if (state !== 'ready') { hint.textContent = t('set.deviceCudaHintUnknown'); return; }
@@ -59,6 +71,10 @@ function applyDeviceHint(state, entries) {
   }
   const usingCuda = String((S.downloadOptions && S.downloadOptions.karaokeDevice) || 'cpu').toLowerCase() === 'cuda';
   const name = cudaGpuName(entries);
+  if (usingCuda && !S._prevCudaActive) { // venv ada tapi engine masih CPU: jangan klaim "dipakai otomatis"
+    hint.textContent = t('set.deviceCudaHintPending', { gpu: name || 'CUDA' });
+    return;
+  }
   hint.textContent = usingCuda
     ? t('set.deviceCudaHintReady', { gpu: name || 'CUDA' })
     : t('set.deviceCudaHintReadyCpu', { gpu: name || 'CUDA' });
@@ -113,6 +129,7 @@ async function runApplyDevice(device, gpuPython) {
       return null;
     }
     applyDeviceHint(cached ? 'ready' : 'checking', lastDetected);
+    try { const { engineToken } = await import('./engine-auth.js'); await engineToken(true); } catch {}  // ganti device = restart engine, dan engine menulis ulang `engine-token` di %APPDATA%\VocaLyx; tanpa refresh di sini wrapper fetch masih memegang token lama di cache dan setiap request sesudah switch membalas 401 (ratusan 401 setelah `device engine -> cpu`), jadi refresh SEBELUM request pertama, bukan retry pasif saat 401
     return cfg;
   } catch (e) {
     try { showToast(`${t('set.deviceSwitchFailed')}: ${e?.message || String(e)}`, 7000); } catch {}
@@ -224,11 +241,12 @@ export async function ensureGpuPythonProbed() {
 }
 
 export async function initGpuPython() {
-  try { registerCudaRefresh(autoRefreshCudaStatus); } catch {}
+  try { registerCudaRefresh(autoRefreshWithHint); } catch {}
   applyDeviceAvailability('checking', false);
   applyDeviceHint('checking', null);
   await loadCudaAvailabilityFromDisk();
   await syncEngineConfig();
+  try { initEngineRetry(); } catch {}
   try { initCudaSetup(); } catch {}
 }
 
@@ -247,8 +265,10 @@ function cudaSetupEls() {
   };
 }
 
-function fmtGb(b) {
-  const gb = Number(b) / 1e9;
+function fmtBytes(b) {
+  const n = Number(b) || 0;
+  if (n < 1e9) return (n / 1048576).toFixed(n < 104857600 ? 1 : 0) + ' MB';
+  const gb = n / 1e9;
   return (gb >= 10 ? gb.toFixed(0) : gb.toFixed(1)) + ' GB';
 }
 
@@ -268,6 +288,9 @@ function cudaSetupStageLabel(stage) {
 
 let lastCudaProg = null;
 let lastCudaEventAt = 0;
+let lastCudaBytes = 0;
+let lastCudaGrowthAt = 0;
+let cudaSetupStartAt = 0;
 
 function paintCudaSetup(st, prog) {
   const { box, status, btn, cancel, barWrap, bar, pct } = cudaSetupEls();
@@ -277,18 +300,34 @@ function paintCudaSetup(st, prog) {
     lastCudaProg = prog;
     lastCudaEventAt = Date.now();
   }
+  if (prog && Number(prog.received) > lastCudaBytes) {
+    lastCudaBytes = Number(prog.received);
+    lastCudaGrowthAt = Date.now();
+  }
+  const progStage = String((prog && prog.stage) || (lastCudaProg && lastCudaProg.stage) || '');
+  const sinceRef = Math.max(lastCudaGrowthAt, cudaSetupStartAt);
+  const stalled = state === 'installing'  // tahap pip/torch/deps wajib menumbuhkan byte; venv/precheck/verify memang sunyi sehingga tidak dinilai
+    && (progStage === 'pip' || progStage === 'torch' || progStage === 'deps')
+    && sinceRef > 0 && (Date.now() - sinceRef) >= 180000;  // 3 menit tanpa byte baru = stall jaringan, bukan progres macet
   const show = state === 'missing' || state === 'failed' || state === 'installing';
   box.style.display = show ? '' : 'none';
   if (!show) {
     lastCudaProg = null;
+    lastCudaBytes = 0;
+    lastCudaGrowthAt = 0;
+    cudaSetupStartAt = 0;
     return;
   }
   if (status) {
-    status.textContent = state === 'installing'
+    const base = state === 'installing'
       ? t('set.cudaSetupInstalling')
       : state === 'failed'
         ? t('set.cudaSetupFailed')
         : t('set.cudaSetupMissing');
+    status.textContent = (S._lastCudaOffline && state !== 'installing') // offline: jangan klaim CPU jalan, tambah catatan engine
+      ? `${base} ${t('eng.offlineRun')}`
+      : base + (stalled ? ' ' + t('set.cudaSetupStalled') : '');
+    status.style.color = (S._lastCudaOffline && state !== 'installing') ? '#e5484d' : '';
   }
   const busy = state === 'installing' || cudaSetupBusy;
   if (btn) btn.style.display = busy ? 'none' : '';
@@ -310,7 +349,7 @@ function paintCudaSetup(st, prog) {
     const base = eff || lastCudaProg || {};
     const r = Number(base.received) || 0;
     const tot = Number(base.total) || 0;
-    pct.textContent = `${fmtGb(r)}${tot ? ' / ' + fmtGb(tot) : ''} — ${cudaSetupStageLabel(base.stage)}`;
+    pct.textContent = `${fmtBytes(r)}${tot ? ' / ' + fmtBytes(tot) : ''} — ${cudaSetupStageLabel(base.stage)}`;
   } else if (pct) {
     pct.textContent = state === 'installing' ? cudaSetupStageLabel('precheck') : '';
   }
@@ -331,6 +370,9 @@ async function refreshCudaSetup(paint = true) {
 async function startCudaSetup() {
   if (!isTauri() || cudaSetupBusy) return;
   cudaSetupBusy = true;
+  lastCudaBytes = 0;
+  lastCudaGrowthAt = 0;
+  cudaSetupStartAt = Date.now();
   try { paintCudaSetup({ state: 'installing' }, { received: 0, total: 0, percent: 0, stage: 'precheck' }); } catch {}
   try {
     const pre = await invokeTauri('cuda_setup_precheck');
@@ -366,6 +408,18 @@ async function pollCudaSetupDone() {
     cached = false;
     await detect(true);
   } catch {}
+  try { await maybeAutoSwitchToCuda(); } catch {}
+}
+
+async function maybeAutoSwitchToCuda() { // penuhi niat CUDA terpilih begitu install selesai (tanpa klik tambahan)
+  if (!isTauri()) return false;
+  if (String((S.downloadOptions && S.downloadOptions.karaokeDevice) || 'cpu').toLowerCase() !== 'cuda') return false;
+  if (S._prevCudaActive) return false;
+  if (S._deviceSwitching) return false;
+  if (Date.now() - (S._cudaAutoSwitchAt || 0) < 5 * 60 * 1000) return false;
+  S._cudaAutoSwitchAt = Date.now();
+  const cfg = await setDeviceWithEngine('cuda', '');
+  return !!cfg;
 }
 
 async function initCudaSetup() {
@@ -382,7 +436,7 @@ async function initCudaSetup() {
             cudaSetupBusy = false;
             refreshCudaSetup().catch(() => {});
             cached = false;
-            detect(true).catch(() => {});
+            detect(true).then(() => maybeAutoSwitchToCuda().catch(() => {})).catch(() => {});
             return;
           }
           if (p.stage === 'failed') {
@@ -403,6 +457,51 @@ async function initCudaSetup() {
     await refreshCudaSetup();
   });
   await refreshCudaSetup();
+  try { initEngineRetry(); } catch {}
+}
+
+let engineRetryBusy = false;
+
+function initEngineRetry() {
+  const btn = el('karaokeRetryBtn');
+  if (!btn || btn._wired) return;
+  btn._wired = true;
+  btn.addEventListener('click', () => retryEngine());
+}
+
+export async function retryEngine() {
+  if (engineRetryBusy) return false;
+  engineRetryBusy = true;
+  const btn = el('karaokeRetryBtn');
+  if (btn) btn.disabled = true;
+  markCudaRestarting();
+  try {
+    if (isTauri()) {
+      try { await invokeTauri('restart_engine'); } catch (e) { throw e; }
+    }
+    const ok = await waitEngineReady(90000); // import torch lambat, poll sampai 90 dtk
+    S._deviceSwitching = false;
+    S._cudaRestartingAt = false;
+    try { const { engineToken } = await import('./engine-auth.js'); await engineToken(true); } catch {}  // sama seperti ganti device: restart engine menulis ulang engine-token, segarkan sebelum request berikutnya, jangan andalkan retry saat 401
+    try { await refreshCudaStatus(true); } catch {}
+    try { await refreshCudaSetup(); } catch {}
+    if (!ok) {
+      try { showToast(t('eng.offlineLog', { path: '%APPDATA%\\VocaLyx\\engine.log' }), 9000); } catch {}
+      return false;
+    }
+    return true;
+  } catch (e) {
+    try { showToast(String((e && e.message) || e), 7000); } catch {}
+    S._deviceSwitching = false;
+    S._cudaRestartingAt = false;
+    try { await refreshCudaStatus(true); } catch {}
+    return false;
+  } finally {
+    engineRetryBusy = false;
+    S._deviceSwitching = false;
+    S._cudaRestartingAt = false;
+    if (btn) btn.disabled = false;
+  }
 }
 
 export async function setDeviceWithEngine(device, gpuPython) {

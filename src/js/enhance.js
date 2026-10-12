@@ -240,11 +240,15 @@ document.getElementById('btnConnectPremium')?.addEventListener('click', async ()
     const j=await r.json();
     const sid=j.sessionId;
     if(!sid){ if(status){ status.textContent=j.error?String(j.error).slice(0,160):t('enh.failed'); status.style.color='#ff6b6b'; } return; }
+    if(status){ status.textContent=(j.deviceName?j.deviceName+': ':'')+t('enh.waiting'); }
+    const gen = (S._premiumPollGen = (S._premiumPollGen || 0) + 1);
     const t0=Date.now();
     const poll = async()=>{
+      if(gen !== S._premiumPollGen) return;
       if(Date.now()-t0>120000){ if(status){ status.textContent=t('enh.connectTimeout'); status.style.color='#ff6b6b'; } return; }
       const pr=await fetch('http://127.0.0.1:8001/spotify/premium', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action:'connect-status', sessionId:sid})});
       const pj=await pr.json();
+      if(gen !== S._premiumPollGen) return;
       if(pj.connected){ if(status){ status.textContent=t('enh.connected') + ' ' + (pj.deviceName||'VocaLyx-XXXX'); status.style.color='var(--accent2)'; } }
       else if(pj.waiting){ setTimeout(poll,2000); if(status) status.textContent=t('enh.waiting'); }
       else { if(status){ status.textContent=pj.error?String(pj.error).slice(0,160):t('enh.failed'); status.style.color='#ff6b6b'; } }
@@ -253,8 +257,16 @@ document.getElementById('btnConnectPremium')?.addEventListener('click', async ()
   }catch{ if(status) status.textContent=t('enh.error'); }
 });
 document.getElementById('btnDisconnectPremium')?.addEventListener('click', async ()=>{
-  await fetch('http://127.0.0.1:8001/spotify/premium', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action:'disconnect'})});
-  const status=document.getElementById('premiumStatus'); if(status) status.textContent=t('enh.disconnected');
+  S._premiumPollGen = (S._premiumPollGen || 0) + 1;
+  const status=document.getElementById('premiumStatus');
+  try{
+    const r=await fetch('http://127.0.0.1:8001/spotify/premium', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action:'disconnect'})});
+    const j=await r.json().catch(()=>({}));
+    if(status){
+      if(j && j.ok !== false){ status.textContent=t('enh.disconnected'); status.style.color=''; status.title=''; }
+      else { status.textContent=(j&&j.error)?String(j.error).slice(0,160):t('enh.failed'); status.style.color='#ff6b6b'; }
+    }
+  }catch{ if(status){ status.textContent=t('enh.error'); status.style.color='#ff6b6b'; } }
 });
 document.getElementById('btnNewPlaylist')?.addEventListener('click', async ()=>{
   const name = await showPrompt(t('modal.createPlaylist'), t('modal.enterPlaylistName'), '');

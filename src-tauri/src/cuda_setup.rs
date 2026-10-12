@@ -17,7 +17,7 @@
 //! venv sebagai kandidat CUDA prioritas dan user tinggal pilih device CUDA.
 
 use std::fs;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -25,6 +25,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
+use sha2::Digest;
 use tauri::{AppHandle, Emitter, Manager};
 
 pub const PROGRESS_EVENT: &str = "cuda-setup://progress";
@@ -66,6 +67,15 @@ fn venv_python() -> PathBuf {
         }
     }
     scripts.join("python.exe")
+}
+
+/// Cache unduhan pip milik instalasi ini. SENGAJA di dalam venv (bukan
+/// %LOCALAPPDATA%\pip\Cache bawaan pip): heartbeat progres mengukur ukuran
+/// folder venv, dan wheel torch ±2,5 GB mendarat di cache dulu sebelum
+/// dibongkar — dengan cache bawaan, bar macet di 0.0 GB selama unduhan
+/// terlama. Setelah instalasi sukses cache dihapus lagi (lihat worker).
+fn pip_cache_dir() -> PathBuf {
+    venv_root().join("cache")
 }
 
 /// Interpreter venv untuk kandidat probe CUDA. Hanya Some bila instalasi
@@ -267,13 +277,28 @@ fn nvidia_info() -> GpuInfo {
     }
 }
 
-fn internet_ok() -> bool {
+/// Hasil cek koneksi: (terjangkau, lewat_ipv4_saja).
+fn internet_check() -> (bool, bool) {
     // Cek ringan: curl bawaan Windows 10+ HEAD ke index PyTorch.
-    Command::new("curl.exe")
-        .args(["-sSI", "--max-time", "15", CONNECT_CHECK_URL])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    let probe = |extra: &[&str]| {
+        Command::new("curl.exe")
+            .args(["-sSI", "--max-time", "15"])
+            .args(extra)
+            .arg(CONNECT_CHECK_URL)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    };
+    if probe(&[]) {
+        return (true, false);
+    }
+    // Kasus nyata: jalur IPv6 rusak (reset saat TLS) tapi IPv4 sehat.
+    // Tanpa fallback ini instalasi diblokir padahal server baik-baik saja;
+    // worker pip umumnya fallback sendiri, precheck jangan menghalangi.
+    if probe(&["-4"]) {
+        return (true, true);
+    }
+    (false, false)
 }
 
 fn run_precheck() -> CudaPrecheck {
@@ -332,9 +357,11 @@ fn run_precheck() -> CudaPrecheck {
             MIN_FREE_BYTES as f64 / 1e9
         ));
     }
-    let internet = internet_ok();
+    let (internet, ipv4_only) = internet_check();
     if !internet {
         errors.push("Tidak bisa menjangkau index PyTorch. Periksa koneksi internet.".to_string());
+    } else if ipv4_only {
+        warnings.push("Jalur IPv6 bermasalah (koneksi direset); unduhan memakai IPv4.".to_string());
     }
     CudaPrecheck {
         ok: errors.is_empty(),
@@ -396,6 +423,32 @@ struct Runner<'a> {
     app: &'a AppHandle,
 }
 
+/// Batas diam tanpa byte baru sebelum child tahap jaringan dianggap stall
+/// (detik). Koneksi yang tersambung tapi mati suri tidak pernah timeout
+/// sendiri di pip (terverifikasi: ESTABLISHED IPv6 ke CDN PyTorch, 0 KB dalam
+/// 60 detik, selamanya), sehingga tanpa ini instalasi duduk di angka yang
+/// sama tanpa akhir. Trikle lambat tetap aman: pewaktu di-reset tiap ada
+/// pertumbuhan byte, berapa pun kecilnya.
+const STALL_TIMEOUT_SECS: u64 = 300;
+/// Total percobaan tiap tahap jaringan (1 awal + retry). Tiap ulangan
+/// mengunduh ulang dari nol (pip tidak melanjutkan parsial) — mahal, tapi
+/// lebih baik daripada gantung selamanya. Tiap ulangan dicatat di log.
+const STALL_MAX_ATTEMPTS: u32 = 3;
+
+/// Tahap yang memakai jaringan dan karenanya diawasi watchdog stall.
+/// Tahap sunyi yang sah (venv/precheck/verify) tidak ikut: di sana tidak ada
+/// byte yang diharapkan sehingga watchdog akan membunuh proses yang sehat.
+fn stage_uses_network(stage: &str) -> bool {
+    matches!(stage, "pip" | "torch" | "deps")
+}
+
+/// Hasil satu percobaan `run_once`: selesai (sukses/gagal/dibatalkan) atau
+/// mati suri sehingga layak dicoba ulang.
+enum RunFail {
+    Fatal(String),
+    Stalled,
+}
+
 impl<'a> Runner<'a> {
     /// Jalankan perintah, stream stderr ke log + pantau ukuran venv untuk
     /// progres. Kembalikan Err bila dibatalkan atau exit != 0.
@@ -404,11 +457,45 @@ impl<'a> Runner<'a> {
     /// stderr baru. Tanpa ini, stall jaringan (pip diam) atau perintah sunyi
     /// (verify `import torch` ±15 dtk) membuat frontend mengira instalasi
     /// macet dan progress bar hilang-muncul — bug yang dilaporkan user.
+    ///
+    /// Untuk tahap jaringan, satu percobaan yang stall (tanpa byte baru
+    /// selama `STALL_TIMEOUT_SECS`) dibunuh lalu diulang sampai
+    /// `STALL_MAX_ATTEMPTS` sebelum menyerah dengan pesan yang jelas.
     fn run(&self, exe: &Path, args: &[&str], stage: &str, workdir: Option<&Path>) -> Result<(), String> {
-        use std::sync::{Arc, Mutex as StdMutex};
         if CANCELLED.load(Ordering::Relaxed) {
             return Err("dibatalkan".to_string());
         }
+        let attempts = if stage_uses_network(stage) { STALL_MAX_ATTEMPTS } else { 1 };
+        for attempt in 1..=attempts {
+            match self.run_once(exe, args, stage, workdir) {
+                Ok(()) => return Ok(()),
+                Err(RunFail::Fatal(e)) => return Err(e),
+                Err(RunFail::Stalled) => {
+                    if attempt < attempts && !CANCELLED.load(Ordering::Relaxed) {
+                        setup_log(&format!(
+                            "tahap {stage} stall tanpa byte baru > {} mnt, mencoba ulang ({attempt}/{attempts})",
+                            STALL_TIMEOUT_SECS / 60
+                        ));
+                        continue;
+                    }
+                    if CANCELLED.load(Ordering::Relaxed) {
+                        return Err("dibatalkan".to_string());
+                    }
+                    return Err(format!(
+                        "tahap {stage} stall: tidak ada byte baru selama {} menit setelah {attempts}x percobaan. \
+                         Periksa koneksi (jalur IPv6 yang rusak pernah terbukti diam seperti ini), lalu ulangi.",
+                        STALL_TIMEOUT_SECS / 60
+                    ));
+                }
+            }
+        }
+        Err(format!("tahap {stage} gagal"))
+    }
+
+    /// Satu percobaan menjalankan child sampai selesai/dibatalkan/stall.
+    fn run_once(&self, exe: &Path, args: &[&str], stage: &str, workdir: Option<&Path>) -> Result<(), RunFail> {
+        use std::sync::{Arc, Mutex as StdMutex};
+        let net = stage_uses_network(stage);
         let mut cmd = Command::new(exe);
         cmd.args(args).stderr(Stdio::piped()).stdout(Stdio::null());
         if let Some(d) = workdir {
@@ -421,22 +508,59 @@ impl<'a> Runner<'a> {
         cmd.env_remove("PYTHONHOME");
         cmd.env("PYTHONUTF8", "1");
         cmd.env("PYTHONIOENCODING", "utf-8");
-        let mut child: Child = cmd.spawn().map_err(|e| format!("gagal jalankan {}: {e}", exe.display()))?;
+        // Cache pip di dalam venv supaya heartbeat ukuran direktori ikut
+        // mengukur unduhan wheel (bukan diam di 0.0 GB sampai bongkar).
+        cmd.env("PIP_CACHE_DIR", pip_cache_dir());
+        let mut child: Child = cmd
+            .spawn()
+            .map_err(|e| RunFail::Fatal(format!("gagal jalankan {}: {e}", exe.display())))?;
         store_child(Some(child.id()));
         // Drain stderr di thread sendiri supaya loop utama bebas mengatur
         // tempo heartbeat; ekor log (±1500 char) untuk diagnosis.
+        //
+        // stderr dibaca per chunk lalu dibelah `\r` DAN `\n`: meter progres
+        // pip memakai carriage return tanpa newline, jadi `.lines()` tidak
+        // akan pernah melihatnya bergerak. Segmen meter di-parse jadi byte
+        // akurat (sumber kebenaran saat mengunduh) dan TIDAK ikut masuk ekor
+        // log supaya pesan error asli tidak tenggelam dalam sampah meter.
         let tail: Arc<StdMutex<String>> = Arc::new(StdMutex::new(String::new()));
+        let pip_bytes: Arc<StdMutex<u64>> = Arc::new(StdMutex::new(0));
         if let Some(stderr) = child.stderr.take() {
             let tail = Arc::clone(&tail);
+            let pip_bytes = Arc::clone(&pip_bytes);
             std::thread::spawn(move || {
-                let reader = BufReader::new(stderr);
-                for line in reader.lines().map_while(Result::ok) {
-                    if let Ok(mut t) = tail.lock() {
-                        t.push_str(&line);
-                        t.push('\n');
-                        if t.len() > 1500 {
-                            let cut = t.len() - 1500;
-                            *t = t[cut..].to_string();
+                let mut reader = BufReader::new(stderr);
+                let mut chunk: Vec<u8> = Vec::with_capacity(8192);
+                loop {
+                    chunk.clear();
+                    // `read_until` agar `\r` meter ikut terbaca walau tanpa `\n`.
+                    let n = reader
+                        .by_ref()
+                        .take(8192)
+                        .read_until(b'\n', &mut chunk)
+                        .unwrap_or(0);
+                    if n == 0 {
+                        break;
+                    }
+                    let text = String::from_utf8_lossy(&chunk);
+                    for seg in text.split(['\r', '\n']) {
+                        let seg = seg.trim();
+                        if seg.is_empty() {
+                            continue;
+                        }
+                        if let Some((got, _)) = parse_pip_progress(seg) {
+                            if let Ok(mut p) = pip_bytes.lock() {
+                                if got > *p {
+                                    *p = got;
+                                }
+                            }
+                        } else if let Ok(mut t) = tail.lock() {
+                            t.push_str(seg);
+                            t.push('\n');
+                            if t.len() > 1500 {
+                                let cut = t.len() - 1500;
+                                *t = t[cut..].to_string();
+                            }
                         }
                     }
                 }
@@ -444,23 +568,41 @@ impl<'a> Runner<'a> {
         }
         let root = venv_root();
         let mut last_emit = Instant::now() - Duration::from_secs(10);
+        let mut last_got = 0u64;
+        let mut last_growth = Instant::now();
         let code: Option<i32> = loop {
             if CANCELLED.load(Ordering::Relaxed) {
                 let _ = child.kill();
                 let _ = child.wait();
                 store_child(None);
-                return Err("dibatalkan".to_string());
+                return Err(RunFail::Fatal("dibatalkan".to_string()));
             }
             match child.try_wait() {
                 Ok(Some(status)) => break status.code(),
                 Ok(None) => {}
                 Err(e) => {
                     store_child(None);
-                    return Err(format!("tunggu proses gagal: {e}"));
+                    return Err(RunFail::Fatal(format!("tunggu proses gagal: {e}")));
                 }
             }
             if last_emit.elapsed() >= Duration::from_secs(2) {
-                let got = dir_size(&root);
+                // Byte meter pip menang atas ukuran direktori: direktori buta
+                // selama resolusi index/get-pip dan tumbuh lambat di awal
+                // unduhan, sementara meter tahu persis byte yang sudah turun.
+                let pip = pip_bytes.lock().map(|p| *p).unwrap_or(0);
+                let got = dir_size(&root).max(pip);
+                if got > last_got {
+                    last_got = got;
+                    last_growth = Instant::now();
+                } else if net && last_growth.elapsed() >= Duration::from_secs(STALL_TIMEOUT_SECS) {
+                    // Watchdog: koneksi mati suri tidak pernah timeout sendiri
+                    // di pip — bunuh agar pemanggil bisa mencoba ulang, bukan
+                    // gantung selamanya di angka yang sama.
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    store_child(None);
+                    return Err(RunFail::Stalled);
+                }
                 emit_progress(self.app, stage, got, EST_TOTAL_BYTES.max(got + 1));
                 last_emit = Instant::now();
             }
@@ -468,17 +610,17 @@ impl<'a> Runner<'a> {
         };
         store_child(None);
         if CANCELLED.load(Ordering::Relaxed) {
-            return Err("dibatalkan".to_string());
+            return Err(RunFail::Fatal("dibatalkan".to_string()));
         }
         let tail_txt = tail.lock().map(|t| t.clone()).unwrap_or_default();
         match code {
             Some(0) => Ok(()),
             _ => {
                 setup_log(&format!("gagal stage {stage}: {tail_txt}"));
-                Err(format!(
+                Err(RunFail::Fatal(format!(
                     "tahap {stage} gagal (exit {}). Detail di cuda-setup.log",
                     code.unwrap_or(-1)
-                ))
+                )))
             }
         }
     }
@@ -588,14 +730,281 @@ fn base_python() -> Option<PathBuf> {
 
 fn pip_args<'b>(extra: &[&'b str]) -> Vec<&'b str> {
     // Catatan: JANGAN pakai `--progress-bar off` — pip 26 menolaknya
-    // ("no such option"). `-q` cukup; progres dipantau dari ukuran direktori.
-    let mut v = vec!["-m", "pip", "--disable-pip-version-check", "--no-input", "--no-color", "-q"];
+    // ("no such option"). `-q` SENGAJA tidak dipakai: meter progres pip
+    // (ditulis ke stderr) adalah satu-satunya sumber byte akurat saat
+    // mengunduh — heartbeat ukuran direktori buta selama fase resolusi index
+    // dan get-pip (yang mengunduh ke %TEMP%), sehingga bar macet di 0.0 GB.
+    // `--no-color` menjaga output tetap ASCII agar bisa di-parse.
+    // `--timeout 60` (bawaan pip 15 dtk): jaringan lambat tidak boleh dibunuh
+    // saat handshake; stall mati suri diurus watchdog `run()` (pecah koneksi
+    // yang tersambung tapi nol byte tidak pernah timeout sendiri di pip).
+    let mut v = vec!["-m", "pip", "--disable-pip-version-check", "--no-input", "--no-color", "--timeout", "60"];
     v.extend_from_slice(extra);
     v
 }
 
-fn worker(app: AppHandle) {
-    let root = venv_root();
+/// Parse satu segmen meter progres pip jadi (byte terunduh, byte total).
+///
+/// Bentuk pip: `1,2/2,5 GB` atau `114,3/300,2 MB` — satuan hanya ditulis
+/// sekali di kanan, jadi sisi kiri yang tak bersatuan memakai satuan kanan.
+/// Koma desimal (`1,2`) ikut diterima. Tiap sisi dikonversi mandiri sehingga
+/// satuan campuran (`512 kB/2,5 GB`) tetap benar. `None` = bukan baris
+/// progres (pesan biasa, URL, `12,3 MB/s eta ...`) — pemanggil mengabaikannya
+/// dan tetap memakai heartbeat ukuran direktori sebagai fallback.
+fn parse_pip_progress(seg: &str) -> Option<(u64, u64)> {
+    fn num_unit(s: &str) -> Option<(f64, &str)> {
+        let mut end = 0;
+        for (idx, ch) in s.char_indices() {
+            if ch.is_ascii_digit() || ch == '.' || ch == ',' {
+                end = idx + ch.len_utf8();
+            } else {
+                break;
+            }
+        }
+        if end == 0 {
+            return None;
+        }
+        let v: f64 = s[..end].replace(',', ".").parse().ok()?;
+        Some((v, s[end..].trim_start()))
+    }
+    fn mult(u: &str) -> Option<f64> {
+        let w: String = u.chars().take_while(|c| c.is_ascii_alphabetic()).collect();
+        match w.to_ascii_lowercase().as_str() {
+            "b" => Some(1.0),
+            "kb" | "k" | "kib" => Some(1024.0),
+            "mb" | "m" | "mib" => Some(1024.0 * 1024.0),
+            "gb" | "g" | "gib" => Some(1024.0 * 1024.0 * 1024.0),
+            _ => None,
+        }
+    }
+    // Cari `/` satu per satu (maju min 1 byte tiap iterasi supaya URL
+    // `https://...` tidak membuat loop selamanya).
+    let mut pos = 0;
+    while pos < seg.len() {
+        let rest = &seg[pos..];
+        let Some(rel) = rest.find('/') else { break };
+        let right = &rest[rel + 1..];
+        if let Some((rv, rrest)) = num_unit(right) {
+            if let Some(rm) = mult(rrest) {
+                // Token angka kiri: terakhir saja (`1,2`) atau dua terakhir
+                // (`512 kB` — angka dan satuannya dipisah spasi).
+                let toks: Vec<&str> = rest[..rel].split_whitespace().collect();
+                let n = toks.len();
+                let mut cands: Vec<String> = Vec::new();
+                if n >= 1 {
+                    cands.push(toks[n - 1].to_string());
+                }
+                if n >= 2 {
+                    cands.push(format!("{} {}", toks[n - 2], toks[n - 1]));
+                }
+                for cand in &cands {
+                    if let Some((lv, lrest)) = num_unit(cand) {
+                        // Sisi kiri tak bersatuan memakai satuan kanan
+                        // (`1,2/2,5 GB`); satuan sampah ditolak, bukan ditebak.
+                        let lm = if lrest.is_empty() {
+                            rm
+                        } else if let Some(m) = mult(lrest) {
+                            m
+                        } else {
+                            continue;
+                        };
+                        let got = (lv * lm) as u64;
+                        let tot = (rv * rm) as u64;
+                        if tot > 0 && got <= tot {
+                            return Some((got, tot));
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        pos += rel + 1;
+    }
+    None
+}
+
+/// Versi torch yang diminta pin, mis. `2.5.1+cu121` dari
+/// `torch==2.5.1+cu121`. Satu sumber kebenaran supaya probe, filter wheel,
+/// dan pin pip tidak drift satu sama lain.
+fn torch_pin_full() -> String {
+    TORCH_PIN.split("==").nth(1).unwrap_or("").to_string()
+}
+
+/// Awalan nama file wheel, mis. `torch-2.5.1` (bagian `+cu121` ditulis
+/// `%2B` di URL sehingga tidak bisa dipakai untuk match mentah).
+fn torch_file_prefix() -> String {
+    let full = torch_pin_full();
+    format!("torch-{}", full.split('+').next().unwrap_or(&full))
+}
+
+/// Pilih wheel torch yang cocok dari HTML index PyTorch.
+///
+/// Mengembalikan (url, sha256-dari-fragment-bila-ada). Filter ketat:
+/// nama `torch-<ver>`, tag `cp311`, platform `win_amd64`, akhiran `.whl` —
+/// decoy seperti build cp312/win32 atau paket lain harus ditolak. Href absolut
+/// dipakai apa adanya; relatif digabung ke index.
+fn pick_torch_wheel(html: &str) -> Option<(String, Option<String>)> {
+    let prefix = torch_file_prefix();
+    let mut pos = 0;
+    while pos < html.len() {
+        let rest = &html[pos..];
+        let Some(rel) = rest.find("href=\"") else { break };
+        let start = rel + 6;
+        let after = &rest[start..];
+        let Some(end) = after.find('"') else { break };
+        let href = &after[..end];
+        pos += start + end + 1;
+        let base = href.split('#').next().unwrap_or(href);
+        if !base.ends_with(".whl") {
+            continue;
+        }
+        let file = base.rsplit('/').next().unwrap_or(base);
+        if file.contains(&prefix) && file.contains("cp311") && file.contains("win_amd64") {
+            let sha = href
+                .split("#sha256=")
+                .nth(1)
+                .map(|s| {
+                    s.split(['"', '\'', ' ', '>'])
+                        .next()
+                        .unwrap_or("")
+                        .trim()
+                        .to_string()
+                })
+                .filter(|s| s.len() == 64 && s.chars().all(|c| c.is_ascii_hexdigit()));
+            let url = if href.starts_with("http") {
+                href.to_string()
+            } else {
+                format!("{TORCH_INDEX}/{}", href.trim_start_matches('/'))
+            };
+            return Some((url, sha));
+        }
+    }
+    None
+}
+
+/// Nama file lokal dari URL wheel (`%2B` dikembalikan jadi `+` yang sah di
+/// nama file Windows; fragment `#sha256=...` dibuang).
+fn url_filename(url: &str) -> String {
+    let base = url.split('#').next().unwrap_or(url).rsplit('/').next().unwrap_or("torch-cuda.whl");
+    base.replace("%2B", "+").replace("%2b", "+")
+}
+
+fn sha256_file(path: &Path) -> Result<String, String> {
+    let mut f = fs::File::open(path).map_err(|e| format!("gagal buka {path:?}: {e}"))?;
+    let mut h = sha2::Sha256::new();
+    std::io::copy(&mut f, &mut h).map_err(|e| format!("gagal hash: {e}"))?;
+    Ok(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// True bila file wheel utuh: ada isinya, dan cocok sha index bila ada.
+fn verify_wheel(path: &Path, sha: Option<&str>) -> bool {
+    let Ok(meta) = fs::metadata(path) else { return false };
+    if meta.len() == 0 {
+        return false;
+    }
+    match sha {
+        Some(want) => match sha256_file(path) {
+            Ok(got) if got.eq_ignore_ascii_case(want) => true,
+            Ok(got) => {
+                setup_log(&format!(
+                    "sha wheel tidak cocok (harap {want}, dapat {got}); unduhan korup, dibuang"
+                ));
+                false
+            }
+            Err(e) => {
+                setup_log(&format!("gagal hash wheel: {e}"));
+                false
+            }
+        },
+        None => {
+            setup_log("index tanpa sha wheel; terima apa adanya (pip memvalidasi ulang saat pasang)");
+            true
+        }
+    }
+}
+
+/// True bila venv sudah berisi torch CUDA sesuai pin.
+fn torch_probe_ok(vpy: &Path) -> bool {
+    let want = torch_pin_full();
+    let probe = format!("import torch; assert torch.__version__.startswith('{want}')");
+    Command::new(vpy)
+        .args(["-c", &probe])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Unduh wheel torch lewat curl (IPv4 paksa + resume) ke cache pip.
+///
+/// Mengapa bukan pip langsung: pip memakai satu koneksi tanpa resume dan
+/// mengikuti urutan DNS sistem (IPv6 dulu); di rute IPv6 yang flaky, koneksi
+/// tersambung lalu mati suri selamanya (terverifikasi: 0 KB/menit ke CDN
+/// PyTorch). curl `-4` memaksa jalur IPv4 yang terbukti bersih, dan `-C -`
+/// melanjutkan angka (bukan mengulang dari nol) sehingga retry watchdog
+/// bersifat kumulatif. Progres, watchdog stall, dan cancel ikut lewat Runner
+/// karena file ditulis di dalam venv.
+///
+/// Gagal di tahap mana pun jatuh balik ke `pip install` biasa — tidak pernah
+/// lebih buruk dari perilaku lama.
+fn fetch_torch_wheel(runner: &Runner) -> Result<PathBuf, String> {
+    // 1. Petakan pin -> URL dari index kecil (56 KB — lolos di rute yang
+    // bahkan menggagalkan wheel 2,5 GB). curl langsung agar tanpa dependensi
+    // HTTP baru; `--fail` supaya halaman error tidak dianggap index.
+    let index_url = format!("{TORCH_INDEX}/torch/");
+    let mut html = String::new();
+    for attempt in 1..=3u32 {
+        if CANCELLED.load(Ordering::Relaxed) {
+            return Err("dibatalkan".to_string());
+        }
+        let out = std::process::Command::new("curl.exe")
+            .args(["-4", "-sS", "-L", "--fail", "--max-time", "30", &index_url])
+            .output()
+            .map_err(|e| format!("curl tidak tersedia: {e}"))?;
+        if out.status.success() {
+            let text = String::from_utf8_lossy(&out.stdout).into_owned();
+            if pick_torch_wheel(&text).is_some() {
+                html = text;
+                break;
+            }
+        }
+        setup_log(&format!("ambil index torch gagal (coba {attempt}/3)"));
+        std::thread::sleep(Duration::from_secs(3));
+    }
+    let (url, sha) = pick_torch_wheel(&html)
+        .ok_or_else(|| "index torch tidak memuat wheel yang cocok".to_string())?;
+    // 2. Unduh dengan resume; heartbeat + watchdog + cancel ikut via Runner.
+    let file = url_filename(&url);
+    let dir = pip_cache_dir();
+    fs::create_dir_all(&dir).map_err(|e| format!("gagal buat cache: {e}"))?;
+    let dest = dir.join(&file);
+    if dest.is_file() {
+        // Lengkap dari run sebelumnya — verifikasi lalu pakai ulang.
+        if verify_wheel(&dest, sha.as_deref()) {
+            setup_log(&format!("pakai ulang wheel {file} yang sudah lengkap"));
+            return Ok(dest);
+        }
+        let _ = fs::remove_file(&dest);
+    }
+    setup_log(&format!("mengunduh {file} via curl -4 (resume)"));
+    let part = dir.join(format!("{file}.part"));
+    let o = part.to_string_lossy().to_string();
+    let args = ["-4", "-sS", "-L", "--fail", "--retry", "5", "--retry-all-errors",
+        "--retry-delay", "5", "-C", "-", "-o", &o, &url];
+    match runner.run(Path::new("curl.exe"), &args, "torch", None) {
+        Err(e) if e == "dibatalkan" => return Err(e),
+        Err(e) => return Err(format!("unduh curl gagal: {e}")),
+        Ok(()) => {}
+    }
+    if !verify_wheel(&part, sha.as_deref()) {
+        let _ = fs::remove_file(&part);
+        return Err("wheel hasil unduhan korup".to_string());
+    }
+    fs::rename(&part, &dest).map_err(|e| format!("gagal simpan wheel: {e}"))?;
+    setup_log(&format!("wheel {file} lengkap dan terverifikasi"));
+    Ok(dest)
+}
+
+fn worker(app: AppHandle) {    let root = venv_root();
     // Emit SEGERA sebelum precheck (curl HEAD bisa makan belasan detik):
     // tanpa ini UI duduk kosong antara klik dan event pertama. Frontend juga
     // sudah melukis status installing+precheck saat klik, jadi tidak ada jeda.
@@ -688,18 +1097,35 @@ fn worker(app: AppHandle) {
         }
     }
 
-    // 2. torch CUDA dari index resmi (paket terbesar; progres dari ukuran dir).
+    // 2. torch CUDA (paket terbesar). Jalur utama: wheel diambil lewat curl
+    // -4 ber-resume lalu dipasang lokal (dependensi kecil yang kurang tetap
+    // dari index); jatuh balik ke pip langsung bila fetch gagal.
     emit_progress(&app, "torch", dir_size(&root), EST_TOTAL_BYTES);
-    let torch_ok = Command::new(&vpy)
-        .args(["-c", "import torch; assert torch.__version__.startswith('2.5.1+cu121')"])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-    if !torch_ok {
-        let idx = format!("--index-url={TORCH_INDEX}");
-        let args = pip_args(&["install", &idx, TORCH_PIN]);
-        if !guard(runner.run(&vpy, &args, "torch", None)) {
-            return;
+    if !torch_probe_ok(&vpy) {
+        let mut done = false;
+        match fetch_torch_wheel(&runner) {
+            Err(e) if e == "dibatalkan" => {
+                if !guard(Err(e)) {
+                    return;
+                }
+            }
+            Err(e) => setup_log(&format!("fetch wheel gagal, pakai pip langsung: {e}")),
+            Ok(wheel) => {
+                let w = wheel.to_string_lossy().to_string();
+                let args = pip_args(&["install", "--extra-index-url", TORCH_INDEX, &w]);
+                if guard(runner.run(&vpy, &args, "torch", None)) && torch_probe_ok(&vpy) {
+                    done = true;
+                } else {
+                    setup_log("install lokal belum melengkapi torch, pakai pip langsung...");
+                }
+            }
+        }
+        if !done {
+            let idx = format!("--index-url={TORCH_INDEX}");
+            let args = pip_args(&["install", &idx, TORCH_PIN]);
+            if !guard(runner.run(&vpy, &args, "torch", None)) {
+                return;
+            }
         }
     }
 
@@ -732,6 +1158,13 @@ fn worker(app: AppHandle) {
         return;
     }
     setup_log("verifikasi OK (torch CUDA + audio_separator + fastapi)");
+    // Wheel di cache sudah tak dibutuhkan (instalasi selesai); hapus untuk
+    // merebut kembali ±2,5 GB. Sengaja hanya di jalur sukses: instalasi yang
+    // dibatalkan/gagal menyimpan cache untuk resume run berikutnya.
+    match fs::remove_dir_all(pip_cache_dir()) {
+        Ok(_) => setup_log("cache pip dibersihkan"),
+        Err(e) => setup_log(&format!("cache pip gagal dibersihkan (abaikan): {e}")),
+    }
     mark_ready(&root);
     emit_progress(&app, "done", EST_TOTAL_BYTES, EST_TOTAL_BYTES);
     INSTALLING.store(false, Ordering::Relaxed);
@@ -898,5 +1331,74 @@ mod tests {
         assert!(vram_advice(2048)[0].contains("3,5 GB"));
         assert!(vram_advice(4096)[0].contains("4 GB"));
         assert!(vram_advice(8192)[0].contains("6 GB"));
+    }
+
+    #[test]
+    fn pip_progress_parses_meter() {
+        let gb = 1024u64 * 1024 * 1024;
+        let mb = 1024u64 * 1024;
+        // Bentuk kanonik pip: satuan ditulis sekali di kanan.
+        assert_eq!(
+            parse_pip_progress("━━━━━━━━━━━━━ 1,2/2,5 GB  12,3 MB/s eta 0:03:12"),
+            Some(((1.2 * gb as f64) as u64, (2.5 * gb as f64) as u64))
+        );
+        assert_eq!(
+            parse_pip_progress("114,3/300,2 MB  8,1 MB/s eta 0:00:24"),
+            Some(((114.3 * mb as f64) as u64, (300.2 * mb as f64) as u64))
+        );
+        // Satuan campuran tetap dikonversi mandiri.
+        assert_eq!(
+            parse_pip_progress("512 kB/2,5 GB"),
+            Some((512 * 1024, (2.5 * gb as f64) as u64))
+        );
+        // Bukan meter: pesan biasa, URL, kecepatan — semuanya None supaya
+        // heartbeat ukuran direktori yang dipakai, bukan angka sampah.
+        assert_eq!(parse_pip_progress("Collecting torch==2.5.1+cu121"), None);
+        assert_eq!(parse_pip_progress("https://download.pytorch.org/whl/cu121/"), None);
+        assert_eq!(parse_pip_progress("12,3 MB/s eta 0:03:12"), None);
+        assert_eq!(parse_pip_progress(""), None);
+        assert_eq!(parse_pip_progress("9,9/2,5 GB"), None);
+    }
+
+    #[test]
+    fn watchdog_covers_network_stages_only() {
+        // Tahap sunyi yang sah tidak boleh diawasi: di sana tidak ada byte
+        // yang diharapkan sehingga watchdog akan membunuh proses sehat.
+        for s in ["pip", "torch", "deps"] {
+            assert!(stage_uses_network(s), "{s} memakai jaringan");
+        }
+        for s in ["precheck", "venv", "verify"] {
+            assert!(!stage_uses_network(s), "{s} tidak memakai jaringan");
+        }
+        assert!(STALL_TIMEOUT_SECS >= 60, "watchdog tidak boleh agresif");
+        assert!(STALL_MAX_ATTEMPTS >= 2, "stall dapat retry sebelum menyerah");
+    }
+
+    #[test]
+    fn torch_wheel_pick() {
+        assert_eq!(torch_pin_full(), "2.5.1+cu121");
+        assert_eq!(torch_file_prefix(), "torch-2.5.1");
+        let html = concat!(
+            "<a href=\"https://download-r2.pytorch.org/whl/cu121/torch-2.5.1%2Bcu121-cp312-cp312-win_amd64.whl#sha256=",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "\">x</a><br/>\n",
+            "<a href=\"https://download-r2.pytorch.org/whl/cu121/torch-2.5.1%2Bcu121-cp311-cp311-win32.whl\">x</a><br/>\n",
+            "<a href=\"https://download-r2.pytorch.org/whl/cu121/torch-2.5.1%2Bcu121-cp311-cp311-win_amd64.whl#sha256=",
+            "4bcee18f00c43c815efad8efaa3bca584ffdc8d2cd35ef4c44c814f2739d9191",
+            "\">torch-2.5.1+cu121-cp311-cp311-win_amd64.whl</a><br/>\n",
+            "<a href=\"https://download-r2.pytorch.org/whl/cu121/numpy-2.1.2-cp311-cp311-win_amd64.whl\">x</a><br/>\n",
+        );
+        let (url, sha) = pick_torch_wheel(html).expect("wheel cocok harus ketemu");
+        assert!(url.contains("cp311-cp311-win_amd64.whl"), "decoy cp312/win32/numpy ditolak: {url}");
+        assert_eq!(
+            sha.as_deref(),
+            Some("4bcee18f00c43c815efad8efaa3bca584ffdc8d2cd35ef4c44c814f2739d9191")
+        );
+        assert_eq!(
+            url_filename(&url),
+            "torch-2.5.1+cu121-cp311-cp311-win_amd64.whl"
+        );
+        assert_eq!(pick_torch_wheel("tidak ada link"), None);
+        assert_eq!(pick_torch_wheel(""), None);
     }
 }

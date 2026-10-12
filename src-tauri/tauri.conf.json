@@ -7,7 +7,7 @@
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist",
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build && npm run stage:engine && npm run stage:clean && npm run stage:premium"
+    "beforeBuildCommand": "npm run build && npm run stage:engine && npm run stage:clean && npm run stage:premium && npm run stage:runtime"
   },
   "app": {
     "windows": [

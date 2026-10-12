@@ -110,10 +110,13 @@ async function refreshCudaStatus(force) {
     S._lastCudaOffline = true;
     if (dot) dot.style.background = 'var(--muted)';
     if (el) { el.textContent = (S._cudaRestartingAt || S._deviceSwitching) ? t('eng.restarting') : t('eng.offlineRun'); el.style.color = '#e5484d'; }
+    try { const rb = document.getElementById('karaokeRetryBtn'); if (rb) rb.style.display = (S._cudaRestartingAt || S._deviceSwitching) ? 'none' : ''; } catch {}
+    try { const hint = document.getElementById('deviceCudaHint'); if (hint) { hint.textContent = t('set.deviceCudaHintOffline'); hint.style.color = '#e5484d'; } } catch {}
     S._prevCudaActive = false;
     return false;
   }
   S._lastCudaOffline = false;
+  try { const rb2 = document.getElementById('karaokeRetryBtn'); if (rb2) rb2.style.display = 'none'; } catch {}
   if (S._cudaRestartingAt && !S._deviceSwitching) S._cudaRestartingAt = false;
   if (sel === 'cpu') {
     const nm = (caps && caps.cpu_name) || '';
@@ -342,10 +345,11 @@ function syncKaraokeBtn(){
   kb.title = t('eng.karaokeMode');
   kb.disabled = isKaraokeBlocked(tk);
 }
-async function separate(mode) {
-  const tk = S.tracks[S.idx];
+async function separate(mode, idx) {
+  const tIdx = (typeof idx === 'number' && S.tracks[idx]) ? idx : S.idx, tk = S.tracks[tIdx];
   if (!tk || (!tk.file && !tk.url && !tk.path)) { showSep(t('eng.pickFirst'), 3000); return; }
   if (!S.karaokeJobId && isKaraokeBlocked(tk)) { showSep(t('eng.karaokeFromDl'), 3000); syncKaraokeBtn(); return; }
+  if (tk.karaoke_path && tIdx !== S.idx) { S.karaokeOn = true; await (await import('./player.js')).load(tIdx, true); return; }
   delete audio.dataset.previewCap;
   delete audio.dataset.previewNotified;
   if (tk.karaoke_path) {
@@ -383,7 +387,7 @@ async function separate(mode) {
     tk.karaoke_job = false;
     try { renderTracks($('#globalSearch')?.value || ''); } catch {}
     syncKaraokeBtn();
-    showSep(t('eng.karaokeCancelled'), 2500);
+    showSep(t('eng.karaokeCancelled'), 5000);
     return;
   }
   const online = await engineHealth();
@@ -564,16 +568,17 @@ const caps0 = await karaokeCaps().catch(() => null);
       try { syncKaraokeBtn(); } catch {}
       return;
     }
-    const outUrl = URL.createObjectURL(outBlob);
-    const wasPlaying2 = !audio.paused;
-    const pos2 = audio.currentTime;
-    let fallbackOrig = null;
-    try { fallbackOrig = convertFileSrc(tk.path); } catch {}
-    audio.dataset.karaoke = 'true';
-    audio.dataset.mode = mode;
-    S.karaokeOn = mode === 'karaoke';
-    syncKaraokeBtn();
-    await switchKaraokeAudio(outUrl, { pos: pos2, wasPlaying: wasPlaying2, fallbackUrl: fallbackOrig });
+    if (tIdx === S.idx) { const outUrl = URL.createObjectURL(outBlob);  // job baris lain tidak merampas playback
+      const wasPlaying2 = !audio.paused;
+      const pos2 = audio.currentTime;
+      let fallbackOrig = null;
+      try { fallbackOrig = convertFileSrc(tk.path); } catch {}
+      audio.dataset.karaoke = 'true';
+      audio.dataset.mode = mode;
+      S.karaokeOn = mode === 'karaoke';
+      syncKaraokeBtn();
+      await switchKaraokeAudio(outUrl, { pos: pos2, wasPlaying: wasPlaying2, fallbackUrl: fallbackOrig });
+    }
     tk.karaoke_job = false;
     try { renderTracks($('#globalSearch')?.value || ''); } catch {}
     showSep(t('eng.karaokeDone'), 2500);
@@ -588,7 +593,7 @@ const caps0 = await karaokeCaps().catch(() => null);
   }
   return;
 }
-$('#btnKaraoke').onclick = (e) => { if (e) e.preventDefault(); separate('karaoke'); };
+$('#btnKaraoke').onclick = (e) => { if (e) e.preventDefault(); separate('karaoke').catch((err) => { try { showSep(String((err && err.message) || t('eng.separationFailed')), 8000); } catch {} }); };
 
 
 export { sepStatus, SRC_CAP, SRC_LABEL, showAudioNotice, ENG_BASE, engineHealth, engineInfo, engineGet, karaokeCaps, cudaDeviceLabel, refreshCudaStatus, karaokeUploadName, parseEngineError, KARAOKE_STAGE_LABELS, updateKaraokeBadge, rerenderTrackViews, fadeAudioVolume, switchKaraokeAudio, isKaraokeBlocked, syncKaraokeBtn, separate };

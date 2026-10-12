@@ -44,6 +44,17 @@
       </div>
     </div>
 
+    <div class="runtime-banner" id="vcBanner" style="display:none">
+      <div class="runtime-banner-body">
+        <strong class="runtime-banner-title" id="vcBannerTitle" data-t="vc.missing">VC Redist belum terpasang</strong>
+        <span class="runtime-banner-desc" id="vcDesc" data-t="vc.missingDesc">Mesin audio butuh Microsoft Visual C++ Redistributable. Pasang sekali ini (resmi Microsoft, ikut dalam installer).</span>
+      </div>
+      <div class="runtime-banner-actions">
+        <button class="btn-add-folder" id="vcDismissBtn" type="button" data-t="vc.later">Nanti dulu</button>
+        <button class="btn-add-folder" id="vcInstallBtn" type="button" data-t="vc.install">Pasang VC Redist</button>
+      </div>
+    </div>
+
     <div class="layout">
       <aside class="sidebar">
         <nav class="nav">
@@ -450,6 +461,7 @@
               <div class="settings-row" style="align-items:center">
                 <span id="cudaConnDot" style="width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none"></span>
                 <div id="karaokeCudaStatus" class="settings-desc" data-t="set.cuDA" style="flex:1">CUDA: checking…</div>
+                <button id="karaokeRetryBtn" class="btn-add-folder" type="button" data-t="eng.retryEngine" style="display:none;flex:none">Coba lagi</button>
               </div>
               <div id="deviceCudaHint" class="settings-desc" data-t="set.deviceCudaHintChecking" style="margin-top:6px"></div>
               <div id="cudaSetupBox" style="margin-top:8px;display:none">

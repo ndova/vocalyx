@@ -47,13 +47,13 @@ router = APIRouter()
 
 
 def _resolve_script(base: Path, stem: str) -> Path:
-    """Cari sub-script `stem` di `base`, untuk mode dev (.py) dan rilis (.pyc).
+    """Cari sub-script `stem` di `base`: dev (.py), rilis vault (.pyv), legacy (.pyc).
 
-    Rilis memakai bytecode: `build_runtime.py` mengompilasi staging ke `.pyc` dan
-    membuang source-nya, jadi kedua nama harus tetap dikenali. `.py` dicari lebih
-    dulu supaya pesan log pada akhirnya masih menunjuk nama yang diharapkan.
+    Rilis memakai vault: logika dibungkus `.pyv` yang dibuka di memori oleh
+    loader (lihat _run_script). `.py` dicari lebih dulu supaya pesan log pada
+    akhirnya masih menunjuk nama yang diharapkan.
     """
-    for ext in (".py", ".pyc"):
+    for ext in (".py", ".pyv", ".pyc"):
         p = base / f"{stem}{ext}"
         if p.is_file():
             return p
@@ -263,6 +263,12 @@ def _worker(job_id: str, raw: bytes, suffix: str, mode: str, quality: str,
                 candidate, info = _run_script(job_id, script, args, log_path)
                 with _JOBS_LOCK:
                     if _JOBS.get(job_id, {}).get("cancel_requested"):
+                        try:
+                            shutil.copy(log_path, job_log)
+                            if job_id in _JOBS:
+                                _JOBS[job_id]["log"] = str(job_log)
+                        except Exception:
+                            pass
                         _JOBS[job_id].update(status="cancelled", stage="cancelled")
                         return
                 if candidate and candidate.exists():
@@ -283,6 +289,12 @@ def _worker(job_id: str, raw: bytes, suffix: str, mode: str, quality: str,
                     wav_inst = post
                 with _JOBS_LOCK:
                     if _JOBS.get(job_id, {}).get("cancel_requested"):
+                        try:
+                            shutil.copy(log_path, job_log)
+                            if job_id in _JOBS:
+                                _JOBS[job_id]["log"] = str(job_log)
+                        except Exception:
+                            pass
                         _JOBS[job_id].update(status="cancelled", stage="cancelled")
                         return
 
@@ -294,7 +306,7 @@ def _worker(job_id: str, raw: bytes, suffix: str, mode: str, quality: str,
                 with _JOBS_LOCK:
                     det = (_JOBS.get(job_id, {}) or {}).get("script_error", "")
                     if "No module named 'audio_separator'" in det:
-                        msg = _karaoke_missing_deps_message()
+                        msg = _karaoke_missing_deps_message(device)
                     else:
                         msg = ("Pemisahan karaoke gagal untuk "
                                f"quality='{quality}' (device={device}). "
@@ -413,7 +425,8 @@ async def separate(
                          "error": "", "result": "", "proc": None, "log": "",
                          "cancel_requested": False, "cache_key": key,
                          "script_error": "", "device": dev,
-                         "mode": mode, "format": target_format, "at": time.time()}
+                         "mode": mode, "format": target_format, "at": time.time(),
+                         "span": [], "interp": "", "it_s": ""}
     th = threading.Thread(target=_worker,
                           args=(job_id, raw, suffix, mode, quality, dev, target_format,
                                 out_path, tp_clean or None, vk, ck, ml, cl),
@@ -433,7 +446,8 @@ def separate_progress(job_id: str = ""):
                 "stage": job.get("stage", ""), "error": job.get("error", ""),
                 "mode": job.get("mode", ""), "format": job.get("format", ""),
                 "device": job.get("device", ""),
-                "at": job.get("at", 0), "device_info": job.get("device_info", {})}
+                "at": job.get("at", 0), "device_info": job.get("device_info", {}),
+                "interp": job.get("interp", ""), "it_s": job.get("it_s", "")}
 
 
 @router.get("/separate/log")

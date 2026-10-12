@@ -72,14 +72,23 @@ fn port_listening() -> bool {
 /// Restart engine dengan pilihan device baru. Dipakai saat user mengganti
 /// Device / Python CUDA di Settings: interpreter yang hidup harus diganti,
 /// karena `torch.cuda` ditentukan saat proses Python start.
+///
+/// Selalu dilanjutkan sampai spawn — termasuk bila port dipegang engine
+/// eksternal yang sehat (mis. dari `npm run engine` / `dev:all`): ia diambil
+/// alih (taskkill) lalu diganti child milik instance ini. Ini AMAN karena
+/// `dev:all`/`dev:web` sengaja TANPA flag `-k` (lihat package.json): matinya
+/// engine eksternal tidak merambat mematikan tauri dev, dan penggantinya
+/// langsung di-spawn di bawah. JANGAN kembalikan `-k` tanpa mengubah fungsi
+/// ini jadi menolak (pernah dicoba: tiap ganti device malah membunuh
+/// aplikasi via concurrently).
 pub fn restart(app: &AppHandle) {
-    if let Some(state) = app.try_state::<Engine>() {
-        let child = { state.0.lock().ok().and_then(|mut g| g.take()) };
-        if let Some(mut child) = child {
-            log_line!("restart: stop engine (pid {})", child.id());
-            let _ = child.kill();
-            let _ = child.wait();
-        }
+    let owned = app
+        .try_state::<Engine>()
+        .and_then(|state| state.0.lock().ok().and_then(|mut g| g.take()));
+    if let Some(mut child) = owned {
+        log_line!("restart: stop engine (pid {})", child.id());
+        let _ = child.kill();
+        let _ = child.wait();
     }
     wait_port_free(6000);
     take_over_stale_engine();
@@ -94,6 +103,9 @@ pub fn restart(app: &AppHandle) {
 ///
 /// Dua sumbernya: instance VocaLyx sebelumnya yang mati sebelum menutup engine,
 /// dan spawn ganda yang hanya menyimpan child terakhir di state `Engine`.
+/// Termasuk engine eksternal yang sehat (mis. dari `npm run engine`): saat
+/// `restart()` ia memang harus diganti child ber-device baru, dan itu aman
+/// karena concurrently berjalan tanpa `-k` (lihat dok `restart()`).
 /// Karena itu port yang dijawab engine VocaLyx (`engine_alive()` sudah memastikan
 /// jawabannya `/health` milik kita) aman diambil alih.
 fn take_over_stale_engine() {
@@ -183,14 +195,34 @@ pub fn start(app: &AppHandle) {
         }
     }
 
-    let Some(script) = find_engine_script(app) else {
-        log_line!("GAGAL: python-engine/server.pyc tidak ditemukan");
-        return;
+    let script = match find_engine_script(app) {
+        Some(s) => s,
+        None => {
+            log_line!("GAGAL: python-engine/server.pyc tidak ditemukan");
+            return;
+        }
     };
     let Some(py) = find_python(Some(app)) else {
         log_line!("GAGAL: interpreter python tidak ditemukan (set VOCALYX_PYTHON untuk manual)");
         return;
     };
+
+    // `server.pyc` mengimpor `vx_vault` (loader untuk bytecode terenkripsi)
+    // pada baris pertamanya. Kalau `vx_vault.pyc` tidak ikut ter-stage di
+    // sebelahnya - mis. folder engine hasil build lama - engine langsung mati
+    // dengan `ModuleNotFoundError: No module named 'vx_vault'`, port 8001 tidak
+    // pernah listen, lalu Connect / Verify / Test gagal fetch dan UI hanya
+    // menampilkan error generik. Cek di sini supaya ENGINE.log menyebut
+    // penyebabnya, bukan Diam saja selama 30 detik.
+    if let Some(dir) = script.parent() {
+        if !dir.join("vx_vault.pyc").is_file() {
+            log_line!(
+                "PERINGATAN: {} tidak punya vx_vault.pyc - engine akan gagal start \
+                 (rebuild: python scripts/build_runtime.py --staging-only)",
+                dir.display()
+            );
+        }
+    }
 
     let cwd = project_root(&script);
     log_line!("start engine: {} -u {} (cwd {})", py, script.display(), cwd.display());
@@ -1100,6 +1132,20 @@ pub fn write_log(args: std::fmt::Arguments<'_>) {
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
+pub async fn restart_engine(app: AppHandle) -> Result<bool, String> {
+    // Restart ringan tanpa mengubah device: dipakai tombol "Coba lagi" saat
+    // engine offline. Async + spawn_blocking supaya tidak membekukan UI
+    // (restart menunggu port bebas + engine listen).
+    tauri::async_runtime::spawn_blocking(move || {
+        log_line!("restart engine manual dari UI");
+        restart(&app);
+        Ok(true)
+    })
+    .await
+    .map_err(|e| format!("gagal menjalankan perintah: {e}"))?
+}
+
+#[tauri::command]
 pub fn detect_pythons() -> Vec<gpu::PythonInfo> {
     gpu::detect_cached(false)
 }
@@ -1127,6 +1173,29 @@ pub fn gpu_probe_cached(max_age_secs: Option<u64>) -> Option<gpu::ProbeSummary> 
 #[tauri::command]
 pub fn get_engine_config(app: AppHandle) -> EngineConfig {
     EngineChoice::snapshot(&app).unwrap_or_else(default_config)
+}
+
+/// Token auth engine, dibaca dari lokasi yang SAMA dengan yang ditulis engine.
+///
+/// Dulu frontend membacanya sendiri lewat `appDataDir()` dari `@tauri-apps/api`,
+/// yang memakai `identifier` (`com.vocalyx.app`), sementara engine menulis ke
+/// `%APPDATA%\VocaLyx\engine-token` (lihat `runtime::app_data_dir`). Dua path
+/// berbeda, `readTextFile` gagal, `catch` di `engine-auth.js` menelan error jadi
+/// `null`, header `X-VX-Token` tidak pernah terkirim, dan semua endpoint selain
+/// `/health` + `/peaks` membalas 401.
+///
+/// Rust sudah tahu path-nya sendiri, jadi frontend tidak perlu menebak dan
+/// `fs:scope` tidak perlu dilebarkan hanya demi satu file ini.
+#[tauri::command]
+pub fn engine_token() -> Option<String> {
+    let p = crate::runtime::app_data_dir().join("engine-token");
+    let raw = fs::read_to_string(p).ok()?;
+    let t = raw.trim();
+    if t.is_empty() {
+        None
+    } else {
+        Some(t.to_string())
+    }
 }
 
 /// Ganti device / Python CUDA lalu restart engine.

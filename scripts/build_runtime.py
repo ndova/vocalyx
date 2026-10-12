@@ -222,7 +222,7 @@ def engine_python(dry: bool = False) -> Path | None:
 
 
 def compile_engine_stage(py: Path, dry: bool = False) -> int:
-    """Kompilasi staging ke `.pyc` lalu buang source `.py`.
+    """Kompilasi staging ke `.pyc` hardened lalu buang source `.py`.
 
     `compileall -b` menaruh `.pyc` di samping `.py` (bukan `__pycache__/`),
     yang memang yang dibutuhkan engine: `vx_separate.py` mencari
@@ -230,31 +230,34 @@ def compile_engine_stage(py: Path, dry: bool = False) -> int:
     sub-script via `subprocess.Popen([sys.executable, "-u", str(script)])`, jadi
     bytecode harus punya nama `.pyc` yang bisa dipanggil sebagai file.
 
-    Struktur folder sengaja dipertahankan (bukan zipapp): di dalam zipapp
-    `__file__` menunjuk ke file archive, bukan folder, sehingga `.exists()` dan
-    spawn sub-script semuanya pecah.
+    Hardening + vault (lihat `scripts/harden_engine_stage.py`, dijalankan via
+    interpreter runtime 3.11 yang sama agar magic number cocok): strip
+    docstring modul/kelas/fungsi via AST + samarkan `co_filename` jadi path
+    relatif + enkripsi modul sensitif (`vx_download`, `vx_search`) jadi `.pyv`
+    yang dibuka di memori oleh `vx_vault`. `assert` dipertahankan.
+    Struktur folder sengaja dipertahankan (bukan zipapp).
     """
     if dry:
-        log("[dry-run] kompilasi staging -> .pyc dan hapus source")
+        log("[dry-run] hardening+vault staging")
         return 0
-    log(f"kompilasi staging dengan {py}")
+    log(f"hardening+vault staging dengan {py}")
     proc = subprocess.run(
-        [str(py), "-m", "compileall", "-q", "-b", str(STAGE_ENGINE)],
+        [str(py), str(ROOT / "scripts" / "harden_engine_stage.py"),
+         str(STAGE_ENGINE)],
         capture_output=True, text=True,
     )
-    # compileall keluar non-nol kalau ada file yang gagal dikompilasi, tapi
-    # `-q` tidak mencetak detail ke stdout; stderr tetap membawa alasannya.
+    # Helper sudah mengunci loader + hardening + vault + trial impor.
+    # Di sini tinggal teruskan log-nya dan hitung hasilnya.
+    if proc.stdout.strip():
+        for ln in proc.stdout.strip().splitlines():
+            log(f"  stage: {ln}")
     if proc.stderr.strip():
         for ln in proc.stderr.strip().splitlines():
-            log(f"  compileall: {ln}")
-    removed = 0
-    for src in sorted(STAGE_ENGINE.rglob("*.py")):
-        pyc = src.with_suffix(".pyc")
-        if not pyc.is_file():
-            log(f"GAGAL: {src.name} gagal dikompilasi (tidak ada .pyc) - source dibiarkan")
-            continue
-        src.unlink()
-        removed += 1
+            log(f"  stage: {ln}")
+    if proc.returncode != 0:
+        log("GAGAL: hardening+vault staging gagal (lihat di atas)")
+        return 0
+    removed = sum(1 for _ in STAGE_ENGINE.rglob("*.pyc") if _.is_file())
     # `__pycache__` tidak dipakai dengan -b, tapi bersihkan kalau ada sisa.
     for cache in sorted(STAGE_ENGINE.rglob("__pycache__"), reverse=True):
         shutil.rmtree(cache, ignore_errors=True)

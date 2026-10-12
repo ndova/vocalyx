@@ -215,9 +215,13 @@ def _extract(installer: Path, tmp: Path) -> bool:
     """
     if installer.suffix.lower() == ".msi":
         tmp.mkdir(parents=True, exist_ok=True)
-        r = subprocess.run(
-            ["msiexec", "/a", str(installer), "/qb", f"TARGETDIR={tmp}", "/l*v", str(tmp / "msi.log")],
-            capture_output=True, text=True, timeout=1800)
+        # HARUS satu string via shell: msiexec menolak argv list hasil
+        # list2cmdline Python (1639 invalid command line), tapi menerima
+        # string perintah yang sama persis.
+        cmd = (f'msiexec /a "{installer}" /qb TARGETDIR="{tmp}" '
+               f'/l*v "{tmp / "msi.log"}"')
+        r = subprocess.run(cmd, capture_output=True, text=True,
+                           timeout=1800, shell=True)
         # msiexec sering balik non-nol meski sukses; yangdicek hasil kerjanya.
         exe = tmp / "vocalyx.exe"
         if not exe.is_file():
@@ -259,6 +263,22 @@ def audit_installer(installer: Path, tmp: Path) -> int:
         ok("frontend tidak bocor sebagai string mentah",
            "lyrOffsetWrap" not in raw and "vocalyx_downloadOptions" not in raw)
 
+    # Prasyarat MSVC runtime untuk engine (torch/onnxruntime).
+    # `bundle.resources` memetakan SELURUH folder `assets` ke `assets`, jadi
+    # file rilis duduk di `assets/vcredist/vc_redist.x64.exe` - dan Rust mencari
+    # path itu persis (lihat VC_RESOURCE di src-tauri/src/runtime.rs). Kalau
+    # layout ini berubah tanpa Updating Rust, auto-install kembali gagal
+    # diam-diam: ini bug yang pernah terjadi, jadi jalurnya ikut diawasi.
+    vc_exes = [p for p in tmp.rglob("vc_redist.x64.exe") if p.is_file()]
+    ok("installer membawa VC Redistributable", bool(vc_exes),
+       ", ".join(p.relative_to(tmp).as_posix() for p in vc_exes) or "tidak ditemukan")
+    if vc_exes:
+        ok("layout VC Redist sesuai yang dicari Rust (assets/vcredist)",
+           all("assets/vcredist" in p.relative_to(tmp).as_posix() for p in vc_exes),
+           ", ".join(p.relative_to(tmp).as_posix() for p in vc_exes))
+        ok("VC Redist x64 utuh (±25 MB)", vc_exes[0].stat().st_size > 10_000_000,
+           f"{vc_exes[0].stat().st_size / 1e6:.1f} MB")
+
     # NSIS menaruh payload di root folder ekstrak; MSI memakai
     # PFiles/VocaLyx/. Cari foldernya, jangan andalkan path tetap.
     eng_dirs = [p for p in tmp.rglob("python-engine") if p.is_dir()]
@@ -269,10 +289,36 @@ def audit_installer(installer: Path, tmp: Path) -> int:
     pyc_files = list(eng.rglob("*.pyc")) if eng else []
     ok("tidak ada .py engine", not py_files,
        f"{[p.name for p in py_files]}" if py_files else "")
-    ok("ada .pyc engine", len(pyc_files) >= 15, f"{len(pyc_files)} file")
+    ok("entry+loader clear (server, vx_vault)", bool(eng) and all(
+        (eng / f"{s}.pyc").is_file() for s in ("server", "vx_vault")))
     ok("requirements-cuda.txt ikut", bool(eng and (eng / "requirements-cuda.txt").is_file()))
-    ok("karaoke_best.pyc ikut",
-       bool(eng and (eng / "scripts" / "karaoke_best.pyc").is_file()))
+    ok("karaoke_best.pyv ikut",
+       bool(eng and (eng / "scripts" / "karaoke_best.pyv").is_file()))
+    # Vault engine (lihat python-engine/vx_vault.py): semua modul proprietary
+    # dikirim sebagai .pyv terenkripsi; hanya server+loader yang clear .pyc.
+    eng_vault = [p for p in (eng.rglob("*.pyv") if eng else [])]
+    ok("vault engine ikut", len(eng_vault) >= 10, f"{len(eng_vault)} file")
+    if eng is not None:
+        stray = sorted(p.relative_to(eng).as_posix() for p in eng.rglob("*.pyc")
+                       if p.stem not in ("server", "vx_vault"))
+        ok("tidak ada .pyc proprietary sisa", not stray,
+           f"bocor: {stray[:5]}" if stray else "")
+        bad_vault = [p.name for p in eng_vault
+                     if p.read_bytes()[:8] != b"VXVAULT1"]
+        ok("vault engine berformat valid", not bad_vault,
+           f"rusak: {bad_vault}" if bad_vault else "")
+    if pyc_files:
+        path_leaks = [p for p in pyc_files
+                      if b"D:\\Folder Baru" in p.read_bytes()
+                      or b"D:/Folder Baru" in p.read_bytes()
+                      or b"vocalyx\\build" in p.read_bytes()
+                      or b"vocalyx/build" in p.read_bytes()]
+        ok("engine .pyc bebas path absolut builder", not path_leaks,
+           f"bocor: {[p.name for p in path_leaks][:5]}" if path_leaks else "")
+        doc_leaks = [p for p in pyc_files if p.stem != "server"
+                     and b"VocaLyx Python engine: FastAPI" in p.read_bytes()]
+        ok("engine .pyc bebas docstring modul", not doc_leaks,
+           f"bocor: {[p.name for p in doc_leaks][:5]}" if doc_leaks else "")
 
     # Paket premium (librespot/deemix) ikut terbundel sebagai bytecode.
     # Tanpa ini, Test Login / Connect Spotify & ARL Deezer gagal di mesin
@@ -284,17 +330,46 @@ def audit_installer(installer: Path, tmp: Path) -> int:
         ppy = [p for p in prem.rglob("*.py")]
         ok("premium bebas .py", not ppy,
            f"bocor: {[str(p.relative_to(prem)) for p in ppy][:5]}" if ppy else "")
-        for svc, glues in (("spotify", ("spotify_premium_download.pyc", "spotify_premium_auth.pyc")),
-                           ("deezer", ("deezer_download.pyc", "deezer_arl_test.pyc"))):
+        for svc, glues in (("spotify", ("spotify_premium_download", "spotify_premium_auth")),
+                           ("deezer", ("deezer_download", "deezer_arl_test"))):
             d = prem / svc
             ok(f"paket {svc} ada", d.is_dir(), str(d))
-            for g in glues:
-                ok(f"glue {svc}/{g} ikut", bool(d and (d / g).is_file()))
+            for stem in glues:
+                vok = bool(d and (d / f"{stem}.pyv").is_file())
+                ok(f"vault {svc}/{stem}.pyv ikut", vok)
+                if vok and (d / f"{stem}.pyv").read_bytes()[:8] != b"VXVAULT1":
+                    ok(f"vault {svc}/{stem}.pyv valid", False, "magic salah")
+                if d and (d / f"{stem}.pyc").is_file():
+                    ok(f"plaintext {svc}/{stem}.pyc terbuang", False, "masih ada")
+            ok(f"loader {svc}/vx_vault.pyc ikut",
+               bool(d and (d / "vx_vault.pyc").is_file()))
         ok("librespot ikut (backend Spotify)",
            (prem / "spotify" / "librespot").is_dir())
         ok("deemix+deezer ikut (backend Deezer)",
            (prem / "deezer" / "deemix").is_dir() and (prem / "deezer" / "deezer").is_dir())
         ok("manifest premium ikut", (prem / "manifest.json").is_file())
+        # Vault harus opak: docstring glue tak boleh terbaca mentah.
+        glue_doc = {
+            "spotify/spotify_premium_auth.pyv":
+                b"Otorisasi Spotify Premium sekali-pakai",
+            "spotify/spotify_premium_download.pyv":
+                b"librespot, venv terisolasi",
+            "deezer/deezer_arl_test.pyv":
+                b"Test login ARL Deezer",
+            "deezer/deezer_download.pyv":
+                b"kualitas TERBAIK yang diizinkan akun",
+        }
+        for rel, marker in glue_doc.items():
+            gp = prem / Path(rel)
+            if gp.is_file():
+                ok(f"vault {rel} opak", marker not in gp.read_bytes())
+        if eng is not None:
+            for stem, proto in (("vx_download", b"_premium_backend"),
+                                ("vx_search", b"_ytsearch_url")):
+                eng_v = eng / f"{stem}.pyv"
+                if eng_v.is_file() and proto in eng_v.read_bytes():
+                    ok(f"vault engine {stem}.pyv opak", False,
+                       "simbol protokol terbaca mentah")
 
     for z in tmp.rglob("*.zip"):
         with zipfile.ZipFile(z) as zf:
@@ -337,15 +412,18 @@ def main() -> int:
     args = ap.parse_args()
 
     did = False
+    rc = 0
     if args.exe:
         did = True
-        audit_exe(args.exe)
+        rc |= audit_exe(args.exe)
     if args.release_dir:
         did = True
-        audit_release_dir(args.release_dir)
+        rc |= audit_release_dir(args.release_dir)
     if args.installer:
         did = True
-        audit_installer(args.installer, args.tmp or (ROOT / ".audit-tmp"))
+        # Ekstrak gagal (mis. msiexec non-nol) TIDAK boleh lolos sebagai OK:
+        # audit_installer mengembalikan non-nol bila tak ada yang diperiksa.
+        rc |= audit_installer(args.installer, args.tmp or (ROOT / ".audit-tmp"))
     if not did:
         ap.print_help()
         return 2
@@ -355,6 +433,9 @@ def main() -> int:
         print(f"{len(fails)} GAGAL:")
         for f in fails:
             print(f"  - {f}")
+        return 1
+    if rc:
+        print(f"GAGAL: audit tak lengkap (rc={rc})")
         return 1
     print("SEMUA OK")
     return 0

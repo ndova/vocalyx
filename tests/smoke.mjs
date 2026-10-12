@@ -425,8 +425,14 @@ ok(Object.keys(i18nId).length > 100, `i18n: kamus ID punya entri (dapat ${Object
       const trimmed = line.trim();
       if (!trimmed || ID_ALLOW.some((re) => re.test(trimmed) || re.test(line))) return;
       if (/^\s*(?:\/\/|\/\*|\*)/.test(line)) return;
+      // Komentar trailing `//` setelah kode juga prosa developer, bukan teks UI.
+      // Guard ini sudah melewatkan komentar baris penuh; tanpa pemotongan ini
+      // konvensi komentar trailing repo justru dilaporkan sebagai teks keras.
+      // `://` (URL) tidak dipotong.
+      const cut = line.indexOf('//');
+      const codeLine = (cut > 0 && line[cut - 1] !== ':') ? line.slice(0, cut) : line;
       // string literal / template literal yang memuat kata ID, di luar panggilan t()
-      const lits = [...line.matchAll(/'([^'\\]{4,})'|`([^`\\]{4,})`/g)];
+      const lits = [...codeLine.matchAll(/'([^'\\]{4,})'|`([^`\\]{4,})`/g)];
       for (const m of lits) {
         const lit = m[1] || m[2];
         if (!ID_WORDS.test(lit)) continue;
@@ -540,17 +546,22 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
     const staged = fs.readdirSync(stagePath);
     // Staging berisi BYTECODE, bukan source: `build_runtime.py` mengompilasi
     // lalu membuang `.py` supaya installer tidak memuat source Python plaintext.
-    ok(staged.includes('server.pyc') && staged.includes('vx_karaoke_dsp.pyc') && staged.includes('win_nowindow.pyc'),
-      `bundler: staging engine berisi entry+modul bytecode (${staged.length} file)`);
+    ok(staged.includes('server.pyc') && staged.includes('vx_vault.pyc') && staged.includes('vx_karaoke_dsp.pyv'),
+      `bundler: staging engine berisi entry+loader+vault (${staged.length} file)`);
     ok(!staged.some((f) => ['__pycache__', '.pytest_cache', 'tests', 'cig.dll', '.gain-cache.json'].includes(f)),
       'bundler: staging engine bebas junk dev');
     ok(!staged.some((f) => f.endsWith('.py')), 'bundler: staging engine bebas source .py plaintext');
-    ok(fs.existsSync(path.join(stagePath, 'scripts/karaoke_best.pyc')), 'bundler: karaoke_best.pyc ikut di staging');
-    // Nama fungsi tetap ada di bytecode sebagai konstanta code object, jadi
-    // kesegaran staging masih bisa dicek tanpa membuka source.
-    const dlPyc = path.join(stagePath, 'vx_download.pyc');
-    ok(fs.existsSync(dlPyc)
-      && fs.readFileSync(dlPyc).includes(Buffer.from('_yt_dlp_cmd', 'latin1')),
+    ok(fs.existsSync(path.join(stagePath, 'scripts/karaoke_best.pyv')), 'bundler: karaoke_best.pyv ikut di staging');
+    // Modul sensitif (vx_download) dikirim sebagai vault terenkripsi (.pyv),
+    // jadi kesegaran staging dicek via server.pyc yang wajib tetap clear
+    // (penanda protokol premium_backend untuk deteksi engine yatim).
+    const dlVault = path.join(stagePath, 'vx_download.pyv');
+    ok(fs.existsSync(dlVault)
+      && fs.readFileSync(dlVault).subarray(0, 8).toString('latin1') === 'VXVAULT1',
+    'bundler: vx_download dikirim sebagai vault (.pyv)');
+    const srvPyc = path.join(stagePath, 'server.pyc');
+    ok(fs.existsSync(srvPyc)
+      && fs.readFileSync(srvPyc).includes(Buffer.from('premium_backend', 'latin1')),
     'bundler: staging pakai source terbaru (bukan file lama)');
   } else {
     ok(true, 'bundler: staging belum dibuat (jalankan build_runtime.py --staging-only)');
@@ -1191,11 +1202,11 @@ try {
   ok(!pySepMain.includes('attempts.append((ENSEMBLE_SCRIPT,'), 'py: ensemble 2-model tidak lagi dipakai (2x lambat + max-spec tahan bleed)');
   ok(pySepBest.includes('allow_download=True'), 'py: model Best auto-unduh bila belum ada');
   ok(pySepMain.includes('_run_dsp(job_id, wav_inst, wav_voc') && pySepMain.includes('DSP_SCRIPT = _resolve_script(ENGINE_DIR, "vx_karaoke_dsp")'), 'py: karaoke lewat tahap post-processing');
-  // Rilis mengirim bytecode, jadi sub-script harus ditemukan baik sebagai `.py`
-  // (dev) maupun `.pyc` (rilis). Kalau hanya salah satu, DSP/preset Best diam-diam
-  // dilewati karena `.exists()` False.
-  ok(/def _resolve_script\(/.test(pySepMain) && /for ext in \("\.py", "\.pyc"\)/.test(pySepMain),
-    'py: sub-script karaoke dikenali di mode .py maupun .pyc');
+  // Rilis mengirim vault, jadi sub-script harus ditemukan sebagai `.py`
+  // (dev), `.pyv` (rilis vault) maupun `.pyc` (legacy). Kalau tidak ada yang
+  // cocok, DSP/preset Best diam-diam dilewati karena `.exists()` False.
+  ok(/def _resolve_script\(/.test(pySepMain) && /for ext in \("\.py", "\.pyv", "\.pyc"\)/.test(pySepMain),
+    'py: sub-script karaoke dikenali di mode .py/.pyv/.pyc');
   // Interpreter child karaoke: di dev system Python bisa tanpa audio_separator.
   // Resolver urut build/runtime -> APPDATA runtime -> sys.executable (rilis nol-ubah).
   const iB = pySepRun.indexOf('"build" / "runtime" / "python.exe"');
@@ -1209,10 +1220,14 @@ try {
     'py: _run_script spawn lewat resolver, bukan sys.executable langsung');
   ok(pySepRun.includes('import audio_separator, torch, onnxruntime'),
     'py: probe menuntut audio_separator + torch + onnxruntime sekaligus');
-  ok(pySepRun.includes('def _karaoke_missing_deps_message()') && pySepRun.includes('_JOBS[job_id]["script_error"] = _karaoke_missing_deps_message()'),
+  // Panggilan boleh membawa argumen device: pesan panduan untuk CPU vs CUDA
+  // berbeda, jadi `_karaoke_missing_deps_message(device)` lebih benar dari
+  // versi tanpa argumen. Pola di bawah menerima kedua bentuk.
+  ok(/def _karaoke_missing_deps_message\(/.test(pySepRun)
+    && /_JOBS\[job_id\]\["script_error"\] = _karaoke_missing_deps_message\(/.test(pySepRun),
     'py: preflight gagal-deps langsung isi script_error panduan actionable');
   ok(pySepMain.includes("No module named 'audio_separator'")
-    && pySepMain.includes('_karaoke_missing_deps_message()'),
+    && /_karaoke_missing_deps_message\(/.test(pySepMain),
     'py: pesan akhir gagal karena deps hilang diganti panduan (bukan "semua model gagal")');
   const pySep = fs.readFileSync(path.join(root, 'python-engine/vx_karaoke_sep.py'), 'utf8');
   const pyDsp = fs.readFileSync(path.join(root, 'python-engine/vx_karaoke_dsp.py'), 'utf8');
@@ -1465,18 +1480,32 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
 
     ok(/pub fn apple_driver_status\(\)/.test(rtRs) && /27015/.test(rtRs),
       '4: Rust apple_driver_status() mengecek port usbmux 27015');
+    ok(/fn ensure_vc_runtime\(/.test(rtRs) && /vc_redist/.test(rtRs),
+      'rel: Rust memasang VC Redist terbundel bila MSVC runtime hilang');
+    // Deteksi harus menghitung DLL yang benar-benar di-import torch. Semula
+    // hanya tiga DLL lama dicek, sehingga Pc dengan MSVC runtime tak lengkap
+    // (vcruntime140_threads.dll hilang) lolos sebagai "sehat" walau registry
+    // melaporkan Redistributable terpasang - dan `import torch` tetap gagal.
+    ok(/vcruntime140_threads\.dll/.test(rtRs)
+      && /const VC_DLLS: \[&str; 4\]/.test(rtRs),
+    'rel: deteksi MSVC mencakup vcruntime140_threads.dll (import statis torch_cpu)');
+    ok(/runtime::vc_runtime_status/.test(libRs),
+      'rel: perintah vc_runtime_status terdaftar di lib.rs');
+    ok(fs.existsSync(path.join(root, 'assets/vcredist/vc_redist.x64.exe')),
+      'rel: installer VC Redist terbundel di assets/vcredist');
     ok(/AppleMobileDeviceService|Apple Mobile Device Support/i.test(rtRs),
       '4: Rust mengenali lokasi service Apple');
     ok(/runtime::apple_driver_status/.test(libRs),
       '4: perintah apple_driver_status terdaftar di lib.rs');
-    ok(!/msiexec|\.msi|start-process|Start-Process/i.test(rtRs),
-      '4: Rust tidak menjalankan installer msi apa pun');
+    const rtNoVc = rtRs.replace(/pub fn ensure_vc_runtime[\s\S]*?\n\}/, '');
+    ok(!/msiexec|\.msi|start-process|Start-Process/i.test(rtNoVc),
+      '4: Rust tidak menjalankan installer msi apa pun (di luar pemasang VC Redist resmi)');
 
     ok(/def usbmuxd_reachable\(/.test(pyIph), '4: Python punya usbmuxd_reachable()');
     ok(/27015/.test(pyIph), '4: Python mengecek port 27015');
     ok(/ERR_APPLE_DRIVER_MISSING/.test(pyIph), '4: Python mengembalikan ERR_APPLE_DRIVER_MISSING');
     ok(/@router\.get\("\/iphone\/driver"\)/.test(pyIph), '4: endpoint /iphone/driver tersedia');
-    ok(/if not await usbmuxd_reachable_async\(\):\s*\n\s*return _apple_driver_error\(\)/.test(pyIph),
+    ok(/if not await usbmuxd_reachable_async\(\):[\s\S]{0,200}?return _apple_driver_error\(\)/.test(pyIph),
       '4: /iphone/devices mengembalikan panduan driver saat service mati');
     ok(/async def usbmuxd_reachable_async\(/.test(pyIph)
       && /asyncio\.to_thread\(usbmuxd_reachable/.test(pyIph),
@@ -1753,8 +1782,11 @@ ok(/export async function ensureGpuPythonProbed\(\)/.test(
     ok(/function applyDeviceHint\(state, entries\)/.test(jsGpuQ)
       && /set\.deviceCudaHintNone/.test(jsGpuQ)
       && /set\.deviceCudaHintReady/.test(jsGpuQ)
-      && /set\.deviceCudaHintReadyCpu/.test(jsGpuQ),
+      && /set\.deviceCudaHintReadyCpu/.test(jsGpuQ)
+      && /set\.deviceCudaHintPending/.test(jsGpuQ),
       'label: hint CUDA menjelaskan kondisi PC dan device yang dipakai');
+    ok(/usingCuda && !S\._prevCudaActive/.test(jsGpuQ),
+      'label: hint Pending saat CUDA dipilih tapi engine masih CPU (bukan klaim otomatis)');
     ok(/const hit = \(entries \|\| \[\]\)\.find\(\(i\) => i && i\.cuda && i\.has_deps && i\.device\);/.test(jsGpuQ),
       'label: nama GPU diambil dari hasil deteksi');
     ok(/export function hasCudaInterpreter\(\)/.test(jsGpuQ) === false
@@ -2001,9 +2033,37 @@ ok(/export async function ensureGpuPythonProbed\(\)/.test(
   ok(['en', 'id', 'jv'].every((L) => fs.readFileSync(path.join(root, `src/js/i18n/${L}.js`), 'utf8').includes('set.presetFull')), 'UI: label presetFull ada di semua bahasa');
   ok(html.includes('id="cudaSetupBox"') && html.includes('id="cudaSetupBtn"') && html.includes('id="cudaSetupCancelBtn"') && html.includes('id="cudaSetupBar"'), 'UI: blok pasang CUDA satu klik ada di Settings');
   ok(['en', 'id', 'jv'].every((L) => { const s = fs.readFileSync(path.join(root, `src/js/i18n/${L}.js`), 'utf8'); return s.includes('set.cudaSetupInstall') && s.includes('set.cudaSetupStageTorch') && s.includes('set.cudaSetupFailed'); }), 'UI: label cudaSetup ada di semua bahasa');
+  ok(['en', 'id', 'jv'].every((L) => fs.readFileSync(path.join(root, `src/js/i18n/${L}.js`), 'utf8').includes('set.deviceCudaHintPending')), 'UI: hint Pending CUDA ada di semua bahasa');
+  const jsGpuUx = fs.readFileSync(path.join(root, 'src/js/gpu.js'), 'utf8');
+  ok(/async function maybeAutoSwitchToCuda\(\)/.test(jsGpuUx)
+    && /p\.stage === 'done'\) \{[\s\S]{0,420}maybeAutoSwitchToCuda\(\)/.test(jsGpuUx)
+    && /await maybeAutoSwitchToCuda\(\);/.test(jsGpuUx.match(/async function pollCudaSetupDone\(\)[\s\S]*?\n\}/)[0]),
+    'UI: selesai install langsung switch ke CUDA bila device-nya cuda (tanpa klik tambahan)');
+  ok(/S\._cudaAutoSwitchAt/.test(jsGpuUx) && /S\._prevCudaActive/.test(jsGpuUx.match(/async function maybeAutoSwitchToCuda\(\)[\s\S]*?\n\}/)[0])
+    && /registerCudaRefresh\(autoRefreshWithHint\)/.test(jsGpuUx)
+    && /applyDeviceHint\(cached \? 'ready' : 'checking', lastDetected\)/.test(jsGpuUx.match(/function autoRefreshWithHint[\s\S]*?\n\}/)[0]),
+    'UI: auto-switch hanya bila engine belum CUDA-aktif dan dibatasi sekali per 5 menit; hint ikut refresh');
   ok(src.includes('cuda-setup://progress') && src.includes('cuda_setup_start') && src.includes('cuda_setup_cancel'), 'UI: wiring event + command pasang CUDA ada');
   ok(src.includes('lastCudaProg') && src.includes('lastCudaEventAt'), 'UI: progres CUDA diingat (anti kedip hilang-muncul)');
   ok(src.includes('pulsing') && fs.readFileSync(path.join(root, 'src/styles.css'), 'utf8').includes('cudapulse'), 'UI: bar indeterminasi saat event sepi (tidak pernah hilang saat installing)');
+  // Progres unduhan CUDA jujur: byte asli dari meter pip (bukan cuma ukuran
+  // folder), label MB agar gerakan terlihat sejak awal, dan peringatan stall.
+  const rsCuda = fs.readFileSync(path.join(root, 'src-tauri/src/cuda_setup.rs'), 'utf8');
+  ok(/fn parse_pip_progress\(/.test(rsCuda) && !/"-q"/.test(rsCuda.match(/fn pip_args[\s\S]*?\n\}/)[0]),
+    'cuda: meter pip di-parse jadi byte (tanpa -q yang membungkamnya)');
+  ok(['en', 'id', 'jv'].every((L) => fs.readFileSync(path.join(root, `src/js/i18n/${L}.js`), 'utf8').includes('set.cudaSetupStalled')), 'UI: label stall CUDA ada di semua bahasa');
+  ok(/function fmtBytes\(/.test(jsGpuUx) && /1048576/.test(jsGpuUx) && !/function fmtGb\(/.test(jsGpuUx),
+    'UI: label progres CUDA adaptif MB/GB (bergerak sejak megabyte pertama)');
+  ok(/lastCudaGrowthAt/.test(jsGpuUx) && /cudaSetupStartAt/.test(jsGpuUx) && /180000/.test(jsGpuUx),
+    'UI: stall unduhan CUDA diperingatkan setelah 3 menit tanpa byte baru');
+  // Watchdog backend: koneksi mati suri dibunuh + diulang, bukan gantung selamanya.
+  ok(/fn stage_uses_network\(/.test(rsCuda) && /RunFail::Stalled/.test(rsCuda) && /STALL_MAX_ATTEMPTS/.test(rsCuda),
+    'cuda: watchdog stall membunuh child mati suri lalu retry otomatis');
+  // Wheel besar diambil lewat curl -4 ber-resume (tahan rute flaky), bukan
+  // single-connection pip; gagal fetch jatuh balik ke pip biasa.
+  ok(/fn pick_torch_wheel\(/.test(rsCuda) && /fn fetch_torch_wheel\(/.test(rsCuda)
+    && /"-4"/.test(rsCuda) && /"-C", "-"/.test(rsCuda) && /--extra-index-url/.test(rsCuda),
+    'cuda: wheel torch via curl IPv4 resume + install lokal, fallback pip');
   const cacheSrc = fs.readFileSync(path.join(root, 'python-engine/vx_sep_cache.py'), 'utf8');
   const convSrc = cacheSrc.slice(cacheSrc.indexOf('def _convert_wav_to_target('));
   ok(convSrc.includes('"-sample_fmt", "s16"') && convSrc.includes('pcm_s16le'), 'py: keluaran dipaksa 16-bit (flac & wav)');
@@ -2636,9 +2696,24 @@ try {
 try {
   const src = readSrc();
   ok(!/trackListEl\.addEventListener\('click'/.test(src), 'menu local tidak lagi delegasi di trackListEl');
-  ok(src.includes('menuScopeOk') && /document\.addEventListener\('click', \(e\)=>\{\r?\n {2}const editBtn = e\.target\.closest\('\[data-edit-track\]'\);/.test(src), 'menu local delegasi di document + guard');
+  ok(src.includes('menuScopeOk') && /document\.addEventListener\('click', \(e\)=>\{[\s\S]{0,3000}?const editBtn = e\.target\.closest\('\[data-edit-track\]'\);/.test(src), 'menu local delegasi di document + guard');
   ok(src.includes('iphMenuScopeOk'), 'menu iphone punya guard scope portal');
   ok(/document\.addEventListener\('click', \(e\) => \{\r?\n {2}const editBtn = e\.target\.closest\('\[data-iph-edit\]'\);/.test(src), 'menu iphone delegasi di document');
+  // Item Karaoke di menu Local Music: satu tombol dinamis paling atas (di atas
+  // Edit info) — Buat saat belum ada hasil/job, Batalkan saat job jalan,
+  // hilang total saat hasil sudah ada. Tanpa submenu.
+  const trJs = fs.readFileSync(path.join(root, 'src/js/tracks.js'), 'utf8');
+  ok(/data-karaoke-row="\$\{i\}"[^]*data-edit-track="\$\{i\}"/.test(trJs),
+    'menu local: Karaoke di atas Edit song info');
+  ok(!trJs.includes('ksubmenu') && !trJs.includes('data-karaoke-play') && !trJs.includes('data-karaoke-orig'),
+    'menu local: tanpa submenu/play-asli (satu item dinamis saja)');
+  ok(trJs.includes('me.karaokeMake') && trJs.includes('me.karaokeCancel')
+    && /karaoke_path/.test(trJs.match(/const kRow = e\.target\.closest[\s\S]*?\n  \}/)[0]),
+    'menu local: label Buat/Batal + sembunyi saat hasil ada');
+  ok(/async function separate\(mode, idx\)/.test(src) && src.includes("separate('karaoke', tIdx)"),
+    'karaoke per baris: separate() terima index lagu (default lagu diputar)');
+  ok(['en', 'id', 'jv'].every((L) => { const s = fs.readFileSync(path.join(root, `src/js/i18n/${L}.js`), 'utf8'); return s.includes("'me.karaokeMake':") && s.includes("'me.karaokeCancel':") && !s.includes("'me.karaokePlay':"); }),
+    'i18n: label Karaoke menu (Buat/Batal) ada di semua bahasa, sisa submenu dibuang');
 } catch (e) {
   ok(false, `menu portal delegation :: ${e.message}`);
 }
@@ -3432,9 +3507,24 @@ try {
   ok(!/"sessionId": "mock"/.test(py),
     'python: connect-start tidak lagi mengembalikan sesi mock saat backend absen');
 
+  const srvPy = fs.readFileSync(path.join(root, 'python-engine/server.py'), 'utf8');
+  const authPy = fs.readFileSync(path.join(root, 'python-engine/vx_auth.py'), 'utf8');
+  ok(srvPy.includes('_auth_middleware') && authPy.includes('X-VX-Token') && authPy.includes('token_hex'),
+    'python: engine wajib token per-boot (situs luar tak bisa panggil API lokal)');
+  ok(!srvPy.includes('allow_origins=["*"]'),
+    'python: CORS engine dikunci ke origin Tauri+dev');
+  ok(fs.existsSync(path.join(root, 'python-engine/vx_auth.py'))
+    && fs.existsSync(path.join(root, 'src/js/engine-auth.js')),
+    'auth: helper token (py) + wrapper fetch (js) ada');
+  const appJsBoot = fs.readFileSync(path.join(root, 'src/app.js'), 'utf8');
+  ok(appJsBoot.includes('installEngineAuth'),
+    'js: auth engine dipasang saat boot');
+
   const stageP = fs.readFileSync(path.join(root, 'scripts/stage_premium.py'), 'utf8');
-  ok(stageP.includes('legacy=True') && stageP.includes('stdlib_module_names'),
-    'stage: penutup impor abaikan stdlib; glue dikompilasi bytecode legacy');
+  ok(stageP.includes('stdlib_module_names') && stageP.includes('compile_tree_hardened'),
+    'stage: penutup impor abaikan stdlib; glue hardening bytecode');
+  ok(stageP.includes('vault_stems') && stageP.includes('.pyv'),
+    'stage: glue di-vault (.pyv) + roundtrip via loader');
   ok(stageP.includes('rglob("*.py")') && stageP.includes('--check'),
     'stage: paket staged wajib tanpa .py + punya mode --check');
   const pkgJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
@@ -3476,6 +3566,17 @@ try {
   ok(enJs.includes('btnVerifyPremium') && !enJs.includes('spUser') && !enJs.includes('btnTestPremium')
     && !enJs.includes('btnSavePremium') && !enJs.includes("spotify_premium_user"),
     'js: handler Verify ada; handler Save/Test user-pass hilang');
+  // Disconnect tak boleh ditimpa polling Connect yang yatim: loop mengunci
+  // generasi, disconnect menaikkan generasi (membunuh loop) + tulis status.
+  ok(enJs.includes('S._premiumPollGen') && /gen !== S\._premiumPollGen\) return/.test(enJs),
+    'js: poll Connect terkunci generasi, mati bila Disconnect menaikannya');
+  ok(/btnDisconnectPremium[\s\S]{0,600}?S\._premiumPollGen = \(S\._premiumPollGen \|\| 0\) \+ 1/.test(enJs)
+    && /btnDisconnectPremium[\s\S]{0,1200}?enh\.disconnected/.test(enJs),
+    'js: Disconnect membunuh poll yatim lalu tulis Terputus (bukan Menunggu)');
+  ok(/action == "disconnect"[\s\S]{0,800}?_PREMIUM_PROCS/.test(py)
+    && /action == "disconnect"[\s\S]{0,800}?connect-last\.log/.test(py)
+    && /action == "disconnect"[\s\S]{0,800}?device_path/.test(py),
+    'py: disconnect hentikan child Connect + buang creds, device_id, dan log sesi basi');
   const dlJs = fs.readFileSync(path.join(root, 'src/js/download-start.js'), 'utf8');
   ok(!dlJs.includes('spotifyPremiumUser') && !dlJs.includes('spotify_premium_pass'),
     'js: payload download tak lagi membawa kredensial user/pass');

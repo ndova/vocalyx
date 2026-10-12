@@ -14,6 +14,7 @@ const ICON = {
   downloadLg: ico('download', 18),
   check: ico('check'),
   music: ico('music', 28),
+  musicSm: ico('music'),
   slash: ico('circle-x'),
   plus: ico('plus'),
   chevronRight: ico('chevron-right'),

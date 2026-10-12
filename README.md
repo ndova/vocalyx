@@ -60,6 +60,7 @@ If an installation breaks, just run the installer again — the runtime is part 
 | Disk | ≈700 MB installer | ≈1.9 GB installed; AI models ≈120 MB on first use; CUDA adds ±5.8 GB |
 | Internet | Required | Search/download, model downloads, updates |
 | GPU | Optional | NVIDIA driver + ±4 GB VRAM for CUDA karaoke; CPU mode is fully functional |
+| VC++ Redist | Required once | Auto-installed from the installer bundle when missing ([manual download](https://aka.ms/vs/17/release/vc_redist.x64.exe)) — the AI engine cannot start without it |
 | iPhone | Optional | [Apple Mobile Device Support](https://support.apple.com/en-us/103229) (with iTunes), run as administrator, tap **Trust** — VocaLyx only detects it |
 
 ### Install
@@ -80,6 +81,13 @@ npm install
 npm run dev:all        # frontend + engine together
 # or: npm run dev  +  npm run engine  (two terminals)
 ```
+
+Fresh clone / another build PC: `scripts/*-venv` and `build/` are gitignored.
+`npm run stage:premium` automatically fetches the prebuilt `premium-<ver>.zip`
+from vocalyx-releases when the venvs are absent (or recreate them via
+`scripts/requirements-premium-*.txt` with Python 3.11, then `--force`).
+For a full runtime from scratch: `python scripts/build_runtime.py` once
+(downloads embeddable Python 3.11.9 + deps, ~1 GB).
 
 </details>
 
@@ -154,6 +162,7 @@ Jika instalasi rusak, jalankan lagi saja installernya — runtime sudah bagian d
 | Disk | ≈700 MB installer | ≈1,9 GB terpasang; model AI ≈120 MB saat pertama dipakai; CUDA +±5,8 GB |
 | Internet | Diperlukan | Pencarian/unduh, unduh model, pembaruan |
 | GPU | Opsional | Driver NVIDIA + ±4 GB VRAM untuk karaoke CUDA; mode CPU berfungsi penuh |
+| VC++ Redist | Sekali saja | Terpasang otomatis dari bundel installer bila belum ada ([unduh manual](https://aka.ms/vs/17/release/vc_redist.x64.exe)) — engine AI tidak bisa jalan tanpanya |
 | iPhone | Opsional | [Apple Mobile Device Support](https://support.apple.com/id-id/103229) (ikut iTunes), jalankan sebagai administrator, ketuk **Trust** — VocaLyx hanya mendeteksinya |
 
 ### Instalasi
@@ -174,6 +183,13 @@ npm install
 npm run dev:all        # frontend + engine sekaligus
 # atau: npm run dev  +  npm run engine  (dua terminal)
 ```
+
+Clone baru / PC builder lain: `scripts/*-venv` dan `build/` di-gitignore.
+`npm run stage:premium` otomatis mengunduh `premium-<ver>.zip` prebuilt dari
+vocalyx-releases bila venv tidak ada (atau buat ulang venv lewat
+`scripts/requirements-premium-*.txt` dengan Python 3.11, lalu `--force`).
+Untuk runtime penuh dari nol: `python scripts/build_runtime.py` sekali saja
+(mengunduh Python embeddable 3.11.9 + dependensi, ~1 GB).
 
 </details>
 

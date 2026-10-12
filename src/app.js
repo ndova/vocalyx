@@ -1,3 +1,5 @@
+import { installEngineAuth } from './js/engine-auth.js';
+installEngineAuth();
 import { $, audio, trackListEl, lyricsEl, canvas, ctx, seek, tCur, tLeft } from './js/dom.js';
 import { EQ_FREQS, EQ_PRESETS } from './js/eq-data.js';
 export { initI18n, applyLang, lang, t, onLangChange, translateTree, syncDocument, i18nBase, i18nLangs, i18nMissing, i18nKeys } from './js/i18n/core.js';
@@ -56,6 +58,7 @@ import { initAbout } from './js/about.js';
 import { hydrateIcons } from './js/icons-tabler.js';
 export { openLyricEditor, closeLyricEditor, isLyricEditorOpen } from './js/lyrics-editor.js';
 import { initRuntime } from './js/runtime.js';
+import { initVc } from './js/vc.js';
 import { initGpuPython } from './js/gpu.js';
 import { startBackgroundCheck } from './js/updater.js';
 
@@ -102,6 +105,7 @@ setTimeout(()=>{ try {
 try { restoreMusicFolders(); } catch {}
 setTimeout(()=>{ try { cleanupDownloadArtifacts(); } catch {} }, 6000);
 try { initRuntime(); } catch {}
+try { initVc(); } catch {}
 try { initGpuPython(); } catch {}
 engineHealth();
 setInterval(engineHealth, 15000);

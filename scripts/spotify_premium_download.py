@@ -25,6 +25,21 @@ import os
 import sys
 import tempfile
 
+# Self-bootstrap: lihat spotify_premium_auth.py (isolated interpreter
+# mengabaikan PYTHONPATH; paket staging ada di direktori file ini).
+def _vx_bootstrap():
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        for cand in (os.environ.get("VX_PREMIUM_PKG") or "", here):
+            if cand and os.path.isdir(cand) and cand not in sys.path:
+                sys.path.insert(0, cand)
+    except Exception:
+        pass
+
+
+_vx_bootstrap()
+del _vx_bootstrap
+
 # Matikan log librespot yang berisik (tetap ke stderr, tak pernah ke stdout JSON)
 logging.basicConfig(level=logging.CRITICAL)
 
@@ -61,7 +76,7 @@ def main():
         from librespot.audio.decoders import AudioQuality, VorbisOnlyAudioQuality
         from librespot.metadata import TrackId
     except Exception as e:
-        fail("Paket librespot belum terinstall di spotify-venv: " + str(e)[:200])
+        fail("Paket librespot belum terinstall di paket premium: " + str(e)[:200])
 
     # Anti-banned: cache persist 24h (hemat auth) — hanya tmp download yang per-invocation.
     # tmpdir = session temp (dibersihkan), cache_dir = persist bila --cache-dir diberikan.
