@@ -7,7 +7,7 @@ from pathlib import Path
 TOKEN_HEADER = "X-VX-Token"
 TOKEN_ENV = "VX_ENGINE_TOKEN"
 OPEN_ENV = "VX_ENGINE_OPEN"
-OPEN_PATHS = frozenset({"/health", "/peaks"})
+OPEN_PATHS = frozenset({"/health", "/peaks", "/iphone/track/cover"})  # cover = thumbnail GET read-only; tag <img> tak bisa kirim header token sehingga tanpa ini semua cover Device 401 selamanya (/iphone/library/* tetap wajib token)
 
 ALLOW_ORIGINS = ["tauri://localhost", "http://tauri.localhost",
                  "https://tauri.localhost", "http://localhost:1420",

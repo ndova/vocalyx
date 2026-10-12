@@ -22,7 +22,7 @@ from fastapi.responses import JSONResponse
 from vx_core import (
     AUDIO_JOB_LOCK, _audio_duration_sec, _cache_hit_notice, _make_notice,
     _probe_audio, _set_progress, download_progress, encode_cap_for, ffmpeg_bin,
-    ffmpeg_loc_for_ytdlp, ffprobe_bin, log,
+    ffmpeg_loc_for_ytdlp, ffprobe_bin, log, yt_dlp_cmd,
 )
 from vx_cover import _embed_cover, _resolve_cover_bytes
 from vx_search import (
@@ -1216,7 +1216,7 @@ async def download(payload: dict):
             yt_tried = False
             last_yt_err = ""
             try:
-                yt_dlp = shutil.which("yt-dlp") or shutil.which("yt-dlp.exe")
+                yt_dlp = yt_dlp_cmd()
                 if yt_dlp:
                     yt_tried = True
                     ff_loc = ffmpeg_loc_for_ytdlp()
@@ -1247,7 +1247,7 @@ async def download(payload: dict):
                             pp_args = ["--postprocessor-args", f"ffmpeg:-c:a aac -b:a {cap}k -movflags +faststart"]
                         else:
                             pp_args = ["--postprocessor-args", f"ffmpeg:-b:a {cap}k"]
-                        cmd = [yt_dlp, "-x", "--audio-format", ext, "--audio-quality", f"{cap}K"]
+                        cmd = yt_dlp + ["-x", "--audio-format", ext, "--audio-quality", f"{cap}K"]
                         cmd += pp_args
                         if ff_loc:
                             cmd += ["--ffmpeg-location", ff_loc]

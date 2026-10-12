@@ -10,7 +10,7 @@ import urllib3
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
-from vx_core import log
+from vx_core import log, yt_dlp_cmd
 from vx_search import _FS_HEADERS, _fs_is_host, _resolve_4shared
 
 router = APIRouter()
@@ -23,10 +23,10 @@ def _sc_preview_url(page_url: str, cookies: str = "", timeout: int = 25):
     Return (url, proto) atau None. URL kedaluwarsa -> resolve ulang tiap klik."""
 
     try:
-        yt_dlp = shutil.which("yt-dlp") or shutil.which("yt-dlp.exe")
+        yt_dlp = yt_dlp_cmd()
         if not yt_dlp or not page_url:
             return None
-        cmd = [yt_dlp, "--no-warnings", "--skip-download", "-J", page_url]
+        cmd = yt_dlp + ["--no-warnings", "--skip-download", "-J", page_url]
         if cookies:
             cmd += ["--cookies", cookies]
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)

@@ -48,6 +48,9 @@ finally:
 
 _check("health+peaks tetap terbuka (probe Rust tanpa header)",
        "/health" in va.OPEN_PATHS and "/peaks" in va.OPEN_PATHS)
+_check("cover iPhone terbuka tanpa token (tag img tak bisa kirim header)",
+       "/iphone/track/cover" in va.OPEN_PATHS
+       and "/iphone/library/tracks" not in va.OPEN_PATHS)
 _check("CORS tanpa wildcard", "*" not in va.ALLOW_ORIGINS
        and any("tauri" in o for o in va.ALLOW_ORIGINS))
 _check("header token diizinkan CORS", va.TOKEN_HEADER in va.ALLOW_HEADERS)

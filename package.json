@@ -26,7 +26,7 @@
     "dev:all": "concurrently \"cmd /c scripts\\run-engine.cmd\" \"tauri dev\"",
     "dev:web": "concurrently \"cmd /c scripts\\run-engine.cmd\" \"vite\"",
     "smoke": "node tests/smoke.mjs",
-    "smoke:py": "scripts\\py311.cmd python-engine/tests/check_undefined_names.py && scripts\\py311.cmd python-engine/tests/test_api_surface.py && scripts\\py311.cmd python-engine/tests/test_karaoke_dsp.py && scripts\\py311.cmd python-engine/tests/test_engine_auth.py",
+    "smoke:py": "scripts\\py311.cmd python-engine/tests/check_undefined_names.py && scripts\\py311.cmd python-engine/tests/test_api_surface.py && scripts\\py311.cmd python-engine/tests/test_karaoke_dsp.py && scripts\\py311.cmd python-engine/tests/test_engine_auth.py && scripts\\py311.cmd python-engine/tests/test_ytdlp_resolve.py",
     "test": "npm run smoke && npm run smoke:py"
   },
   "devDependencies": {

@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import threading
 from pathlib import Path
 
@@ -157,6 +158,64 @@ def ffmpeg_bin() -> str | None:
                 return str(cand)
         except Exception:
             continue
+    return None
+
+
+_YTDLP_MISSING_LOGGED = False
+
+
+def _own_scripts_dirs():
+    """Folder Scripts milik interpreter yang menjalankan engine ini."""
+    out = []
+    try:
+        base = Path(sys.executable).resolve().parent
+        out.append(base)
+        out.append(base / "Scripts")
+    except Exception:
+        pass
+    return out
+
+
+def yt_dlp_cmd():
+    """Argv CLI yt-dlp (siap digabung `+ [...]`), atau None.
+
+    Urutan: launcher `.exe` yang lolos probe `--version` dulu, lalu
+    `[sys.executable, "-m", "yt_dlp"]`. Urutan ini penting: launcher pip
+    RUSAK di layout embeddable (ia mencari `python.exe` di sebelahnya di
+    `Scripts/`, padahal python.exe ada di parent) sehingga probe-nya gagal
+    sunyi rc=1 tanpa output apa pun - modul `-m` adalah jalur utama yang
+    benar-benar jalan, bukan sekadar fallback. Keduanya di-probe nyata
+    (bukan cek file), dan kegagalan total melapor keras sekali, bukan sunyi.
+    """
+    global _YTDLP_MISSING_LOGGED
+    cands = []
+    for d in _own_scripts_dirs():
+        cands.append(str(d / "yt-dlp.exe"))
+        cands.append(str(d / "yt-dlp"))
+    try:
+        w = shutil.which("yt-dlp") or shutil.which("yt-dlp.exe")
+        if w:
+            cands.append(w)
+    except Exception:
+        pass
+    for cand in cands:
+        try:
+            if cand and Path(cand).is_file():
+                subprocess.run([str(cand), "--version"], capture_output=True,
+                               timeout=15, check=True)
+                return [str(cand)]
+        except Exception:
+            continue
+    try:
+        subprocess.run([sys.executable, "-m", "yt_dlp", "--version"],
+                       capture_output=True, text=True, timeout=20, check=True)
+        return [sys.executable, "-m", "yt_dlp"]
+    except Exception:
+        pass
+    if not _YTDLP_MISSING_LOGGED:
+        _YTDLP_MISSING_LOGGED = True
+        log.warning("yt-dlp tidak tersedia (launcher rusak + modul tak ada) - "
+                    "pencarian/unduhan SoundCloud lumpuh sampai runtime dilengkapi")
     return None
 
 

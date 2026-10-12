@@ -13,7 +13,7 @@ import requests
 import urllib3
 from fastapi import APIRouter
 
-from vx_core import log
+from vx_core import log, yt_dlp_cmd
 
 router = APIRouter()
 
@@ -51,11 +51,11 @@ def _search_soundcloud(query: str, n: int, cookies: str = ""):
 
     out = []
     try:
-        yt_dlp = shutil.which("yt-dlp") or shutil.which("yt-dlp.exe")
+        yt_dlp = yt_dlp_cmd()
         if not yt_dlp:
-            return out
+            raise RuntimeError("yt-dlp tidak tersedia di runtime - lengkapi runtime lalu ulangi")
         want = min(max(n * 2, 6), 10)
-        cmd = [yt_dlp, "--quiet", "--no-warnings", "--flat-playlist", "--dump-json", f"scsearch{want}:{query}"]
+        cmd = yt_dlp + ["--quiet", "--no-warnings", "--flat-playlist", "--dump-json", f"scsearch{want}:{query}"]
         if cookies:
             cmd += ["--cookies", cookies]
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
@@ -813,11 +813,11 @@ def _ytm_search_ytdlp(artist: str, title: str, timeout: int = 25) -> str | None:
         clean = f"{a} - {t} audio".strip(" -").replace("\r", " ").replace("\n", " ").replace("\0", "")[:200]
         if not clean:
             return None
-        yt_dlp = shutil.which("yt-dlp") or shutil.which("yt-dlp.exe")
+        yt_dlp = yt_dlp_cmd()
         if not yt_dlp:
             return None
         search_url = f"https://music.youtube.com/search?q={quote_plus(clean)}"
-        cmd = [yt_dlp, "--quiet", "--no-warnings", "--flat-playlist", "--dump-json", search_url]
+        cmd = yt_dlp + ["--quiet", "--no-warnings", "--flat-playlist", "--dump-json", search_url]
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         if proc.returncode != 0:
             log.warning("ytm yt-dlp search exit %s: %s", proc.returncode, (proc.stderr or "")[-300:])
@@ -922,10 +922,10 @@ def _sc_full_available(url: str, cookies: str = "", timeout: int = 40, retries: 
     format full) langsung False tanpa retry.
     """
 
-    yt_dlp = shutil.which("yt-dlp") or shutil.which("yt-dlp.exe")
+    yt_dlp = yt_dlp_cmd()
     if not yt_dlp or not url:
         return False
-    cmd = [yt_dlp, "--no-warnings", "--skip-download", "-J", url]
+    cmd = yt_dlp + ["--no-warnings", "--skip-download", "-J", url]
     if cookies:
         cmd += ["--cookies", cookies]
     attempt = 0
@@ -972,13 +972,13 @@ def _scsearch_url(artist: str, title: str, timeout: int = 20, cookies: str = "")
     """Resolve URL SoundCloud FULL pertama (lewati yg preview-only)."""
 
     try:
-        yt_dlp = shutil.which("yt-dlp") or shutil.which("yt-dlp.exe")
+        yt_dlp = yt_dlp_cmd()
         if not yt_dlp:
             return None
         q = f"{(artist or '').strip()} - {(title or '').strip()}".strip(" -")[:200]
         if not q:
             return None
-        cmd = [yt_dlp, "--quiet", "--no-warnings", "--flat-playlist", "--dump-json", "scsearch5:" + q]
+        cmd = yt_dlp + ["--quiet", "--no-warnings", "--flat-playlist", "--dump-json", "scsearch5:" + q]
         if cookies:
             cmd += ["--cookies", cookies]
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)

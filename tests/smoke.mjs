@@ -3577,6 +3577,24 @@ try {
     && /action == "disconnect"[\s\S]{0,800}?connect-last\.log/.test(py)
     && /action == "disconnect"[\s\S]{0,800}?device_path/.test(py),
     'py: disconnect hentikan child Connect + buang creds, device_id, dan log sesi basi');
+  // yt-dlp wajib dari Scripts interpreter sendiri (bukan tebak PATH): kalau
+  // tidak, pencarian SoundCloud pulang kosong sunyi dalam ~3 mdetik.
+  const pyCore = fs.readFileSync(path.join(root, 'python-engine/vx_core.py'), 'utf8');
+  ok(/def yt_dlp_cmd\(\)/.test(pyCore) && /own_scripts_dirs/.test(pyCore)
+    && /yt-dlp tidak tersedia/.test(pyCore),
+    'py: resolver yt-dlp (Scripts interpreter dulu, gagalnya berisik)');
+  const pySearch = fs.readFileSync(path.join(root, 'python-engine/vx_search.py'), 'utf8');
+  ok(!/shutil\.which\("yt-dlp/.test(pySearch) && (pySearch.match(/yt_dlp_cmd\(\)/g) || []).length >= 4
+    && /yt_dlp_cmd\(\)/.test(fs.readFileSync(path.join(root, 'python-engine/vx_preview.py'), 'utf8'))
+    && /yt_dlp_cmd\(\)/.test(py),
+    'py: semua 6 titik pakai resolver (search x4, preview, download), tanpa shutil.which');
+  ok(/"-m", "yt_dlp"/.test(pyCore),
+    'py: fallback modul -m (launcher .exe rusak di layout embeddable)');
+  ok(/yt-dlp tidak tersedia di runtime/.test(pySearch),
+    'py: SoundCloud habis tanpa binary melapor jelas (bukan "0 hasil" sunyi)');
+  const rsEng = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'utf8');
+  ok(/parent\.join\("Scripts"\)/.test(rsEng) && /yt-dlp\.exe dkk/.test(rsEng),
+    'rust: PATH child engine ikut Scripts interpreter (seperti ffmpeg)');
   const dlJs = fs.readFileSync(path.join(root, 'src/js/download-start.js'), 'utf8');
   ok(!dlJs.includes('spotifyPremiumUser') && !dlJs.includes('spotify_premium_pass'),
     'js: payload download tak lagi membawa kredensial user/pass');

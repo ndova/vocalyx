@@ -395,20 +395,41 @@ fn apply_runtime_env(cmd: &mut Command, py: &str, cwd: &Path, script: &Path) {
         cmd.env("PYTHONHOME", &rt);
     }
     // Prepend ffmpeg runtime ke PATH agar memanggil `ffmpeg` polos bekerja.
+    // Entry-point CLI paket pip (yt-dlp.exe dkk) hidup di `Scripts/` milik
+    // interpreter, bukan di PATH sistem. Tanpa ini `shutil.which("yt-dlp")`
+    // di engine gagal dan pencarian SoundCloud pulang kosong dalam ~3 mdetik.
+    // Pola sama seperti ffmpeg di bawah; hanya folder yang ada yang ditambah,
+    // dan keduanya digabung sekali supaya tidak saling menimpa.
+    let mut path_prepend: Vec<String> = Vec::new();
+    {
+        let exe = Path::new(py);
+        if let Some(parent) = exe.parent() {
+            for d in [parent.to_path_buf(), parent.join("Scripts")] {
+                if d.is_dir() {
+                    let s = d.to_string_lossy().to_string();
+                    if !path_prepend.contains(&s) {
+                        path_prepend.push(s);
+                    }
+                }
+            }
+        }
+    }
     let ffmpeg_bin = runtime_dirs
         .iter()
         .map(|d| d.join("ffmpeg").join("bin"))
         .find(|d| d.join("ffmpeg.exe").is_file() || d.join("ffmpeg").is_file());
-    if let Some(fb) = ffmpeg_bin {
-        let existing_path = std::env::var("PATH").unwrap_or_default();
-        let fb_s = fb.to_string_lossy().to_string();
-        let value = if existing_path.is_empty() {
-            fb_s
-        } else {
-            format!("{fb_s};{existing_path}")
-        };
-        cmd.env("PATH", value);
+    if let Some(fb) = &ffmpeg_bin {
+        path_prepend.push(fb.to_string_lossy().to_string());
         cmd.env("FFMPEG_BINARY", fb.join("ffmpeg.exe"));
+    }
+    if !path_prepend.is_empty() {
+        let existing_path = std::env::var("PATH").unwrap_or_default();
+        let mut value = path_prepend.join(";");
+        if !existing_path.is_empty() {
+            value.push(';');
+            value.push_str(&existing_path);
+        }
+        cmd.env("PATH", value);
     }
     let joined = paths.join(";");
     if !joined.is_empty() {
