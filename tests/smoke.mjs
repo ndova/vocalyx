@@ -3628,6 +3628,13 @@ try {
     'auth: exit paksa setelah emit final (thread non-daemon tak boleh menahan proses)');
   ok(authGlue.includes('t.join(3)'), 'auth: server.close() dibatasi timeout 3 detik');
   ok(py.includes('connect-last.log'), 'python: connect-start menulis log diagnosa');
+  ok(!py.includes('Path.cwd() / ".spotify-premium" / "credentials.json"')
+    && !py.includes('Path.cwd() / ".spotify-premium" / "device_id.txt"')
+    && !py.includes('Path.cwd() / ".spotify-premium" / "cache"')
+    && py.includes('SPOTIFY_DATA_DIR / "credentials.json"')
+    && py.includes('SPOTIFY_DATA_DIR / "device_id.txt"')
+    && py.includes('SPOTIFY_DATA_DIR / "cache"'),
+    'python: sesi Spotify di APPDATA writable (bukan cwd read-only -> WinError 5)');
   const idxHtml = fs.readFileSync(path.join(root, 'src/index.html'), 'utf8');
   ok(!idxHtml.includes('spUser') && !idxHtml.includes('spPass')
     && !idxHtml.includes('btnSavePremium') && !idxHtml.includes('btnTestPremium')

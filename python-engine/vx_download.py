@@ -15,6 +15,36 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+
+def _app_data_dir() -> Path:
+    """Direktori writable untuk data sesi Spotify.
+
+    `Path.cwd()` menunjuk ke folder install (`C:\Program Files\VocaLyx`) yang
+    read-only untuk user biasa — membuat `.spotify-premium` di sana gagal
+    WinError 5. App data (`%APPDATA%\VocaLyx`) selalu writable dan sudah dipakai
+    Rust untuk runtime/models, jadi dipakai di sini juga.
+    """
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        return Path(appdata) / "VocaLyx"
+    return Path.cwd()
+
+
+def _migrate_spotify_data() -> Path:
+    """Pindahkan `.spotify-premium` lama (cwd) ke app data, sekali saja."""
+    target = _app_data_dir() / ".spotify-premium"
+    legacy = Path.cwd() / ".spotify-premium"
+    try:
+        if legacy.is_dir() and legacy.resolve() != target.resolve() and not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(legacy), str(target))
+    except Exception:
+        pass
+    return target
+
+
+SPOTIFY_DATA_DIR = _migrate_spotify_data()
+
 import requests
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
@@ -366,7 +396,7 @@ def _spotify_try_premium(track: dict, out_path: Path, options: dict, download_id
         if not be:
             return {"failed": True, "error": "Backend Spotify Premium tidak ada (paket premium tidak terbundel; jalankan stage_premium.py lalu build ulang)"}
         venv_py, script, prem_env = be
-        cred_path = Path.cwd() / ".spotify-premium" / "credentials.json"
+        cred_path = SPOTIFY_DATA_DIR / "credentials.json"
         if not (cred_path.exists() and cred_path.stat().st_size > 16):
             return {"need_creds": True, "failed": True, "error": "Kredensial Premium kosong (hubungkan via Spotify Connect dulu di Settings)"}
         download_progress[download_id]["percent"] = 8
@@ -376,7 +406,7 @@ def _spotify_try_premium(track: dict, out_path: Path, options: dict, download_id
 
         env = {**os.environ, **prem_env}
         cmd = [str(venv_py), str(script), "--track", sid, "--out", ogg_path, "--quality", "very_high", "--stored-creds", str(cred_path)]
-        for didp in [Path.cwd() / ".spotify-premium" / "device_id.txt"]:
+        for didp in [SPOTIFY_DATA_DIR / "device_id.txt"]:
             try:
                 if didp.exists():
                     did = didp.read_text(encoding="utf-8", errors="ignore").strip()[:64]
@@ -385,7 +415,7 @@ def _spotify_try_premium(track: dict, out_path: Path, options: dict, download_id
                     break
             except Exception:
                 pass
-        cache_dir = str(Path.cwd() / ".spotify-premium" / "cache")
+        cache_dir = str(SPOTIFY_DATA_DIR / "cache")
         try:
             Path(cache_dir).mkdir(parents=True, exist_ok=True)
             cmd += ["--cache-dir", cache_dir]
@@ -1489,8 +1519,8 @@ async def spotify_validate(payload: dict):
 @router.post("/spotify/premium")
 async def spotify_premium(payload: dict):
     action = payload.get("action", "")
-    cred_path = Path.cwd() / ".spotify-premium" / "credentials.json"
-    device_path = Path.cwd() / ".spotify-premium" / "device_id.txt"
+    cred_path = SPOTIFY_DATA_DIR / "credentials.json"
+    device_path = SPOTIFY_DATA_DIR / "device_id.txt"
     if action == "status":
         return {"connected": cred_path.exists() and cred_path.stat().st_size > 16, "deviceName": f"VocaLyx-{device_path.read_text().strip()[-4:] if device_path.exists() else 'XXXX'}"}
     if action == "disconnect":
