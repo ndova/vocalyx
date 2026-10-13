@@ -1537,6 +1537,22 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
     }
     const unusedKeys = drvKeys.filter((k) => !jsIph.includes(`'${k}'`));
     ok(unusedKeys.length === 0, `4: semua key driver dipakai di iphone.js (${unusedKeys.join(', ') || 'lengkap'})`);
+    // Hint backend (Indonesia, hardcoded) tak boleh tampil mentah: dipetakan
+    // lewat kode ke kamus 3 bahasa, fallback mentah hanya untuk kode asing.
+    const errCodes = ['ERR_NO_DEVICE', 'ERR_APPLE_DRIVER_MISSING', 'ERR_NOT_TRUSTED', 'ERR_DEVICE_LOCKED', 'ERR_USBMUX'];
+    const btJs = fs.readFileSync(path.join(root, 'src/js/backend-text.js'), 'utf8');
+    for (const c of errCodes) {
+      ok(btJs.includes(c), `4: backend-text memetakan ${c}`);
+    }
+    const errKeys = ['iph.errNoDevice', 'iph.errDriverMissing', 'iph.errNotTrusted', 'iph.errDeviceLocked', 'iph.errUsbmux'];
+    for (const lang of ['en', 'id', 'jv']) {
+      const txt = fs.readFileSync(path.join(root, `src/js/i18n/${lang}.js`), 'utf8');
+      const missing = errKeys.filter((k) => !txt.includes(`'${k}'`));
+      ok(missing.length === 0, `4: i18n ${lang} punya semua key error iPhone (${missing.length} hilang)`);
+    }
+    ok(jsIph.includes('backendText(j)') && jsIph.includes('backendText(dev)')
+      && !/showDriverGuide\((j|dev)\.hint/.test(jsIph) && !/const detail = j\.hint/.test(jsIph),
+      '4: hint/error backend lewat pemeta kode, bukan mentah');
 
     const jsRt = fs.readFileSync(path.join(root, 'src/js/runtime.js'), 'utf8');
     ok(/fn common_prefix_dir/.test(rtRs), '4: extract_zip menentukan folder teratas bersama');

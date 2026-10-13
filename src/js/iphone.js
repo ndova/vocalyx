@@ -2,6 +2,7 @@ import { t } from './i18n/core.js';
 import { S } from './state.js';
 import { sortIPhoneTracks } from './sorting.js';
 import { fmt, coverHtml } from './format.js';
+import { backendText } from './backend-text.js';
 import { ICON } from './icons.js';
 import { applyGridWidths } from './grid.js';
 import { clearActiveCoverDrop, wireCoverDrop } from './download-start.js';
@@ -78,7 +79,7 @@ async function checkIPhoneConnected() {
   try {
     const j = await readDevicesPayload();
     if (j.code === 'ERR_APPLE_DRIVER_MISSING') {
-      await showDriverGuide(j.hint || '');
+      await showDriverGuide(backendText(j));
       return false;
     }
     const connected = !!(j.ok && j.devices?.length);
@@ -104,7 +105,7 @@ async function checkIPhoneConnected() {
       if (dot) dot.style.background = 'var(--muted)';
       const st = d('deviceStatusText');
       if (st) st.textContent = t('iph.notConnected');
-      const detail = j.hint || j.error || '';
+      const detail = backendText(j);
       const meta = d('deviceMeta');
       if (meta) meta.textContent = detail;
       if (badge) badge.style.display = 'none';
@@ -139,7 +140,7 @@ export async function renderDeviceView(){
     return;
   }
   if (dev && dev.code === 'ERR_APPLE_DRIVER_MISSING') {
-    await showDriverGuide(dev.hint || '');
+    await showDriverGuide(backendText(dev));
     return;
   }
   if (st && !st.ready && !(dev && (dev.devices?.length || (dev.mux && dev.mux.length)))) {
