@@ -53,6 +53,9 @@
       "../assets": "assets"
     },
     "windows": {
+      "nsis": {
+        "installerHooks": "./windows/hooks.nsh"
+      },
       "wix": {
         "version": "0.1.0.0"
       }

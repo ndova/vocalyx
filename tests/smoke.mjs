@@ -1282,6 +1282,23 @@ const rsEngine = fs.readFileSync(path.join(root, 'src-tauri/src/engine.rs'), 'ut
       '3a: startup lewat runtime::spawn_ensure_and_start');
     ok(/runtime::runtime_extract_bundled/.test(libRs2), '3a: command runtime_extract_bundled terdaftar');
     ok(/pub fn write_log_note\(/.test(rsEngine), '3a: engine::write_log_note tersedia untuk runtime');
+    // Opsi uninstall: hapus juga %APPDATA%\VocaLyx (default MATI di kedua installer).
+    const hookNsh = fs.readFileSync(path.join(root, 'src-tauri/windows/hooks.nsh'), 'utf8');
+    ok(/!macro NSIS_HOOK_PREUNINSTALL/.test(hookNsh) && /MessageBox MB_YESNO/.test(hookNsh)
+      && /!macro NSIS_HOOK_POSTUNINSTALL/.test(hookNsh) && /\$APPDATA\\VocaLyx/.test(hookNsh)
+      && /RMDir \/r/.test(hookNsh),
+      'nsis: tanya hapus data saat uninstall (default Tidak), RMDir APPDATA bila Ya');
+    const fragWxs = fs.readFileSync(path.join(root, 'src-tauri/windows/fragments/removedata.wxs'), 'utf8');
+    ok(/Dialog Id="VerifyReadyDlg"/.test(fragWxs) && /RemoveDataCheckBox/.test(fragWxs)
+      && /Property Id="VOCALYX_REMOVEDATA" Value="0"/.test(fragWxs),
+      'wix: fragment checkbox hapus data terdokumentasi (nonaktif: duplikat dialog ditolak linker)');
+    ok(/VocalyxRemoveAppData/.test(fragWxs) && /rmdir \/s \/q/.test(fragWxs)
+      && /REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE AND VOCALYX_REMOVEDATA=1/.test(fragWxs),
+      'wix: hapus APPDATA hanya saat uninstall murni + checkbox (upgrade aman)');
+    ok(!((tconf.bundle.windows.wix || {}).fragmentPaths || []).includes('./windows/fragments/removedata.wxs'),
+      'conf: fragment WiX TIDAK di-wire (duplikat dialog = build gagal)');
+    ok(tconf.bundle.windows.nsis.installerHooks === './windows/hooks.nsh',
+      'conf: hooks NSIS terdaftar di tauri.conf');
     const srvPy = fs.readFileSync(path.join(root, 'python-engine/server.py'), 'utf8');
     ok(srvPy.includes('"premium_backend": True'),
       '3a: /health menandai cap premium_backend (deteksi engine yatim basi di 8001)');
