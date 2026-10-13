@@ -532,6 +532,7 @@ export default {
   'eng.kStageQueued': 'nunggu',
   'eng.kStageProbe': 'naca audio',
   'eng.kStageSeparate': 'misahake vokal',
+  'eng.kStageDownload': 'ngundhuh model: {model}',
   'eng.kStageDsp': 'ngasinse vocals sisa',
   'eng.kStageLoudnorm': 'nyamakake loudness',
   'eng.kStageSave': 'nyimpen',

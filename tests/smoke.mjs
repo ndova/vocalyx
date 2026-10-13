@@ -1116,8 +1116,24 @@ try {
     ok(/Misahake vokal/.test(badgeJv), `badge karaoke ikut bahasa JV (dapat ${badgeJv})`);
     ok(!/proses konversi karaoke/.test(badgeEn), 'badge karaoke tidak lagi hardcoded Indonesia');
     ok(/separating vocals/i.test(stageEn) && /memisahkan vokal/i.test(stageId), 'stage label karaoke ikut bahasa (en/id)');
+    const dlLbl = (L) => { i18nCore.applyLang(L); return app.karaokeStageLabel('download:Kim_Vocal_2'); };
+    ok(/downloading model: Kim_Vocal_2/i.test(dlLbl('en')), 'stage download model diterjemahkan (en)');
+    ok(/mengunduh model: Kim_Vocal_2/i.test(dlLbl('id')), 'stage download model diterjemahkan (id)');
+    ok(/ngundhuh model: Kim_Vocal_2/i.test(dlLbl('jv')), 'stage download model diterjemahkan (jv)');
+    i18nCore.applyLang(langBefore);
   }
   ok(app.karaokeProgressHtml({}) === '', 'no bar when idle');
+  {
+    const esrc = fs.readFileSync(path.join(root, 'src/js/engine.js'), 'utf8');
+    ok(/startsWith\('download:'\)\) return t\('eng\.kStageDownload'/.test(esrc),
+      'stage download:* dilabeli terjemahan (bukan string mentah)');
+    ok(/!tk\.karaoke_stalled[\s\S]{0,300}?startsWith\('download:'\)/.test(esrc),
+      'stalled dilewati saat tahap download model (unduhan sah, bukan macet)');
+    for (const L of ['en', 'id', 'jv']) {
+      const s = fs.readFileSync(path.join(root, `src/js/i18n/${L}.js`), 'utf8');
+      ok(s.includes("'eng.kStageDownload':"), `i18n ${L}: key kStageDownload ada`);
+    }
+  }
   const src = readSrc();
   const vsrc = fs.readFileSync(path.join(root, 'src/js/views.js'), 'utf8');
   const albumRow = vsrc.slice(vsrc.indexOf('function renderAlbumDetail'));

@@ -532,6 +532,7 @@ export default {
   'eng.kStageQueued': 'waiting',
   'eng.kStageProbe': 'reading audio',
   'eng.kStageSeparate': 'separating vocals',
+  'eng.kStageDownload': 'downloading model: {model}',
   'eng.kStageDsp': 'cleaning residual vocals',
   'eng.kStageLoudnorm': 'matching loudness',
   'eng.kStageSave': 'saving',

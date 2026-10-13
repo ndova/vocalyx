@@ -168,7 +168,7 @@ export function karaokeStageLabel(stage) {
   if (!s) return t('eng.kStageWorking');
   const key = KARAOKE_STAGE_KEYS[s];
   if (key) return t(key);
-  if (s.startsWith('separate:')) return t('eng.kStageSeparate');
+  if (s.startsWith('separate:')) return t('eng.kStageSeparate'); if (s.startsWith('download:')) return t('eng.kStageDownload', { model: s.slice(9) });
   return s;
 }
 export function karaokeBadgeHtml(track) {
@@ -486,7 +486,7 @@ const caps0 = await karaokeCaps().catch(() => null);
             try { if (sepStatus) { sepStatus.textContent = t('eng.sepRunning', { n: lbl }); sepStatus.style.display = 'block'; } } catch {}
           }
         }
-        if (!tk.karaoke_stalled && Date.now() - (tk.karaoke_pct_at || t0) > 15000) {
+        if (!tk.karaoke_stalled && Date.now() - (tk.karaoke_pct_at || t0) > 15000 && !String(tk.karaoke_stage || '').startsWith('download:')) {
           tk.karaoke_stalled = true; changed = true;
         }
         if (changed) {

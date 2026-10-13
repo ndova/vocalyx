@@ -532,6 +532,7 @@ export default {
   'eng.kStageQueued': 'menunggu',
   'eng.kStageProbe': 'membaca audio',
   'eng.kStageSeparate': 'memisahkan vokal',
+  'eng.kStageDownload': 'mengunduh model: {model}',
   'eng.kStageDsp': 'membersihkan sisa vokal',
   'eng.kStageLoudnorm': 'menyamakan volume',
   'eng.kStageSave': 'menyimpan',
