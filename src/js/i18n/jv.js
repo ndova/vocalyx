@@ -156,6 +156,8 @@ export default {
   'set.cudaSetupStageFailed': 'gagal',
   'set.cudaSetupStageWorking': 'mlaku',
   'set.cudaSetupStalled': 'Ora ana byte luwih saka 3 menit — jaringan alon/stall, dudu macet. Entèni wae, utawa Batal banjur balèni.',
+  'set.cudaSetupUseLocal': 'Nganggo file .whl lokal',
+  'set.cudaSetupLocalOk': 'Wheel {n} ditampa — nerusake instalasi normal.',
   'set.quality': 'Kuality',
   'set.format': 'Format',
   'set.language': 'Basa',
@@ -417,6 +419,8 @@ export default {
   'se.allSourcesFailHint': 'Cek Python engine / koneksi, banjur pencet Enter maneh',
   'se.sectionTracks': 'Lagu',
   'se.sectionArtists': 'Artis',
+  'se.showAll': 'Tampilake kabeh {n}',
+  'se.showLess': 'Tampilake sitik',
 
   'le.saving': 'Nyuimpen…',
   'le.save': 'Simpen',

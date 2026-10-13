@@ -2064,6 +2064,16 @@ ok(/export async function ensureGpuPythonProbed\(\)/.test(
   ok(/fn pick_torch_wheel\(/.test(rsCuda) && /fn fetch_torch_wheel\(/.test(rsCuda)
     && /"-4"/.test(rsCuda) && /"-C", "-"/.test(rsCuda) && /--extra-index-url/.test(rsCuda),
     'cuda: wheel torch via curl IPv4 resume + install lokal, fallback pip');
+  // File wheel lokal (hasil unduhan manual) bisa diimpor: validasi nama ketat
+  // lalu salin ke cache agar tahap torch memakainya langsung.
+  ok(/fn inspect_wheel\(/.test(rsCuda) && /torch_canonical_name\(\)/.test(rsCuda)
+    && /cuda_setup_import_wheel/.test(rsCuda)
+    && /cuda_setup::cuda_setup_import_wheel/.test(fs.readFileSync(path.join(root, 'src-tauri/src/lib.rs'), 'utf8')),
+    'cuda: import wheel lokal tervalidasi ISI (bukan nama) + command terdaftar');
+  ok(jsGpuUx.includes('cudaSetupLocalBtn') && jsGpuUx.includes("invokeTauri('cuda_setup_import_wheel'"),
+    'UI: tombol file .whl lokal memanggil import lalu lanjut install normal');
+  ok(['en', 'id', 'jv'].every((L) => { const s = fs.readFileSync(path.join(root, `src/js/i18n/${L}.js`), 'utf8'); return s.includes("'set.cudaSetupUseLocal':") && s.includes("'set.cudaSetupLocalOk':"); }),
+    'i18n: label wheel lokal ada di semua bahasa');
   const cacheSrc = fs.readFileSync(path.join(root, 'python-engine/vx_sep_cache.py'), 'utf8');
   const convSrc = cacheSrc.slice(cacheSrc.indexOf('def _convert_wav_to_target('));
   ok(convSrc.includes('"-sample_fmt", "s16"') && convSrc.includes('pcm_s16le'), 'py: keluaran dipaksa 16-bit (flac & wav)');
@@ -2867,6 +2877,20 @@ try {
   ok(css.includes('.modal.modal-wide .modal-card'), 'css popup wide (modal 560px) ada');
   ok(css.includes('minmax(0, 1fr) auto auto'), 'css grid popup: judul 1fr, durasi+tombol auto');
   ok(sj.includes("modal.classList.add('modal-wide')") && sj.includes("modal.classList.remove('modal-wide')"), 'search: class wide pasang/lepas popup');
+  // Batas tampil grouped bukan jalan buntu: tiap seksi bisa dibuka semua.
+  ok(sj.includes('S._searchExpand') && sj.includes("t('se.showAll'") && sj.includes("t('se.showLess')"),
+    'search: tiap seksi grouped ada toggle Lihat semua');
+  // Expanded lagu dipecah 10/halaman (bukan 70 baris sekaligus).
+  ok(/const SEARCH_GROUPED_PAGE = 10;/.test(sj) && sj.includes('S._searchTrackPage')
+    && /SEARCH_GROUPED_PAGE\)\)/.test(sj),
+    'search: show-all lagu paginasi 10 per halaman + ingat halaman');
+  ok(['en', 'id', 'jv'].every((L) => { const s = fs.readFileSync(path.join(root, `src/js/i18n/${L}.js`), 'utf8'); return s.includes("'se.showAll':") && s.includes("'se.showLess':"); }),
+    'i18n: label showAll/showLess ada di semua bahasa');
+  // Relevansi: API longgar (Deezer fonetik, 4shared populer) tidak boleh
+  // menenggelamkan yang cocok persis.
+  const pySep = fs.readFileSync(path.join(root, 'python-engine/vx_search.py'), 'utf8');
+  ok(/def _score\(t\):/.test(pySep) && /uniq\.sort\(key=_score, reverse=True\)/.test(pySep),
+    'py: hasil search diurut exact-first yang stabil (sampah tenggelam, tak dihapus)');
 } catch (e) {
   ok(false, `search grouped :: ${e.message}`);
 }

@@ -777,6 +777,29 @@ async def search(payload: dict):
             continue
         seen.add(key)
         uniq.append(t)
+    # Urut relevansi: API longgar (Deezer fonetik, 4shared populer) menaruh
+    # "I Wanna/Akon" di atas untuk query "iwan fals". Exact-first yang stabil:
+    # cocok tetap di atas, sisanya tenggelam tapi tidak dihapus.
+    ql_all = query.lower()
+    qwords = [w for w in ql_all.split() if len(w) > 2]
+    def _score(t):
+        ti = (t.get("title") or "").lower()
+        ar = (t.get("artist") or "").lower()
+        al = (t.get("album") or "").lower()
+        s = 0
+        if ql_all and ql_all in ti:
+            s += 3
+        if ql_all and ql_all in ar:
+            s += 2
+        if ql_all and ql_all in al:
+            s += 2
+        for w in qwords:
+            if w in ti:
+                s += 1
+            if w in ar:
+                s += 1
+        return s
+    uniq.sort(key=_score, reverse=True)
     saran = ""
     before_filter = len(uniq)
     if search_type == "title":

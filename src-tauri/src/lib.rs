@@ -527,7 +527,8 @@ pub fn run() {
             cuda_setup::cuda_setup_precheck,
             cuda_setup::cuda_setup_start,
             cuda_setup::cuda_setup_cancel,
-            cuda_setup::cuda_setup_reset
+            cuda_setup::cuda_setup_reset,
+            cuda_setup::cuda_setup_import_wheel
         ])
         .setup(|app| {
             runtime::spawn_ensure_and_start(app.handle().clone());

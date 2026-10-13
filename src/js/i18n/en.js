@@ -156,6 +156,8 @@ export default {
   'set.cudaSetupStageFailed': 'failed',
   'set.cudaSetupStageWorking': 'working',
   'set.cudaSetupStalled': 'No bytes for 3+ min — slow/stalling network, not frozen. Leave it running, or Cancel and retry.',
+  'set.cudaSetupUseLocal': 'Use local .whl file',
+  'set.cudaSetupLocalOk': 'Wheel {n} accepted — continuing normal install.',
   'set.quality': 'Quality',
   'set.format': 'Format',
   'set.language': 'Language',
@@ -417,6 +419,8 @@ export default {
   'se.allSourcesFailHint': 'Check the Python engine / connection, then press Enter again',
   'se.sectionTracks': 'Songs',
   'se.sectionArtists': 'Artists',
+  'se.showAll': 'Show all {n}',
+  'se.showLess': 'Show less',
 
   'le.saving': 'Saving…',
   'le.save': 'Save',

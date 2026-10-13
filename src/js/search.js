@@ -10,6 +10,7 @@ import { pause } from './player.js';
 import { playPreviewAudio, stopPreview, isPreviewPlaying } from '../app.js';
 
 const SEARCH_PER_PAGE = 20;
+const SEARCH_GROUPED_PAGE = 10;
 let _activePvBtn = null;
 function emptyStateHtml(msg){
   return `<div style="padding:24px; text-align:center; color:var(--muted)">${msg}</div>`;
@@ -18,6 +19,8 @@ export function clearSearchResults(){
   if (S.searchOnlineTimer) clearTimeout(S.searchOnlineTimer);
   S.searchResults = [];
   S.searchPage = 1;
+  S._searchTrackPage = 1;
+  S._searchExpand = { tracks: false, albums: false, artists: false };
   const listEl = document.getElementById('searchTrackList');
   const statusEl = document.getElementById('searchStatus');
   const q = (document.getElementById('searchViewInput')?.value || '').trim();
@@ -132,6 +135,8 @@ export async function renderSearchView(){
       if (statusEl && dbgSummary) statusEl.textContent = t('se.onlineCount', { n: online.length, q, info: dbgSummary }) + (data.saran ? ' — ' + data.saran : '');
       S.searchResults = online;
       S.searchPage = 1;
+      S._searchTrackPage = 1;
+      S._searchExpand = { tracks: false, albums: false, artists: false };
       if (filter === 'all') renderSearchGrouped();
       else renderSearchPage();
       return;
@@ -377,10 +382,42 @@ function renderSearchGrouped(){
     listEl.appendChild(h);
   };
   sec(t('se.sectionTracks'));
-  S.searchResults.slice(0, 5).forEach((t, i) => listEl.appendChild(searchTrackRow(t, i)));
+  const expT = !!(S._searchExpand && S._searchExpand.tracks);
+  const tTotal = S.searchResults.length;
+  const tPages = Math.max(1, Math.ceil(tTotal / SEARCH_GROUPED_PAGE));
+  if (!(S._searchTrackPage >= 1 && S._searchTrackPage <= tPages)) S._searchTrackPage = 1;
+  const tPage = S._searchTrackPage;
+  const tStart = expT ? (tPage - 1) * SEARCH_GROUPED_PAGE : 0;
+  const trackList = expT
+    ? S.searchResults.slice(tStart, tStart + SEARCH_GROUPED_PAGE)
+    : S.searchResults.slice(0, 5);
+  trackList.forEach((t, i) => listEl.appendChild(searchTrackRow(t, tStart + i)));
+  if (expT && tPages > 1) {
+    const nav = document.createElement('div');
+    nav.style.cssText = 'display:flex;gap:6px;align-items:center;margin:6px 0 2px;font-size:11px;color:var(--muted)';
+    nav.innerHTML = `<button class="btn-add-folder" style="font-size:11px"${tPage === 1 ? ' disabled' : ''}>‹ Prev</button><span>${tPage} / ${tPages}</span><button class="btn-add-folder" style="font-size:11px"${tPage === tPages ? ' disabled' : ''}>Next ›</button>`;
+    const navBtns = nav.querySelectorAll('button');
+    if (navBtns[0]) navBtns[0].onclick = () => { if (S._searchTrackPage > 1) { S._searchTrackPage--; renderSearchGrouped(); } };
+    if (navBtns[1]) navBtns[1].onclick = () => { S._searchTrackPage++; renderSearchGrouped(); };
+    listEl.appendChild(nav);
+  }
+  if (S.searchResults.length > trackList.length || expT) {
+    const more = document.createElement('button');
+    more.className = 'btn-add-folder';
+    more.style.cssText = 'margin:6px 0 2px;font-size:11px';
+    more.textContent = expT ? t('se.showLess') : t('se.showAll', { n: S.searchResults.length });
+    more.onclick = () => {
+      const toExp = !expT;
+      S._searchExpand = Object.assign({ tracks: false, albums: false, artists: false }, S._searchExpand, { tracks: toExp });
+      if (!toExp) S._searchTrackPage = 1;
+      renderSearchGrouped();
+    };
+    listEl.appendChild(more);
+  }
   if (albums.length) {
     sec('Album');
-    const shownAlbums = albums.slice(0, 8);
+    const expA = !!(S._searchExpand && S._searchExpand.albums);
+    const shownAlbums = expA ? albums : albums.slice(0, 8);
     const grid = document.createElement('div');
     grid.className = 'playlist-grid';
     grid.innerHTML = shownAlbums.map((g, gi) => {
@@ -391,10 +428,22 @@ function renderSearchGrouped(){
     grid.querySelectorAll('[data-album]').forEach((c) => {
       c.onclick = () => { const g = shownAlbums[parseInt(c.dataset.album, 10)]; if (g) openSearchGroupPopup('album', g); };
     });
+    if (albums.length > shownAlbums.length || expA) {
+      const more = document.createElement('button');
+      more.className = 'btn-add-folder';
+      more.style.cssText = 'margin:6px 0 2px;font-size:11px';
+      more.textContent = expA ? t('se.showLess') : t('se.showAll', { n: albums.length });
+      more.onclick = () => {
+        S._searchExpand = Object.assign({ tracks: false, albums: false, artists: false }, S._searchExpand, { albums: !expA });
+        renderSearchGrouped();
+      };
+      listEl.appendChild(more);
+    }
   }
   if (artists.length) {
     sec(t('se.sectionArtists'));
-    const shownArtists = artists.slice(0, 8);
+    const expR = !!(S._searchExpand && S._searchExpand.artists);
+    const shownArtists = expR ? artists : artists.slice(0, 8);
     const grid = document.createElement('div');
     grid.className = 'playlist-grid';
     grid.innerHTML = shownArtists.map((g, gi) => {
@@ -404,6 +453,17 @@ function renderSearchGrouped(){
     grid.querySelectorAll('[data-artist]').forEach((c) => {
       c.onclick = () => { const g = shownArtists[parseInt(c.dataset.artist, 10)]; if (g) openSearchGroupPopup('artist', g); };
     });
+    if (artists.length > shownArtists.length || expR) {
+      const more = document.createElement('button');
+      more.className = 'btn-add-folder';
+      more.style.cssText = 'margin:6px 0 2px;font-size:11px';
+      more.textContent = expR ? t('se.showLess') : t('se.showAll', { n: artists.length });
+      more.onclick = () => {
+        S._searchExpand = Object.assign({ tracks: false, albums: false, artists: false }, S._searchExpand, { artists: !expR });
+        renderSearchGrouped();
+      };
+      listEl.appendChild(more);
+    }
   }
   applySearchGridWidths();
 }

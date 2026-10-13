@@ -258,6 +258,7 @@ function cudaSetupEls() {
     box: el('cudaSetupBox'),
     status: el('cudaSetupStatus'),
     btn: el('cudaSetupBtn'),
+    local: el('cudaSetupLocalBtn'),
     cancel: el('cudaSetupCancelBtn'),
     barWrap: el('cudaSetupBarWrap'),
     bar: el('cudaSetupBar'),
@@ -293,7 +294,7 @@ let lastCudaGrowthAt = 0;
 let cudaSetupStartAt = 0;
 
 function paintCudaSetup(st, prog) {
-  const { box, status, btn, cancel, barWrap, bar, pct } = cudaSetupEls();
+  const { box, status, btn, local, cancel, barWrap, bar, pct } = cudaSetupEls();
   if (!box) return;
   const state = String((st && st.state) || 'missing');
   if (prog && typeof prog.percent !== 'undefined') {
@@ -331,6 +332,7 @@ function paintCudaSetup(st, prog) {
   }
   const busy = state === 'installing' || cudaSetupBusy;
   if (btn) btn.style.display = busy ? 'none' : '';
+  if (local) local.style.display = busy ? 'none' : '';
   if (cancel) cancel.style.display = busy ? '' : 'none';
   const eff = prog || (state === 'installing' ? lastCudaProg : null);
   const stale = state === 'installing' && (!eff || (Date.now() - lastCudaEventAt) >= 15000);
@@ -394,6 +396,37 @@ async function startCudaSetup() {
   }
 }
 
+async function importLocalWheel() {
+  if (!isTauri() || cudaSetupBusy) return;
+  let picked = null;
+  try {
+    const { open } = await import('@tauri-apps/plugin-dialog');
+    const sel = await open({
+      multiple: false,
+      title: t('set.cudaSetupUseLocal'),
+      filters: [{ name: 'PyTorch wheel', extensions: ['whl'] }],
+    });
+    picked = Array.isArray(sel) ? sel[0] : sel;
+  } catch (e) {
+    try { showToast(String((e && e.message) || e), 5000); } catch {}
+    return;
+  }
+  if (!picked) return;
+  cudaSetupBusy = true;
+  try { paintCudaSetup({ state: 'installing' }, { received: 0, total: 0, percent: 0, stage: 'torch' }); } catch {}
+  try {
+    const bytes = await invokeTauri('cuda_setup_import_wheel', { path: picked });
+    try { showToast(t('set.cudaSetupLocalOk', { n: fmtBytes(bytes) }), 5000); } catch {}
+  } catch (e) {
+    cudaSetupBusy = false;
+    try { showToast(String((e && e.message) || e), 7000); } catch {}
+    await refreshCudaSetup();
+    return;
+  }
+  cudaSetupBusy = false;
+  startCudaSetup();
+}
+
 async function pollCudaSetupDone() {
   for (let i = 0; i < 1800; i++) {
     await new Promise((r) => setTimeout(r, 2000));
@@ -451,6 +484,7 @@ async function initCudaSetup() {
     } catch {}
   }
   el('cudaSetupBtn')?.addEventListener('click', () => startCudaSetup());
+  el('cudaSetupLocalBtn')?.addEventListener('click', () => importLocalWheel());
   el('cudaSetupCancelBtn')?.addEventListener('click', async () => {
     try { await invokeTauri('cuda_setup_cancel'); } catch {}
     cudaSetupBusy = false;

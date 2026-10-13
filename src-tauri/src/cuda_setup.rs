@@ -845,6 +845,7 @@ fn torch_file_prefix() -> String {
 /// dipakai apa adanya; relatif digabung ke index.
 fn pick_torch_wheel(html: &str) -> Option<(String, Option<String>)> {
     let prefix = torch_file_prefix();
+    let tag = torch_pin_full().split('+').nth(1).unwrap_or("").to_string();
     let mut pos = 0;
     while pos < html.len() {
         let rest = &html[pos..];
@@ -859,7 +860,10 @@ fn pick_torch_wheel(html: &str) -> Option<(String, Option<String>)> {
             continue;
         }
         let file = base.rsplit('/').next().unwrap_or(base);
-        if file.contains(&prefix) && file.contains("cp311") && file.contains("win_amd64") {
+        if file.contains(&prefix)
+            && (tag.is_empty() || file.contains(&tag))
+            && file.contains("cp311")
+            && file.contains("win_amd64") {
             let sha = href
                 .split("#sha256=")
                 .nth(1)
@@ -887,6 +891,64 @@ fn pick_torch_wheel(html: &str) -> Option<(String, Option<String>)> {
 fn url_filename(url: &str) -> String {
     let base = url.split('#').next().unwrap_or(url).rsplit('/').next().unwrap_or("torch-cuda.whl");
     base.replace("%2B", "+").replace("%2b", "+")
+}
+
+/// Baca identitas wheel dari ISINYA (bukan namanya): (version, tags).
+///
+/// Wheel adalah zip; `METADATA` memberi `Version:` (termasuk suffix lokal
+/// `+cu121`) dan `WHEEL` memberi baris `Tag:`. Hanya central directory yang
+/// dibaca (seek ke ujung file) sehingga cepat walau 2,5 GB. Nama file boleh
+/// apa saja — rename tidak merusak validasi, dan wheel salah (numpy/CPU/
+/// rusak) ditolak dengan menyebut versinya, bukan misterius.
+fn inspect_wheel(path: &Path) -> Result<(String, Vec<String>), String> {
+    let file = fs::File::open(path).map_err(|e| format!("gagal buka {path:?}: {e}"))?;
+    let mut zip = zip::ZipArchive::new(file)
+        .map_err(|_| format!("bukan file wheel/zip yang valid: {}", path.display()))?;
+    let mut version = String::new();
+    let mut tags: Vec<String> = Vec::new();
+    for i in 0..zip.len() {
+        let name = zip.name_for_index(i).unwrap_or("").to_string();
+        let Some((dist, leaf)) = name.split_once('/') else { continue };
+        if !dist.ends_with(".dist-info") {
+            continue;
+        }
+        if leaf.eq_ignore_ascii_case("METADATA") {
+            let text = read_zip_entry(&mut zip, i)?;
+            for line in text.lines() {
+                if let Some(v) = line.strip_prefix("Version:") {
+                    version = v.trim().to_string();
+                    break;
+                }
+            }
+        } else if leaf.eq_ignore_ascii_case("WHEEL") {
+            let text = read_zip_entry(&mut zip, i)?;
+            for line in text.lines() {
+                if let Some(t) = line.strip_prefix("Tag:") {
+                    tags.push(t.trim().to_string());
+                }
+            }
+        }
+    }
+    if version.is_empty() {
+        return Err(format!("tidak ada METADATA ber-Version di {}", path.display()));
+    }
+    Ok((version, tags))
+}
+
+fn read_zip_entry<R: std::io::Read + std::io::Seek>(
+    zip: &mut zip::ZipArchive<R>,
+    i: usize,
+) -> Result<String, String> {
+    let mut f = zip.by_index(i).map_err(|e| format!("gagal baca entri zip: {e}"))?;
+    let mut s = String::new();
+    f.read_to_string(&mut s).map_err(|e| format!("gagal baca entri zip: {e}"))?;
+    Ok(s)
+}
+
+/// Nama file kanonik untuk wheel pin saat ini, dipakai agar reuse-path dan
+/// pip selalu melihat nama waras apa pun nama yang diberikan pengguna.
+fn torch_canonical_name() -> String {
+    format!("torch-{}-cp311-cp311-win_amd64.whl", torch_pin_full())
 }
 
 fn sha256_file(path: &Path) -> Result<String, String> {
@@ -1269,6 +1331,68 @@ pub fn cuda_setup_reset() -> bool {
     fs::remove_dir_all(&root).is_ok()
 }
 
+/// Terima wheel torch dari file lokal pengguna (mis. hasil unduhan manual),
+/// salin ke cache pip agar tahap torch memakainya langsung tanpa mengunduh.
+///
+/// Mengembalikan ukuran byte file yang disalin. Alur sesudahnya tetap sama:
+/// frontend memanggil `cuda_setup_start` seperti biasa, dan worker memakai
+/// ulang file lengkap itu (cabang pakai-ulang di `fetch_torch_wheel`).
+/// Menolak instalasi yang sedang jalan supaya tidak berebut cache.
+#[tauri::command]
+pub fn cuda_setup_import_wheel(path: String) -> Result<u64, String> {
+    if INSTALLING.load(Ordering::Relaxed) {
+        return Err("instalasi sedang berjalan; batalkan dulu".to_string());
+    }
+    let src = PathBuf::from(path.trim());
+    if !src.extension().map(|e| e.eq_ignore_ascii_case("whl")).unwrap_or(false) {
+        return Err("pilih file .whl (wheel PyTorch)".to_string());
+    }
+    // Validasi ISI, bukan nama: rename bebas, yang menentukan METADATA+WHEEL.
+    let (ver, tags) = inspect_wheel(&src)?;
+    let want = torch_pin_full();
+    if ver != want {
+        return Err(format!("wheel ini versi {ver}, yang diminta {want}"));
+    }
+    if !tags.iter().any(|t| t.contains("cp311") && t.contains("win_amd64")) {
+        return Err("wheel ini bukan untuk Python 3.11 Windows 64-bit".to_string());
+    }
+    let meta = fs::metadata(&src).map_err(|e| format!("file tak terbaca ({}): {e}", src.display()))?;
+    if meta.len() < 1_000_000_000 {
+        return Err(format!("file terlalu kecil ({:.1} MB) untuk wheel torch ±2,5 GB — unduhan belum lengkap?", meta.len() as f64 / 1e6));
+    }
+    let dir = pip_cache_dir();
+    fs::create_dir_all(&dir).map_err(|e| format!("gagal buat cache: {e}"))?;
+    let dest = dir.join(torch_canonical_name());
+    // Salin ulang beberapa kali: kunci sesaat (indexer/AV) lewat sendiri.
+    // Pesan menyebut kedua path supaya tak ada lagi tebak-tebakan file mana.
+    let mut err = String::new();
+    for attempt in 1..=3u32 {
+        match fs::copy(&src, &dest) {
+            Ok(_) => {
+                err.clear();
+                break;
+            }
+            Err(e) => {
+                err = format!(
+                    "gagal salin {} -> {}: {e} (coba {attempt}/3)",
+                    src.display(),
+                    dest.display()
+                );
+                std::thread::sleep(Duration::from_secs(2));
+            }
+        }
+    }
+    if !err.is_empty() {
+        return Err(err + " — tutup program yang membuka file lalu ulangi");
+    }
+    setup_log(&format!(
+        "wheel lokal diterima: {} ({:.1} GB)",
+        dest.to_string_lossy(),
+        meta.len() as f64 / 1e9
+    ));
+    Ok(meta.len())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1400,5 +1524,43 @@ mod tests {
         );
         assert_eq!(pick_torch_wheel("tidak ada link"), None);
         assert_eq!(pick_torch_wheel(""), None);
+    }
+
+    #[test]
+    fn local_wheel_inspect() {
+        use std::io::Write as _;
+        let dir = std::env::temp_dir().join(format!("vocalyx-wheel-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let make_whl = |name: &str, version: &str, tag: &str| -> PathBuf {
+            let p = dir.join(name);
+            let f = fs::File::create(&p).unwrap();
+            let mut w = zip::ZipWriter::new(f);
+            let opts: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            w.start_file("pkg-1.dist-info/METADATA", opts).unwrap();
+            w.write_all(format!("Metadata-Version: 2.1\nName: pkg\nVersion: {version}\n").as_bytes()).unwrap();
+            w.start_file("pkg-1.dist-info/WHEEL", opts).unwrap();
+            w.write_all(format!("Wheel-Version: 1.0\nTag: {tag}\n").as_bytes()).unwrap();
+            w.finish().unwrap();
+            p
+        };
+        // Nama acak bebas — yang dinilai isinya.
+        let good = make_whl("bebas-ganti-nama.whl", "2.5.1+cu121", "cp311-cp311-win_amd64");
+        let (ver, tags) = inspect_wheel(&good).expect("wheel valid harus terbaca");
+        assert_eq!(ver, "2.5.1+cu121");
+        assert!(tags.iter().any(|t| t.contains("cp311") && t.contains("win_amd64")));
+        assert_eq!(torch_canonical_name(), "torch-2.5.1+cu121-cp311-cp311-win_amd64.whl");
+        // Isi salah tetap ketahuan walau nama meyakinkan.
+        let wrong_ver = make_whl("torch-2.5.1+cu121-cp311-cp311-win_amd64.whl", "2.4.0+cpu", "cp311-cp311-win_amd64");
+        assert_eq!(inspect_wheel(&wrong_ver).unwrap().0, "2.4.0+cpu");
+        let wrong_tag = make_whl("x.whl", "2.5.1+cu121", "cp312-cp312-win_amd64");
+        let (_, tags) = inspect_wheel(&wrong_tag).unwrap();
+        assert!(!tags.iter().any(|t| t.contains("cp311") && t.contains("win_amd64")));
+        // Bukan zip sama sekali.
+        let bad = dir.join("rusak.whl");
+        fs::write(&bad, b"bukan zip").unwrap();
+        assert!(inspect_wheel(&bad).is_err());
+        let _ = fs::remove_dir_all(&dir);
     }
 }
