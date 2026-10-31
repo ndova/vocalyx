@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Diagnosa kualitas stem karaoke: siapa penyebab suara "bawah air"?
 
 Untuk tiap model kandidat diukur:
@@ -22,15 +22,15 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-import win_nowindow  # noqa: E402
+import win_nowindow  
 
 win_nowindow.hide_child_consoles()
 
-import numpy as np  # noqa: E402
+import numpy as np  
 
-import vx_karaoke_dsp as dsp  # noqa: E402
-import vx_karaoke_sep as sep  # noqa: E402
-from vx_sep_cache import KARAOKE_PRESETS  # noqa: E402
+import vx_karaoke_dsp as dsp  
+import vx_karaoke_sep as sep  
+from vx_sep_cache import KARAOKE_PRESETS  
 
 N_FFT = 2048
 HOP = 512
@@ -76,15 +76,15 @@ def metrics(x: np.ndarray, mix: np.ndarray) -> dict:
     out = {"hf_floor_db_vs_mix": round(hf_db, 2),
            "vocal_band_ratio": round(vb_x, 4),
            "vocal_band_ratio_mix": round(vb_m, 4)}
-    # v14: metrik mid/treble + sisa reverb di bagian sepi.
+    
     try:
         for key, lo, hi in (("mid_presence", 2000.0, 6000.0), ("air", 12000.0, 16000.0)):
             m = _band_mask(lo, hi)
             ex = float(np.median((sx[m] ** 2).sum(axis=0)))
             em = float(np.median((sm[m] ** 2).sum(axis=0)))
             out[f"{key}_db_vs_mix"] = round(float(10 * np.log10(max(ex, 1e-20) / max(em, 1e-20))), 2)
-        # Frame sepi (mix < persentil 10): energi stem di sana vs mix (dB).
-        # Tinggi = sisa reverb/hash hantu vokal masih menempel di instrumental.
+        
+        
         thr = float(np.percentile(mt, 10.0))
         quiet = mt <= max(thr, 1e-20)
         if bool(quiet.any()):
@@ -159,7 +159,7 @@ def main() -> int:
             report["models"].append({"preset": preset, "model": model, "error": str(ex)})
             continue
         inst_path = pick_inst(found, second, found) or found
-        # stem vokal untuk bleed_corr: file yang BUKAN instrumental
+        
         voc_path = None
         for cand in (found, second):
             if cand is None:

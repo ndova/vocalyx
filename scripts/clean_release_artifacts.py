@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Buang artefak build rilis yang membocorkan peta simbol tapi tak pernah masuk installer.
 
 `tauri build` mengisi `src-tauri/target/release/` dengan lebih dari yang benar-benar
@@ -40,14 +40,14 @@ ROOT = Path(__file__).resolve().parent.parent
 RELEASE = ROOT / "src-tauri" / "target" / "release"
 DEPS = RELEASE / "deps"
 
-# (folder relatif ke release/, pola glob, keterangan)
-#
-# Root release/ hanya见效 setelah `crate-type` disederhanakan jadi rlib.
-# Sisa bocornya pindah ke `deps/`: Cargo menaruh intermediate dengan nama
-# ber-hash (libvocalyx_lib-<hash>.rlib), jadi pola polos "libvocalyx_lib.rlib"
-# tidak pernah kena. Deps/ berisi 1,2 GB artifact semua crate, tapi hanya
-# milik VocaLyx sendiri yang jadi target - artefak dependency milik orang lain
-# dibiarkan supaya rebuild tidak memaksa compile ulang seluruh graph.
+
+
+
+
+
+
+
+
 TARGETS = [
     ("", "vocalyx_lib.lib", "import lib cdylib (bocor nama fungsi)"),
     ("", "libvocalyx_lib.rlib", "intermediate rlib (bocor nama fungsi)"),
@@ -64,17 +64,17 @@ TARGETS = [
     ("deps", "vocalyx*.d", "dependency file VocaLyx di deps/ (bocor path absolut)"),
 ]
 
-# Tidak boleh ikut terhapus: exe dan resource ini yang benar-benar dikirim.
-# Berlaku hanya untuk root - di deps/ `vocalyx.exe` justru duplikat yang aman
-# dihapus, jadi pengecualiannya sengaja tidak ikut ke sana.
+
+
+
 KEEP = {"vocalyx.exe"}
 
-# IMAGE_DEBUG_DIRECTORY: Characteristics, TimeDateStamp, MajorVersion,
-# MinorVersion, Type, SizeOfData, AddressOfRawData, PointerToRawData.
+
+
 _DEBUG_DIR_FMT = "<IIHHIIII"
 _DEBUG_DIR_SIZE = struct.calcsize(_DEBUG_DIR_FMT)
 _IMAGE_DEBUG_TYPE_CODEVIEW = 2
-# Index data directory "Debug" di optional header PE.
+
 _DEBUG_DIR_INDEX = 6
 
 

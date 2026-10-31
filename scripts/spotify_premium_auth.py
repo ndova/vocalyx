@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Otorisasi Spotify Premium sekali-pakai via Spotify Connect (tanpa password).
 
 Alur: server Zeroconf bernama "Tokek" disiarkan di jaringan lokal ->
@@ -23,9 +23,9 @@ import sys
 import tempfile
 import time
 
-# Self-bootstrap: interpreter bundled (embeddable, isolated) mengabaikan
-# PYTHONPATH, jadi paket staging (librespot/...) di direktori file ini harus
-# dimasukkan ke sys.path secara eksplisit. Tanpa ini: No module named 'librespot'.
+
+
+
 def _vx_bootstrap():
     try:
         here = os.path.dirname(os.path.abspath(__file__))
@@ -71,8 +71,8 @@ def fail(msg):
     except Exception:
         pass
     _cleanup_tmp()
-    # os._exit: bypass thread non-daemon librespot yang bisa menahan shutdown
-    # interpreter selamanya (membuat proses basi memegang port mDNS 5353).
+    
+    
     os._exit(1)
 
 
@@ -124,7 +124,7 @@ def main():
                     pass
                 time.sleep(1)
         finally:
-            # close() bisa men-hang; batasi 3 detik lewat thread daemon
+            
             try:
                 import threading
                 t = threading.Thread(target=lambda: _quiet(server.close), daemon=True)
@@ -151,14 +151,14 @@ def main():
         if os.path.exists(out):
             os.remove(out)
         os.rename(tmp_out, out)
-        # Batasi akses file (Windows: atribut bacaan pemilik saja diusahakan best-effort)
+        
         try:
             os.chmod(out, 0o600)
         except Exception:
             pass
         emit({"ok": True, "path": out, "username": username})
-        # Pastikan baris JSONสุดท้าย sampai ke pipe Node sebelum proses exit
-        # (stdout piped bisa ter-buffer; tanpa flush+sleep Node kadang hanya dapat 'close' kosong)
+        
+        
         try:
             sys.stdout.flush()
         except Exception:
@@ -168,8 +168,8 @@ def main():
         except Exception:
             pass
         _cleanup_tmp()
-        # Exit paksa: thread non-daemon librespot bisa menahan shutdown
-        # interpreter selamanya (proses basi memegang port mDNS 5353).
+        
+        
         os._exit(0)
     finally:
         try:

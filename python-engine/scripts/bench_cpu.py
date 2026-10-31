@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Benchmark waktu separasi CPU untuk beberapa model karaoke/instrumental.
 
 Menjalankan build_instrumental_from_models dengan satu model per uji,
@@ -12,11 +12,11 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-import win_nowindow  # noqa: E402
+import win_nowindow  
 
 win_nowindow.hide_child_consoles()
 
-import vx_karaoke_sep as sep  # noqa: E402
+import vx_karaoke_sep as sep  
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 OUT = ROOT / "benchmarks" / "cpu"

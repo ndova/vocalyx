@@ -38,11 +38,11 @@ MODEL_DIR = Path(_MODELS_OVERRIDE) if _MODELS_OVERRIDE else (
     Path(os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))) / "audio-separator-models"
 )
 PUBLIC_REPO = "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models"
-# Checkpoint RoFormer (.ckpt) tidak ada di PUBLIC_REPO (404); semuanya berikut
-# config yaml-nya ada di repo audio-separator sendiri. Daftar ini terverifikasi
-# ada (98 ckpt + semua yaml, dicek via API GitHub).
+
+
+
 ROFORMER_REPO = "https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs"
-# Pasangan ckpt -> yaml (dari models.json audio-separator 0.47.0).
+
 ROFORMER_CONFIGS = {
     "bs_roformer_instrumental_resurrection_unwa.ckpt":
         "config_bs_roformer_instrumental_resurrection_unwa.yaml",
@@ -54,19 +54,19 @@ ROFORMER_CONFIGS = {
         "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956_config.yaml",
     "mel_band_roformer_karaoke_gabox_v2.ckpt":
         "config_mel_band_roformer_karaoke_gabox.yaml",
-    # Tahap-2 dereverb (v14): rantai preferensi, yang less-aggressive dulu
-    # supaya room musik tidak ikut dikeringkan. Keduanya ada di
-    # ROFORMER_REPO (release "model-configs" nomadkaraoke) dan terdaftar di
-    # models.json audio-separator, jadi Separator bisa memuatnya.
+    
+    
+    
+    
     "dereverb_mel_band_roformer_less_aggressive_anvuew_sdr_18.8050.ckpt":
         "dereverb_mel_band_roformer_anvuew.yaml",
     "dereverb_mel_band_roformer_anvuew_sdr_19.1729.ckpt":
         "dereverb_mel_band_roformer_anvuew.yaml",
 }
 
-# Rantai model dereverb tahap-2 untuk preset karaoke_aufr33 (CUDA saja).
-# Less-aggressive pertama; kalau gagal/unduhan gagal, coba standar; kalau
-# keduanya gagal, instrumental mentah dipakai (fallback, bukan failed).
+
+
+
 DEREVERB_CHAIN = (
     "dereverb_mel_band_roformer_less_aggressive_anvuew_sdr_18.8050.ckpt",
     "dereverb_mel_band_roformer_anvuew_sdr_19.1729.ckpt",
@@ -74,12 +74,12 @@ DEREVERB_CHAIN = (
 
 MIN_MODEL_BYTES = 8 * 1024 * 1024
 
-# Checkpoint torch (.ckpt/.pth) adalah arsip zip; model ONNX adalah protobuf
-# dan TIDAK boleh dicek sebagai zip.
+
+
 _ARCHIVE_SUFFIXES = (".ckpt", ".pth", ".pt", ".th")
 
-# Tanda file checkpoint rusak (unduhan terpotong). Dipakai untuk self-heal:
-# hapus + unduh ulang + retry sekali, bukan fallback preset.
+
+
 _CORRUPT_HINTS = (
     "central directory",
     "pytorchstreamreader",
@@ -114,15 +114,15 @@ def _looks_corrupt(ex: BaseException) -> bool:
     return any(h in s for h in _CORRUPT_HINTS)
 
 
-# File meta kecil yang DIUNDUH audio-separator di dalam sep.load_model
-# (single-attempt requests tanpa retry/resume): download_checks.json untuk
-# daftar model, vr_model_data.json + mdx_model_data.json untuk pemetaan
-# hash->parameter. Kasus nyata (CPU, Inst_HQ_4): .onnx sudah lengkap tapi
-# unduhan salah satu JSON ini putus (ConnectionReset 10054) lalu job failed,
-# dan file JSON setengah jadi yang tertinggal membuat run berikutnya gagal
-# lagi (di-skip karena "sudah ada", lalu json.load meledak). Karena itu
-# diambil alih: diunduh dulu dengan retry + validasi di sini, sehingga
-# audio-separator selalu menemukan file valid dan tidak menyentuh jaringan.
+
+
+
+
+
+
+
+
+
 _META_BASE = "https://raw.githubusercontent.com/TRvlvr/application_data/main"
 _META_JSONS = (
     ("download_checks.json", f"{_META_BASE}/filelists/download_checks.json"),
@@ -273,16 +273,16 @@ def ensure_model_meta(allow_download: bool = True, force: bool = False) -> bool:
             ok_all = False
     return ok_all
 
-# Inferensi native float16. audio-separator 0.47.0 memverifikasi jalur ini untuk
-# (cuda, bs_roformer) dan (cuda, mel_band_roformer) di
-# separator/execution_policy.py::NATIVE_FP16_CAPABILITIES; model di luar daftar
-# itu otomatis jalan fp32 (tidak ada error).
-#
-# Terukur di RTX 3050 Laptop (4 GB), model karaoke anvuew, 60 detik audio:
-#   fp32 62,3 s  VRAM peak 1,52 GB
-#   fp16 26,4 s  VRAM peak 1,02 GB   -> 2,4x lebih cepat, VRAM -33%
-# Kualitas: SNR fp16 vs fp32 = +63 dB dan sisa vokal identik (-20,5 dB),
-# jadi ini penghematan waktu dengan kerugian numerik yang tidak kedengaran.
+
+
+
+
+
+
+
+
+
+
 NATIVE_FP16 = True
 
 
@@ -340,9 +340,9 @@ class Heartbeat(threading.Thread):
         self.stop_ev.set()
 
 
-# --------------------------------------------------------------------------
-# model files
-# --------------------------------------------------------------------------
+
+
+
 
 def model_path(model_file: str) -> Path:
     return MODEL_DIR / model_file
@@ -355,10 +355,10 @@ def have_model(model_file: str) -> bool:
             return False
     except Exception:
         return False
-    # Ukuran saja tidak cukup: unduhan terpotong bisa tetap > 8 MB (kasus
-    # nyata: 91,9 MB tapi central directory hilang) lalu meledak saat
-    # load_model. Arsip rusak dianggap tidak ada supaya ensure_model
-    # mengunduh ulang.
+    
+    
+    
+    
     if p.suffix.lower() in _ARCHIVE_SUFFIXES and not _archive_ok(p):
         return False
     return True
@@ -428,10 +428,10 @@ def _download_one(url: str, dest: Path) -> bool:
                         else:
                             eprint(f"[KaraokeSep] {dest.name}: {got/1e6:.0f} MB ({rate:.2f} MB/s)")
         size = tmp.stat().st_size
-        # Sukses palsu: koneksi putus diam-diam (read pulang b"" normal)
-        # menghasilkan file terpotong yang TETAP bisa > MIN_MODEL_BYTES.
-        # Tanpa cek ini, file cacat di-rename jadi resmi dan meledak saat
-        # load_model di semua PC dengan koneksi tidak stabil.
+        
+        
+        
+        
         if total is not None and got < total:
             eprint(f"[KaraokeSep] unduhan {dest.name} tidak lengkap "
                    f"({got/1e6:.0f}/{total/1e6:.0f} MB) — .part disimpan, lanjutkan run berikutnya")
@@ -443,8 +443,8 @@ def _download_one(url: str, dest: Path) -> bool:
             eprint(f"[KaraokeSep] unduhan {dest.name} kosong")
             return False
         tmp.replace(dest)
-        # Lapisan terakhir saat total tak diketahui server (chunked): pastikan
-        # arsip checkpoint benar-benar bisa dibuka sebelum dinyatakan siap.
+        
+        
         if dest.suffix.lower() in _ARCHIVE_SUFFIXES and not _archive_ok(dest):
             eprint(f"[KaraokeSep] {dest.name} lengkap {size/1e6:.1f} MB tapi arsip rusak — dibuang, unduh ulang dari nol berikutnya")
             try:
@@ -518,7 +518,7 @@ def ensure_model(model_file: str, allow_download: bool = True,
     if force_fresh:
         _quarantine(model_file)
     elif have_model(model_file):
-        # Untuk ckpt, pastikan yaml pasangannya juga ada.
+        
         cfg = ROFORMER_CONFIGS.get(model_file)
         if cfg and not model_path(cfg).is_file():
             if not allow_download:
@@ -581,7 +581,7 @@ def combine_instrumentals(mix: np.ndarray,
             total = float(len(parts))
             parts = [(a, 1.0) for a, _ in parts]
         return dsp.weighted_sum(mix, parts, total)
-    # Ensembler library: CPU-only, tanpa VRAM.
+    
     from audio_separator.separator.ensembler import Ensembler
 
     log = logging.getLogger("KaraokeSep")
@@ -597,16 +597,16 @@ def combine_instrumentals(mix: np.ndarray,
     return dsp.to_stereo(dsp.fit_length(out, n)).astype(np.float32)
 
 
-# --------------------------------------------------------------------------
-# separator
-# --------------------------------------------------------------------------
 
-# Overlap inferensi MDXC/RoFormer (v15): yaml aufr33 memakai num_overlap=4;
-# menaikkan ke 8 adalah praktik standar komunitas (UVR/MVSEP) untuk estimasi
-# mask lebih halus di batas chunk -> transient/treble lebih utuh ("mendem"
-# berkurang di sumbernya, bukan via EQ). Hanya berlaku untuk arch MDXC
-# (termasuk MelBand RoFormer); model ONNX/MDX/VR mengabaikan mdxc_params.
-# VOCALYX_OVERLAP memaksa nilai lain (mis. "4" untuk A/B vs perilaku lama).
+
+
+
+
+
+
+
+
+
 SEP_OVERLAP = 8
 
 
@@ -742,8 +742,8 @@ def separate_one(model_file: str, inp: Path, work_dir: Path, device: str,
     out_dir = work_dir / model_path(model_file).stem
     out_dir.mkdir(parents=True, exist_ok=True)
     want_ov = _wanted_overlap()
-    # Hanya model .ckpt (keluarga MDXC/RoFormer) yang memakai overlap; untuk
-    # ONNX/VR, fallback tidak ada gunanya dan hanya menggandakan waktu.
+    
+    
     can_retry_ov = model_file.lower().endswith(".ckpt") and want_ov is not None
     attempts = [want_ov] + ([None] if can_retry_ov else [])
     last_ex: Exception | None = None
@@ -755,10 +755,10 @@ def separate_one(model_file: str, inp: Path, work_dir: Path, device: str,
             try:
                 sep.load_model(model_filename=model_file)
             except Exception as load_ex:
-                # Self-heal (bukan fallback preset): file yang lolos validasi
-                # tapi ternyata corrupt (mis. rusak di luar unduhan) diunduh
-                # ulang sekali lalu load dicoba sekali lagi. Selain tanda
-                # corrupt (OOM, config, dvll) langsung diteruskan.
+                
+                
+                
+                
                 if _looks_corrupt(load_ex):
                     eprint(f"[KaraokeSep] {model_file} corrupt saat load "
                            f"({load_ex}); unduh ulang dari nol lalu coba sekali lagi")
@@ -909,9 +909,9 @@ def build_instrumental_from_models(weights, inp: Path, out_dir: Path, device: st
     Semua model dikonversi ke instrumental dulu sebelum dijumlahkan, jadi tidak
     ada lagi ``amix`` ffmpeg yang menjumlahkan stem dengan level beda-beda.
     """
-    # Meta JSON audio-separator (download_checks + vr/mdx model_data) diambil
-    # dulu dengan retry: tanpa ini, sep.load_model mengunduhnya single-attempt
-    # dan ConnectionReset di tengah jalan menggagalkan seluruh job.
+    
+    
+    
     emit_progress(3.0, "download:model-meta")
     ensure_model_meta(allow_download=allow_download)
     todo = []
@@ -928,9 +928,9 @@ def build_instrumental_from_models(weights, inp: Path, out_dir: Path, device: st
         raise RuntimeError("tidak ada model yang bisa dipakai")
 
     if (device or "").lower() in ("cpu",):
-        # Separator tidak menerima parameter device; ia memilih CUDA begitu
-        # torch.cuda.is_available() -> True. Untuk memaksa CPU, nonaktifkan
-        # deteksi CUDA SEBELUM Separator dibuat.
+        
+        
+        
         try:
             import torch
 
@@ -967,20 +967,20 @@ def build_instrumental_from_models(weights, inp: Path, out_dir: Path, device: st
         try:
             found, primary, second = separate_one(name, inp, work_dir, device, f0, f1)
 
-            # Jalur sederhana: pakai STEM INSTRUMENTAL dari model apa adanya.
-            #
-            # Jangan tambahkan masking di sini. Versi sebelumnya memakai
-            # magnitude_subtract + adaptive_center_suppress + boost HF, dan itu
-            # yang menghasilkan "suara air": dua mask multiplicatif berturut-turut
-            # di channel mid, error-nya menumpuk, dan harmonik vokal terpotong
-            # sebagian-setengah. Terukur: burst envelope 12-16 kHz di frame hening
-            # naik dari 0.197 (sumber) ke 0.348, dan detail backing ikut turun.
-            # Stem mentah model + loudness-match menghasilkan korelasi 0.987 dengan
-            # file yangPENGGUNA sukai, dan 4.3x lebih cepat.
-            #
-            # Kim_Vocal_2 memberi instrumental sebagai stem sekunder; RoFormer
-            # bisa memberi primary atau secondary tergantung modelnya, jadi
-            # keduanya diperiksa.
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
             inst = None
             for cand in (second, found):
                 if cand is None:
@@ -1007,8 +1007,8 @@ def build_instrumental_from_models(weights, inp: Path, out_dir: Path, device: st
 
     inst = combine_instrumentals(mix, inst_parts, algorithm=algorithm)
 
-    # Tahap-2 (v14, CUDA saja): keringkan sisa reverb hantu vokal, lalu blend
-    # 65/35 dengan mentah. Gagal -> mentah dipakai (fallback, bukan failed).
+    
+    
     if dereverb and _dereverb_enabled() and (device or "").lower() != "cpu":
         try:
             clean = dereverb_instrumental(inst, work_dir, device,

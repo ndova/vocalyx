@@ -303,9 +303,9 @@ async def iphone_devices():
             return _apple_driver_error()
     mux = await _mux_devices_snapshot()
     if not mux:
-        # usbmux jalan tapi tak ada device: bukan error driver, melainkan
-        # kabel/belum trust/belum unlock. Kembalikan ok=True + devices kosong
-        # supaya frontend menampilkan hint kabel, bukan panduan install driver.
+        
+        
+        
         return {"ok": True, "devices": [], "code": "ERR_NO_DEVICE",
                 "error": "tidak ada iPhone di usbmux",
                 "hint": "Tidak ada iPhone terdeteksi: pakai kabel DATA USB, colok langsung ke PC, "
@@ -459,6 +459,64 @@ async def iphone_library_tracks(limit: int = 200, offset: int = 0):
     except Exception as e:
         log.error("library tracks fail: %s", e, exc_info=True)
         return {"ok": False, "error": str(e), "tracks": []}
+    finally:
+        if lockdown:
+            try:
+                await lockdown.close()
+            except Exception:
+                pass
+
+
+@router.get("/iphone/video")
+async def iphone_video_list():
+    """List video entries (TV app Home Videos) from MediaLibrary.
+
+    Videos are stored as item.media_type=2048 (exact recipe used by
+    3uTools), so filtering on 2048 picks up both our own imports and
+    3uTools-made ones.
+    """
+    lockdown = None
+    try:
+        from pymobiledevice3.lockdown import create_using_usbmux
+        from pymobiledevice3.services.afc import AfcService
+        lockdown = await _open_lockdown()
+        async with AfcService(lockdown) as afc:
+            tmp = await _pull_media_db(afc)
+            try:
+                conn = sqlite3.connect(tmp)
+                cur = conn.cursor()
+                cur.execute("""
+                    SELECT item.item_pid, item_extra.title,
+                           item_extra.total_time_ms, item_extra.file_size,
+                           item_extra.location, base_location.path
+                    FROM item
+                    JOIN item_extra ON item.item_pid=item_extra.item_pid
+                    LEFT JOIN base_location ON
+                        item.base_location_id=base_location.base_location_id
+                    WHERE item.media_type=2048
+                    ORDER BY item_extra.title COLLATE NOCASE
+                """)
+                rows = cur.fetchall()
+                conn.close()
+            finally:
+                try:
+                    os.remove(tmp)
+                except Exception:
+                    pass
+            videos = []
+            for r in rows:
+                pid, title, tms, fsize, loc, base = r
+                full = f"/{base}/{loc}" if base and loc else ""
+                ext = (Path(loc).suffix.lstrip('.') if loc else '').upper()
+                videos.append({
+                    "item_pid": pid, "title": title, "ext": ext,
+                    "duration_ms": int(tms or 0), "file_size": int(fsize or 0),
+                    "location": loc, "base_path": base, "full_path": full,
+                })
+        return {"ok": True, "videos": videos, "total": len(videos)}
+    except Exception as e:
+        log.error("video list fail: %s", e, exc_info=True)
+        return {"ok": False, "error": str(e), "videos": []}
     finally:
         if lockdown:
             try:
@@ -1950,6 +2008,102 @@ def _add_track_to_db(db_path, loc_filename, title, artist, album, file_size, met
 _import_jobs: dict = {}
 
 
+def _add_video_track_to_db(db_path, loc_filename, title, file_size, duration_ms=0):
+    """Insert a VIDEO entry (TV app "Home Videos") into MediaLibrary tables.
+
+    Recipe extracted from a real 3uTools-imported row ("Kanye West -
+    Runaway", dump of MediaLibrary.sqlitedb):
+      * item.media_type = 2048 and item_state.media_type = 2048 (video,
+        not 8 = music)
+      * item_extra.media_kind = 2 (not 11/1)
+      * file lives in the ordinary music folder (base_location
+        'iTunes_Control/Music/F00'); no separate Videos folder exists
+      * NO genre/album/album_artist/item_artist rows (pid refs = 0)
+      * no container_item row; playback_endpoint_type is NOT set in
+        item_state/item_store (music sets 3)
+      * item_playback: audio_format=502, bit_rate=127, codec_type=0,
+        codec_subtype=0, duration=0, sample_rate=0.0, format=NULL,
+        has_video=0
+      * item_extra.integrity stays NULL (fabricating tokens makes the
+        item unplayable, see _add_track_to_db warning)
+    """
+    import random
+    conn = sqlite3.connect(db_path)
+    conn.execute("PRAGMA journal_mode=WAL")
+    cur = conn.cursor()
+
+    cur.execute("SELECT max(item_pid) FROM item")
+    new_pid = (cur.fetchone()[0] or 0) + 1
+
+    for _t in ['item_extra', 'item_stats', 'item_playback', 'item_search',
+               'item_video', 'lyrics', 'item_store', 'item_state',
+               'container_item']:
+        cur.execute(f"DELETE FROM [{_t}] WHERE item_pid=?", (new_pid,))
+    cur.execute("DELETE FROM entity_revision WHERE entity_pid=? AND class=0"
+                " AND revision_type=0", (new_pid,))
+
+    cur.execute("SELECT base_location_id FROM base_location WHERE path='iTunes_Control/Music/F00'")
+    row = cur.fetchone()
+    if row:
+        base_location_id = row[0]
+    else:
+        base_location_id = 3840
+        cur.execute("INSERT OR IGNORE INTO base_location (base_location_id, path) VALUES (?, ?)",
+                    (base_location_id, 'iTunes_Control/Music/F00'))
+
+    apple_epoch = 978307200
+    now = int((time.time() - apple_epoch) * 1000)
+    title_ord = _title_hash(title)
+    title_sec = _section_index(title)
+
+    cur.execute("""INSERT INTO item (
+        item_pid, media_type, title_order, title_order_section,
+        item_artist_pid, item_artist_order, item_artist_order_section,
+        album_pid, album_order, album_order_section,
+        album_artist_pid, album_artist_order, album_artist_order_section,
+        genre_id, base_location_id, in_my_library, keep_local, keep_local_status,
+        is_compilation, date_added, date_downloaded, disc_number, track_number
+    ) VALUES (?, 2048, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ?, 1, 1, 2, 0, ?, ?, 0, 0)""",
+                (new_pid, title_ord, title_sec, base_location_id, now, now))
+
+    cur.execute("""INSERT INTO item_extra (
+        item_pid, title, sort_title, total_time_ms, location, file_size,
+        date_modified, media_kind, location_kind_id, year
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 2, 0, 0)""",
+                (new_pid, title, title, duration_ms or 0, loc_filename,
+                 file_size, now))
+
+    for table in ['item_stats', 'item_playback', 'item_search', 'item_video',
+                  'lyrics', 'item_store']:
+        cur.execute(f"INSERT INTO {table} (item_pid) VALUES (?)", (new_pid,))
+
+    cur.execute("UPDATE item_playback SET audio_format=502, bit_rate=127, "
+                "codec_type=0, codec_subtype=0, duration=0, sample_rate=0.0, "
+                "format=NULL, has_video=0 WHERE item_pid=?", (new_pid,))
+
+    cur.execute("UPDATE item_state SET is_library_added=1, has_non_purgeable_asset=1, "
+                "is_valid_content_type=1, media_type=2048, title=?, location=? "
+                "WHERE item_pid=?",
+                (title, loc_filename, new_pid))
+
+    sync_id = random.getrandbits(62)
+    cur.execute("UPDATE item_store SET sync_id=?, sync_in_my_library=1 "
+                "WHERE item_pid=?", (sync_id, new_pid))
+
+    cur.execute("SELECT max(revision) FROM entity_revision")
+    max_rev = cur.fetchone()[0] or 0
+    cur.execute("INSERT INTO entity_revision (revision, entity_pid, deleted, class, revision_type) VALUES (?, ?, 0, 0, 0)",
+                (max_rev + 1, new_pid))
+
+    cur.execute("UPDATE item_search SET search_title=?, search_album=0, search_artist=0, "
+                "search_composer=0, search_album_artist=0 WHERE item_pid=?",
+                (title_ord, new_pid))
+
+    conn.commit()
+    conn.close()
+    return new_pid
+
+
 @router.post("/iphone/import")
 async def iphone_import(payload: dict):
     """Import a single music file to iPhone.
@@ -2254,5 +2408,210 @@ async def iphone_import_cancel(payload: dict):
     if job:
         job["status"] = "cancelled"
     return {"ok": True}
+
+
+@router.post("/iphone/import_batch_video")
+async def iphone_import_batch_video(payload: dict):
+    """Batch import video files to iPhone (TV app "Home Videos").
+
+    Body: { "files": [{"path": "...", "title": "..."}, ...],
+            "delete_pids": [item_pid, ...] (optional, deleted first) }
+
+    Files are uploaded to /iTunes_Control/Music/F00/ FIRST and the DB
+    entry is only created after the upload succeeded, so a failed upload
+    can never leave a corrupt/missing-entry row behind.
+    """
+    files = payload.get("files", [])
+    delete_pids = payload.get("delete_pids", []) or []
+    if not files and not delete_pids:
+        return JSONResponse({"ok": False, "error": "no files"}, status_code=400)
+
+    job_id = f"impvid_{int(time.time() * 1000)}"
+    _import_jobs[job_id] = {
+        "status": "running", "total": len(files), "done": 0,
+        "current": "", "results": [],
+        "snapshot": "", "deleted": [],
+        "delete_total": len(delete_pids or []),
+    }
+    asyncio.create_task(_run_import_batch_video(job_id, files, delete_pids))
+    return {"ok": True, "job_id": job_id}
+
+
+async def _run_import_batch_video(job_id: str, files: list, delete_pids=None):
+    """Background task: delete listed pids, then upload+register videos."""
+    lockdown = None
+    try:
+        from pymobiledevice3.lockdown import create_using_usbmux
+        from pymobiledevice3.services.afc import AfcService
+
+        lockdown = await _open_lockdown(timeout=90)
+        async with AfcService(lockdown) as afc:
+            tmp = await _pull_media_db(afc)
+            try:
+                _del = sqlite3.connect(tmp)
+                _dcur = _del.cursor()
+                _del_total = len(delete_pids or [])
+                for _i, _pid in enumerate(delete_pids or []):
+                    try:
+                        _pid = int(_pid)
+                    except Exception:
+                        continue
+                    job = _import_jobs.get(job_id, {})
+                    if job.get("status") == "cancelled":
+                        break
+                    _dcur.execute("""
+                        SELECT location, base_location.path
+                        FROM item_extra
+                        JOIN item ON item_extra.item_pid=item.item_pid
+                        JOIN base_location ON item.base_location_id=
+                            base_location.base_location_id
+                        WHERE item_extra.item_pid=?
+                    """, (_pid,))
+                    _row = _dcur.fetchone()
+                    _loc = (_row[0] if _row and _row[0] else None)
+                    _full = (f"/{_row[1]}/{_row[0]}"
+                             if _row and _row[0] and _row[1] else None)
+                    _name = Path(_loc).name if _loc else f"pid={_pid}"
+                    _import_jobs[job_id]["current"] = (
+                        f"Menghapus {_i + 1}/{_del_total} — {_name}")
+                    for _tbl in ["item_extra", "item", "item_stats",
+                                 "item_playback", "item_search",
+                                 "item_video", "lyrics", "item_store",
+                                 "item_state", "container_item"]:
+                        _dcur.execute(f"DELETE FROM [{_tbl}] WHERE"
+                                      " item_pid=?", (_pid,))
+                    _clear_artwork_rows(_del, _pid)
+                    _del.commit()
+                    _import_jobs[job_id]["deleted"].append(_pid)
+                    if _full:
+                        try:
+                            await asyncio.wait_for(afc.rm(_full), 60)
+                        except Exception as _e:
+                            log.warning("rm file fail %s: %s", _full, _e)
+                _del.close()
+                if _import_jobs.get(job_id, {}).get("status") != "cancelled":
+                    _import_jobs[job_id]["current"] = ""
+            except Exception as _e:
+                log.error("video batch delete fail: %s", _e, exc_info=True)
+                _import_jobs[job_id]["status"] = "error"
+                _import_jobs[job_id]["error"] = f"delete fail: {_e}"
+                return
+
+            pids = []
+            last_error = ""
+
+            for i, f in enumerate(files):
+                job = _import_jobs.get(job_id, {})
+                if job.get("status") == "cancelled":
+                    break
+
+                file_path = f.get("path", "")
+                title = f.get("title", "") or (Path(file_path).stem if file_path else "Video")
+                fname = Path(file_path).name if file_path else "?"
+
+                try:
+                    if not file_path or not os.path.isfile(file_path):
+                        last_error = f"{fname}: file not found"
+                        _import_jobs[job_id]["results"].append(
+                            {"path": file_path, "ok": False, "error": "file not found"})
+                        _import_jobs[job_id]["done"] = i + 1
+                        continue
+
+                    file_size = os.path.getsize(file_path)
+                    ext = Path(file_path).suffix.lower() or ".mp4"
+                    loc_filename = _random_name(4) + ext
+                    _import_jobs[job_id]["current"] = fname
+
+                    with open(file_path, 'rb') as fh:
+                        audio_data = fh.read()
+                    if not audio_data:
+                        last_error = f"{fname}: file kosong"
+                        _import_jobs[job_id]["results"].append(
+                            {"path": file_path, "ok": False, "error": "empty file"})
+                        _import_jobs[job_id]["done"] = i + 1
+                        continue
+
+                    # Duration best-effort (mutagen understands .m4v/.mp4)
+                    duration_ms = 0
+                    try:
+                        meta = _audio_meta(file_path)
+                        duration_ms = int(meta.get('duration_ms') or 0)
+                    except Exception:
+                        duration_ms = 0
+
+                    # 1) Upload file first — DB only touched on success.
+                    await asyncio.wait_for(
+                        afc.set_file_contents(
+                            f'/iTunes_Control/Music/F00/{loc_filename}',
+                            audio_data),
+                        600)
+
+                    # 2) Register the video row in the device DB.
+                    pid = _add_video_track_to_db(
+                        tmp, loc_filename, title, file_size,
+                        duration_ms=duration_ms)
+                    pids.append(pid)
+
+                    _import_jobs[job_id]["results"].append({
+                        "path": file_path, "ok": True, "pid": pid,
+                        "location": loc_filename, "size": file_size,
+                    })
+                except Exception as e:
+                    log.error("import video file %s fail: %s",
+                              file_path, e, exc_info=True)
+                    last_error = f"{fname}: {e}"
+                    _import_jobs[job_id]["results"].append(
+                        {"path": file_path, "ok": False, "error": str(e)})
+                    # Roll back any half-written device file so no
+                    # corrupt entry can appear in the library.
+                    if file_path and os.path.isfile(file_path):
+                        try:
+                            await asyncio.wait_for(
+                                afc.rm(f'/iTunes_Control/Music/F00/{loc_filename}'),
+                                60)
+                        except Exception:
+                            pass
+
+                _import_jobs[job_id]["done"] = i + 1
+
+            try:
+                await _push_media_db(afc, tmp)
+            except Exception as e:
+                log.error("video DB push fail: %s", e, exc_info=True)
+                _import_jobs[job_id]["status"] = "error"
+                _import_jobs[job_id]["error"] = f"Import video gagal: DB upload fail: {e}"
+                return
+
+            try:
+                os.remove(tmp)
+            except Exception:
+                pass
+
+    except Exception as e:
+        log.error("import video batch fail: %s", e, exc_info=True)
+        _import_jobs[job_id]["status"] = "error"
+        _import_jobs[job_id]["error"] = f"Import video gagal: {e}"
+        return
+    finally:
+        if lockdown:
+            try:
+                await lockdown.close()
+            except Exception:
+                pass
+
+    job = _import_jobs.get(job_id, {})
+    if job.get("status") == "cancelled":
+        return
+    fails = len([r for r in job.get("results", []) if not r.get("ok")])
+    if pids and fails == 0:
+        job["status"] = "done"
+        job["current"] = f"{len(pids)} video diimpor."
+    elif pids and fails:
+        job["status"] = "done"
+        job["current"] = f"{len(pids)} video diimpor. ({fails} failed)"
+        job["error"] = f"Import video gagal sebagian: {last_error}"
+    else:
+        job["status"] = "error"
+        job["error"] = f"Import video gagal: {last_error or 'tidak ada file yang berhasil'}"
 
 

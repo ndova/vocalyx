@@ -185,18 +185,18 @@ function syncLyrics(cur) {
 const LYROFF_KEY = 'vocalyx_lyricOffset_v1';
 const LYROFF_UI_KEY = 'vocalyx_lyricOffsetUI_v2';
 const LYROFF_UI_OLD_KEY = 'vocalyx_lyricOffsetUI_v1';
-function migrateLyricOffsetUI(){   // semantik v1 dibalik tanpa pindah nilai, jadi nilai lama harus dibalik
+function migrateLyricOffsetUI(){   
   let old = null;
   try { old = localStorage.getItem(LYROFF_UI_OLD_KEY); } catch {}
   if (old === null) return;
-  const shown = old === '0';   // v1: '1' = collapsed, jadi dibalik -> '1' = tampil
+  const shown = old === '0';   
   try {
     localStorage.setItem(LYROFF_UI_KEY, shown ? '1' : '0');
     localStorage.removeItem(LYROFF_UI_OLD_KEY);
   } catch {}
 }
 migrateLyricOffsetUI();
-function isLyricOffsetShown(){ return readFlag(LYROFF_UI_KEY); }   // '1' = panel tampil, default tersembunyi
+function isLyricOffsetShown(){ return readFlag(LYROFF_UI_KEY); }   
 function readFlag(key){
   try { return localStorage.getItem(key) === '1'; } catch { return false; }
 }
@@ -233,7 +233,7 @@ function syncLyricOffsetUI(){
   const synced = isSynced(S.lyricLines);
   if (wrap) wrap.style.display = synced ? 'block' : 'none';
   const body = document.getElementById('lyrOffBody');
-  const open = isLyricOffsetShown();   // synced = ada lirik sinkron; open = user menekan tombol jam
+  const open = isLyricOffsetShown();   
   if (body) {
     body.style.display = synced && open ? 'block' : 'none';
     body.classList.toggle('lyr-hidden', synced && !open);
@@ -249,7 +249,7 @@ function syncLyricOffsetUI(){
     const v = S.lyricOffsetMs;
     badge.textContent = (v > 0 ? '+' : '') + v + 'ms';
     badge.title = v === 0 ? t('lyr.onBeat') : (v > 0 ? t('lyr.early') : t('lyr.late'));
-    badge.style.display = open ? '' : 'none';   // badge ikut disembunyikan sampai panel dibuka
+    badge.style.display = open ? '' : 'none';   
   }
   const slider = document.getElementById('lyrOffSlider');
   if (slider && document.activeElement !== slider) slider.value = String(Math.max(-10000, Math.min(10000, S.lyricOffsetMs)));

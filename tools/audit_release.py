@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from audit_protection import audit_installer, fails  # noqa: E402
+from audit_protection import audit_installer, fails  
 
 
 def main() -> int:

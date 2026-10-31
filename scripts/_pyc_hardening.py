@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Hardening bytecode .pyc VocaLyx (satu sumber kebenaran).
 
 Masalah yang ditutup:
@@ -40,8 +40,8 @@ def _strip_docstrings(tree: ast.Module) -> bool:
                     and isinstance(body[0].value, ast.Constant)
                     and isinstance(body[0].value.value, str)):
                 if len(body) == 1:
-                    # `class X: """doc"""` -> body kosong = ValueError
-                    # saat compile; ganti dengan `pass`.
+                    
+                    
                     body[0] = ast.copy_location(ast.Pass(), body[0])
                 else:
                     del body[0]
@@ -88,7 +88,7 @@ def compile_file_hardened(src: Path, dst: Path, arcname: str) -> bool:
     try:
         st = src.stat()
         data = importlib.util.MAGIC_NUMBER
-        data += (0).to_bytes(4, "little")  # flags=0: timestamp-based, spt compileall
+        data += (0).to_bytes(4, "little")  
         data += int(st.st_mtime).to_bytes(4, "little")
         data += st.st_size.to_bytes(4, "little")
         data += marshal.dumps(code)
@@ -139,19 +139,19 @@ def check_tree_hardened(root: Path) -> list[str]:
         except Exception:
             continue
         low = raw.decode("latin1").lower()
-        # Path absolut mesin builder tidak boleh ada.
+        
         for needle in ("d:\\folder baru", "d:/folder baru", "vocalyx\\build",
                        "vocalyx/build", "src-tauri\\src", "src-tauri/src"):
             if needle in low:
                 issues.append(f"{pyc.name}: bocor path '{needle}'")
                 break
-        # Docstring modul = const string pertama code object top-level.
+        
         try:
             code = marshal.loads(raw[16:])
             if code.co_consts and isinstance(code.co_consts[0], str):
                 head = code.co_consts[0][:80]
-                # Docstring khas VocaLyx panjang/deskriptif; string runtime
-                # pendek seperti "ARL_KOSONG" tidak dihitung bocor.
+                
+                
                 if len(code.co_consts[0]) > 40 or "\n" in head:
                     issues.append(
                         f"{pyc.name}: docstring modul masih ada "

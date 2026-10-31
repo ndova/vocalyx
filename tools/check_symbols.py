@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from audit_protection import audit_exe  # noqa: E402
+from audit_protection import audit_exe  
 
 
 def main() -> int:

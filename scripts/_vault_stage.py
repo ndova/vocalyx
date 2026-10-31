@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Sisi build untuk vault .pyv (dipakai build_runtime.py + stage_premium.py).
 
 Loader (python-engine/vx_vault.py) adalah satu-satunya sumber kebenaran
@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "python-engine"))
-import vx_vault  # noqa: E402  (sumber loader; stage jalan di 3.11)
+import vx_vault  
 
 PLACEHOLDER_LINE = 'VAULT_SHARE_A_HEX = "00" * 32'
 

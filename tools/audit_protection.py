@@ -46,8 +46,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# (pola bytes, keterangan, kritis?)
-# Nama fungsi Rust milik VocaLyx + path source. KRITIS.
+
+
 PROBES_CRITICAL = [
     (rb"apply_runtime_env", "nama fungsi engine.rs", True),
     (rb"find_engine_script", "nama fungsi engine.rs", True),
@@ -57,14 +57,14 @@ PROBES_CRITICAL = [
     (rb"vocalyx_lib::engine::(start|restart|gpu)", "nama fungsi crate sendiri", True),
 ]
 
-# Path absolut dependency + entri CodeView. MINOR, alasannya di docstring.
+
 PROBES_MINOR = [
     (rb"RSDS", "entri debug directory CodeView", False),
     (rb"\.cargo[/\\]registry", "path + versi crate pihak ketiga", False),
     (rb"vocalyx\.pdb", "nama PDB di debug directory", False),
 ]
 
-# Nama command Tauri. String wajib untuk IPC - MINOR, bukan gagal.
+
 TAURI_COMMANDS = [
     b"get_engine_config",
     b"set_engine_config",
@@ -76,9 +76,9 @@ TAURI_COMMANDS = [
     b"smtc_set_metadata",
 ]
 
-# Artefak di target/release/ yang tidak pernah masuk installer tapi bocor.
-# Root saja sudah bersih setelah crate-type disederhanakan ke rlib; sisanya
-# pindah ke deps/ dengan nama ber-hash, jadi harus dicek terpisah.
+
+
+
 RELEASE_DIR_JUNK = [
     "vocalyx_lib.lib",
     "libvocalyx_lib.rlib",
@@ -89,9 +89,9 @@ RELEASE_DIR_JUNK = [
     "vocalyx_lib.dll.lib",
 ]
 
-# Di deps/: intermediate milik VocaLyx saja. Artefak dependency milik orang lain
-# dibiarkan - isinya cuma path registry + versi crate (minor), dan menghapusnya
-# akan memaksa compile ulang seluruh graph.
+
+
+
 DEPS_JUNK_GLOBS = [
     "libvocalyx_lib-*.rlib",
     "libvocalyx_lib-*.rmeta",
@@ -127,7 +127,7 @@ def _scan(data: bytes, probes, show_ctx: bool = True) -> None:
             fails.append(f"probe: {why}")
 
 
-# ------------------------------------------------------------------ --exe
+
 def audit_exe(exe: Path) -> int:
     if not exe.is_file():
         print(f"tidak ada: {exe}")
@@ -145,8 +145,8 @@ def audit_exe(exe: Path) -> int:
     if found_cmds:
         print(f"          {', '.join(found_cmds)}")
 
-    # Frontend Tauri v2 di-embed sebagai blob terkompresi, jadi identifier-nya
-    # tidak muncul sebagai string mentah di exe. Yang bisa dicek adalah dist/.
+    
+    
     ok("frontend tidak bocor sebagai string mentah",
        b"lyrOffsetWrap" not in data and b"vocalyx_downloadOptions" not in data)
     ok("exe bebas console.log", b"console.log(" not in data)
@@ -154,7 +154,7 @@ def audit_exe(exe: Path) -> int:
     return 1 if any(f.startswith("probe:") for f in fails) else 0
 
 
-# --------------------------------------------------------- --release-dir
+
 def audit_release_dir(release: Path) -> int:
     if not release.is_dir():
         print(f"OK {release}: belum dibangun (lewati)")
@@ -194,7 +194,7 @@ def audit_release_dir(release: Path) -> int:
     return 0
 
 
-# ---------------------------------------------------------- --installer
+
 FN_LEAKS = [n.encode() for n in
             ["apply_runtime_env", "find_engine_script", "spawn_ensure_and_start",
              "write_log_note", "requestDlRender", "sweepEnhance", "applyGridWidths"]]
@@ -215,14 +215,14 @@ def _extract(installer: Path, tmp: Path) -> bool:
     """
     if installer.suffix.lower() == ".msi":
         tmp.mkdir(parents=True, exist_ok=True)
-        # HARUS satu string via shell: msiexec menolak argv list hasil
-        # list2cmdline Python (1639 invalid command line), tapi menerima
-        # string perintah yang sama persis.
+        
+        
+        
         cmd = (f'msiexec /a "{installer}" /qb TARGETDIR="{tmp}" '
                f'/l*v "{tmp / "msi.log"}"')
         r = subprocess.run(cmd, capture_output=True, text=True,
                            timeout=1800, shell=True)
-        # msiexec sering balik non-nol meski sukses; yangdicek hasil kerjanya.
+        
         exe = tmp / "vocalyx.exe"
         if not exe.is_file():
             found = list(tmp.rglob("vocalyx.exe"))
@@ -243,8 +243,8 @@ def audit_installer(installer: Path, tmp: Path) -> int:
     if not installer.is_file():
         print(f"tidak ada: {installer}")
         return 2
-    # Always wipe first: 7z will not overwrite into a populated directory, and a
-    # leftover extract from an earlier build would make the audit pass on stale data.
+    
+    
     if tmp.exists():
         shutil.rmtree(tmp)
     if not _extract(installer, tmp):
@@ -263,12 +263,12 @@ def audit_installer(installer: Path, tmp: Path) -> int:
         ok("frontend tidak bocor sebagai string mentah",
            "lyrOffsetWrap" not in raw and "vocalyx_downloadOptions" not in raw)
 
-    # Prasyarat MSVC runtime untuk engine (torch/onnxruntime).
-    # `bundle.resources` memetakan SELURUH folder `assets` ke `assets`, jadi
-    # file rilis duduk di `assets/vcredist/vc_redist.x64.exe` - dan Rust mencari
-    # path itu persis (lihat VC_RESOURCE di src-tauri/src/runtime.rs). Kalau
-    # layout ini berubah tanpa Updating Rust, auto-install kembali gagal
-    # diam-diam: ini bug yang pernah terjadi, jadi jalurnya ikut diawasi.
+    
+    
+    
+    
+    
+    
     vc_exes = [p for p in tmp.rglob("vc_redist.x64.exe") if p.is_file()]
     ok("installer membawa VC Redistributable", bool(vc_exes),
        ", ".join(p.relative_to(tmp).as_posix() for p in vc_exes) or "tidak ditemukan")
@@ -279,8 +279,8 @@ def audit_installer(installer: Path, tmp: Path) -> int:
         ok("VC Redist x64 utuh (±25 MB)", vc_exes[0].stat().st_size > 10_000_000,
            f"{vc_exes[0].stat().st_size / 1e6:.1f} MB")
 
-    # NSIS menaruh payload di root folder ekstrak; MSI memakai
-    # PFiles/VocaLyx/. Cari foldernya, jangan andalkan path tetap.
+    
+    
     eng_dirs = [p for p in tmp.rglob("python-engine") if p.is_dir()]
     ok("installer punya folder python-engine", bool(eng_dirs),
        ", ".join(str(p.relative_to(tmp)) for p in eng_dirs))
@@ -294,8 +294,8 @@ def audit_installer(installer: Path, tmp: Path) -> int:
     ok("requirements-cuda.txt ikut", bool(eng and (eng / "requirements-cuda.txt").is_file()))
     ok("karaoke_best.pyv ikut",
        bool(eng and (eng / "scripts" / "karaoke_best.pyv").is_file()))
-    # Vault engine (lihat python-engine/vx_vault.py): semua modul proprietary
-    # dikirim sebagai .pyv terenkripsi; hanya server+loader yang clear .pyc.
+    
+    
     eng_vault = [p for p in (eng.rglob("*.pyv") if eng else [])]
     ok("vault engine ikut", len(eng_vault) >= 10, f"{len(eng_vault)} file")
     if eng is not None:
@@ -320,9 +320,9 @@ def audit_installer(installer: Path, tmp: Path) -> int:
         ok("engine .pyc bebas docstring modul", not doc_leaks,
            f"bocor: {[p.name for p in doc_leaks][:5]}" if doc_leaks else "")
 
-    # Paket premium (librespot/deemix) ikut terbundel sebagai bytecode.
-    # Tanpa ini, Test Login / Connect Spotify & ARL Deezer gagal di mesin
-    # pengguna karena scripts/*-venv memang tidak pernah ikut installer.
+    
+    
+    
     prem = eng.parent / "premium" if eng else None
     ok("installer punya folder premium", bool(prem and prem.is_dir()),
        str(prem) if prem else "")
@@ -348,7 +348,7 @@ def audit_installer(installer: Path, tmp: Path) -> int:
         ok("deemix+deezer ikut (backend Deezer)",
            (prem / "deezer" / "deemix").is_dir() and (prem / "deezer" / "deezer").is_dir())
         ok("manifest premium ikut", (prem / "manifest.json").is_file())
-        # Vault harus opak: docstring glue tak boleh terbaca mentah.
+        
         glue_doc = {
             "spotify/spotify_premium_auth.pyv":
                 b"Otorisasi Spotify Premium sekali-pakai",
@@ -377,22 +377,22 @@ def audit_installer(installer: Path, tmp: Path) -> int:
                       if n.lower().startswith("runtime/engine/") and n.lower().endswith(".py")]
         ok(f"runtime zip bebas .py engine ({z.name})", not leaked, f"{leaked}" if leaked else "")
 
-    # Frontend Tauri v2 di-embed sebagai blob terkompresi, jadi identifier-nya
-    # tidak bisa dicari di installer. Yang dicek adalah dist/ sebagai sumber
-    # embed - di situ perilaku default harus benar.
+    
+    
+    
     dist = ROOT / "dist"
     js_files = sorted(dist.rglob("*.js")) if dist.is_dir() else []
     ok("dist/ ada (sumber embed frontend)", bool(js_files), f"{len(js_files)} chunk")
     if js_files:
         blob = "".join(p.read_text(encoding="utf8", errors="replace") for p in js_files)
-        # Terser menulis false -> `!1`, true -> `!0`.
+        
         m = re.search(r"spotify:!1.{0,80}?deezer:!1.{0,80}?soundcloud:!0.{0,80}?archive:!0"
                       r".{0,80}?\"4shared\":!0", blob, re.S)
         ok("default strict: spotify+deezer false, sc/archive/4shared true", bool(m),
            "peta default tidak ditemukan di dist/" if not m else "")
         ok("penanda strictV 3 di dist", bool(re.search(r"strictV\s*=\s*3|strictV:3", blob)))
-        # Flag lyric offset harus dibaca sebagai "1 = tampil". Kalau ini hilang,
-        # panel akan kembali auto-show setiap kali ada lirik sinkron.
+        
+        
         ok("lyric offset: flag '1' berarti tampil",
            bool(re.search(r'"1"\s*===\s*localStorage\.getItem\([A-Za-z_$][\w$]*\)', blob)))
         assignments = re.findall(r"strictSources\s*=\s*\{[^}]*\}", blob)
@@ -402,7 +402,7 @@ def audit_installer(installer: Path, tmp: Path) -> int:
     return 0
 
 
-# ------------------------------------------------------------------ main
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Audit proteksi binary VocaLyx")
     ap.add_argument("--exe", type=Path, help="binary rilis untuk diperiksa")
@@ -421,8 +421,8 @@ def main() -> int:
         rc |= audit_release_dir(args.release_dir)
     if args.installer:
         did = True
-        # Ekstrak gagal (mis. msiexec non-nol) TIDAK boleh lolos sebagai OK:
-        # audit_installer mengembalikan non-nol bila tak ada yang diperiksa.
+        
+        
         rc |= audit_installer(args.installer, args.tmp or (ROOT / ".audit-tmp"))
     if not did:
         ap.print_help()

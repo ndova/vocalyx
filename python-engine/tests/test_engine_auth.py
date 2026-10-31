@@ -27,9 +27,9 @@ try:
     _check("token tertulis ke file user-private",
            (tmp / "VocaLyx" / "engine-token").read_text(encoding="ascii").strip() == t1)
     t2 = va.issue_engine_token()
-    # Token DIPAKAI ULANG antar restart (lihat docstring issue_engine_token):
-    # rotasi tiap boot justru memicu kejar-kejaran 401 antara frontend dan
-    # engine. Rotasi terjadi bila file token dihapus.
+    
+    
+    
     _check("token dipakai ulang antar restart", t2 == t1 and len(t2) == 64)
     (tmp / "VocaLyx" / "engine-token").unlink()
     t3 = va.issue_engine_token()

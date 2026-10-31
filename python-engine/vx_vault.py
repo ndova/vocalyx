@@ -1,34 +1,34 @@
-#!/usr/bin/env python3
-# VocaLyx vault loader - buka bytecode terenkripsi (.pyv) di memori.
-#
-# File ini SENGAJA tanpa docstring (komentar hilang saat kompilasi, docstring
-# tidak) dan TIDAK PERNAH di-vault: ia yang membuka vault. Dikirim sebagai
-# .pyc hardened biasa (lihat scripts/_pyc_hardening.py).
-#
-# Dua mode:
-#   impor : `import vx_vault; vx_vault.install()` -> `import vx_download`
-#           transparan bila vx_download.pyv ada di folder yang sama.
-#           Tanpa .pyv (dev): no-op total.
-#   skrip : `python vx_vault.pyc <modul.pyv> [args...]` atau dengan env
-#           VX_VAULT_TARGET=<modul.pyv> (dipakai _premium_backend supaya
-#           call-site subprocess tidak berubah).
-#
-# Format .pyv (v1):
-#   magic 8B "VXVAULT1" | ver 1B (1) | salt 16B | shareB 32B |
-#   arclen 2B BE | arcname (utf-8, mis. "vx_download.py") |
-#   ctlen 4B BE | ct | tag HMAC-SHA256 32B atas semua header+ct.
-# arcname disimpan di header supaya modul nested (scripts/karaoke_best.py)
-# memakai KDF yang sama saat enkrip dan dekrip, apa pun nama filenya.
-# Kunci master M = shareA XOR shareB. shareA ditanam ke file INI saat staging
-# (placeholder di bawah diganti secret acak per build -> setiap installer unik,
-# kebocoran bisa dilacak ke build). shareB acak per file.
-# Kunci per modul: SHA256(domain || M || arcname); keystream CTR dari
-# SHA256(enckey || salt || counter_BE8). Stdlib only (hashlib/hmac).
-#
-# JUJUR: ini obfuscation-grade, bukan enkripsi anti-forensik - kunci A ada di
-# mesin user (di .pyc loader hardened). Yang ditutup: `strings`/pycdc sekali
-# klik atas logika protokol. Format berversi supaya shareA nanti bisa pindah
-# ke pemegang kunci native (.pyd) tanpa mengubah format file.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 import hashlib
 import hmac
 import importlib.abc
@@ -38,7 +38,7 @@ import sys
 
 VERSION = 1
 MAGIC = b"VXVAULT1"
-# Diganti secret acak per build saat staging (64 hex). Nol = belum dikunci.
+
 VAULT_SHARE_A_HEX = "00" * 32
 ENV_TARGET = "VX_VAULT_TARGET"
 
@@ -150,9 +150,9 @@ _installed: set[str] = set()
 
 
 def install(vault_dir: str | None = None) -> bool:
-    # Pasang hook impor untuk *.pyv di folder loader (default). No-op bila
-    # tidak ada .pyv (mode dev) atau folder sudah terpasang. Return True bila
-    # hook aktif dengan sedikitnya satu vault.
+    
+    
+    
     if vault_dir is None:
         vault_dir = os.path.dirname(os.path.abspath(__file__))
     vault_dir = os.path.abspath(vault_dir)
@@ -166,7 +166,7 @@ def install(vault_dir: str | None = None) -> bool:
 
 
 def run_vault(vault_path: str, args: list[str]) -> int:
-    # Jalankan satu .pyv sebagai __main__ (mode skrip glue premium / karaoke).
+    
     vault_path = os.path.abspath(vault_path)
     with open(vault_path, "rb") as f:
         blob = f.read()
@@ -182,19 +182,19 @@ def run_vault(vault_path: str, args: list[str]) -> int:
             pass
         return 2
     sys.argv = [vault_path[:-4] + ".py"] + args
-    # Skrip vault umumnya diletakkan di `<engine>/scripts/` (karaoke_best.pyv),
-    # sedangkan modul yang diimpornya (`win_nowindow`, `vx_karaoke_sep`, ...)
-    # berada di `<engine>/`. Jadi DUA folder harus masuk sys.path: folder
-    # skrip DAN folder induknya.
+    
+    
+    
+    
     base = os.path.dirname(vault_path)
     engine_dir = os.path.dirname(base)
     for d in (base, engine_dir):
         if d and os.path.isdir(d) and d not in sys.path:
             sys.path.insert(0, d)
-    # WAJIB: hook impor .pyv harus aktif sebelum skrip diexec, kalau tidak
-    # modul ter-vault tidak bisa diimpor sama sekali dan skrip mati dengan
-    #     ModuleNotFoundError: No module named 'win_nowindow'
-    # (bukan karena paketnya hilang, tapi karena tidak ada yang mengaktifkannya).
+    
+    
+    
+    
     install(engine_dir)
     if base != engine_dir:
         install(base)

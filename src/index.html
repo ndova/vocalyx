@@ -281,15 +281,19 @@
             <div class="playlist-head"><h4 style="margin:0; font-size:13px; font-weight:700">Library iPhone <span id="iphoneTrackCount" style="font-weight:400; font-size:11px; color:var(--muted)"></span></h4></div>
             <div class="device-library-body">
               <div style="display:flex; gap:6px; margin-bottom:6px">
+                <select id="btnDeviceView" class="modal-input" style="font-size:11px; padding:2px 4px; width:70px; min-width:70px">
+                  <option value="music" data-t="btn.viewMusic">Musik</option>
+                  <option value="video" data-t="btn.viewVideo">Video</option>
+                </select>
                 <div style="position:relative">
-                  <button id="btnDeviceImport" class="btn-add-folder" style="font-size:11px"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="upload"></svg> <span data-t="btn.import">Import</span></button>
+                  <button id="btnDeviceImport" class="btn-add-folder" style="font-size:11px"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="upload"></svg> <span data-t="btn.import">Impor</span></button>
                   <div class="more-menu" id="deviceImportMenu">
-                    <button id="btnImportFile" data-t="btn.importFile">📄 Import File</button>
-                    <button id="btnImportFolder" data-t="btn.importFolder">📁 Import Folder</button>
+                    <button id="btnImportFile" data-t="btn.importFile">📄 Impor File</button>
+                    <button id="btnImportFolder" data-t="btn.importFolder">📁 Impor Folder</button>
                   </div>
                 </div>
-                <button id="btnDeviceExportAll" class="btn-add-folder" style="font-size:11px"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="download"></svg> <span data-t="dl.exportAll">Export Semua</span></button>
-                <button id="btnDeviceExportSelected" class="btn-add-folder" style="font-size:11px" disabled><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="download"></svg> <span data-t="dl.exportSelected">Export Terpilih</span></button>
+                <button id="btnDeviceExportAll" class="btn-add-folder" style="font-size:11px"><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="download"></svg> <span data-t="dl.exportAll">Ekspor Semua</span></button>
+                <button id="btnDeviceExportSelected" class="btn-add-folder" style="font-size:11px" disabled><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="download"></svg> <span data-t="dl.exportSelected">Ekspor Terpilih</span></button>
                 <button id="btnDeviceDeleteSelected" class="btn-more" style="font-size:11px" disabled><svg class="ico" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true" data-ico="trash"></svg> <span data-t="modal.delete">Hapus</span></button>
               </div>
               <div id="exportProgressBar" style="display:none; margin-bottom:6px">
@@ -314,6 +318,16 @@
                 <span class="c-dur" data-sort="duration" data-t="th.duration" data-t-title="th.sortDuration" title="Sort by duration">Duration</span>
               </div>
               <div id="iphoneTrackList" class="track-list" style="max-height:320px; overflow:auto"></div>
+              <div class="table-head" id="videoTableHead" style="display:none">
+                <span class="c-check"><input type="checkbox" data-video-sel-all="" data-t-title="th.selectAll" title="Pilih/deselect semua"></span>
+                <span class="c-title" data-sort="title" data-t="th.title" data-t-title="th.sortTitle" title="Sort by title">Title</span>
+                <span class="c-type" data-sort="type" data-t="th.type" data-t-title="th.sortType" title="Sort by type">Type</span>
+                <span class="c-size" data-sort="size" data-t="th.size" data-t-title="th.sortSize" title="Sort by size">Size</span>
+                <span class="c-dur" data-sort="duration" data-t="th.duration" data-t-title="th.sortDuration" title="Sort by duration">Duration</span>
+              </div>
+              <div id="videoTrackList" class="track-list" style="max-height:320px; overflow:auto; display:none"></div>
+              <div id="videoDeviceStatusText" style="font-size:11px; color:var(--muted); margin-top:8px; display:none"></div>
+              <span id="iphoneVideoCount" style="font-size:11px; color:var(--muted); display:none"></span>
             </div>
           </div>
         </section>

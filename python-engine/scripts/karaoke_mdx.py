@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Karaoke fallback — ensemble MDX-Net lama, hanya bila preset Best dan
 karaoke_standard.py sama-sama gagal (OOM, download gagal, file korup).
 Hasilnya tidak sebersih preset utama, tapi karaoke tidak pernah gagal total.
@@ -13,17 +13,17 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-import win_nowindow  # noqa: E402
+import win_nowindow  
 
 win_nowindow.hide_child_consoles()
 
-import vx_karaoke_sep as sep  # noqa: E402
+import vx_karaoke_sep as sep  
 
 WEIGHTS = (
-    ("Kim_Inst.onnx", 0.35),          # instrumental-primary
-    ("UVR-MDX-NET-Inst_HQ_4.onnx", 0.25),  # instrumental-primary
-    ("Kim_Vocal_2.onnx", 0.25),      # vocal-primary
-    ("UVR-MDX-NET-Voc_FT.onnx", 0.15),      # vocal-primary
+    ("Kim_Inst.onnx", 0.35),          
+    ("UVR-MDX-NET-Inst_HQ_4.onnx", 0.25),  
+    ("Kim_Vocal_2.onnx", 0.25),      
+    ("UVR-MDX-NET-Voc_FT.onnx", 0.15),      
 )
 
 

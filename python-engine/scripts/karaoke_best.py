@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Karaoke Best — SATU model, stem instrumental dipakai APA ADANYA.
 
 Preset:
@@ -19,12 +19,12 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-import win_nowindow  # noqa: E402
+import win_nowindow  
 
 win_nowindow.hide_child_consoles()
 
-import vx_karaoke_sep as sep  # noqa: E402
-from vx_sep_cache import KARAOKE_ENSEMBLE, KARAOKE_ENSEMBLE_ALGO, KARAOKE_PRESETS  # noqa: E402
+import vx_karaoke_sep as sep  
+from vx_sep_cache import KARAOKE_ENSEMBLE, KARAOKE_ENSEMBLE_ALGO, KARAOKE_PRESETS  
 
 DEFAULT_PRESET = "karaoke_aufr33"
 
@@ -44,11 +44,11 @@ def main():
         sep.eprint(f"preset '{preset}' tidak dikenal, pakai '{DEFAULT_PRESET}'")
         preset = DEFAULT_PRESET
     model = KARAOKE_PRESETS[preset][0]
-    # Ensemble karaoke: karaoke_aufr33 default SINGLE (v18, ensemble opt-in;
-    # min_fft terbukti menumpulkan lagu padat), karaoke_full default ENSEMBLE
-    # avg_wave (v23, kedua model ONNX cepat saling menutupi residu).
-    # Override: --ensemble/--no-ensemble, VOCALYX_ENSEMBLE/VOCALYX_NO_ENSEMBLE,
-    # algoritma via --ens-algo / VOCALYX_ENS_ALGO.
+    
+    
+    
+    
+    
     import os as _os
     ens_want = "--ensemble" in sys.argv[4:] or \
         (_os.environ.get("VOCALYX_ENSEMBLE") or "").strip().lower() in ("1", "true", "on", "yes")
@@ -79,9 +79,9 @@ def main():
         weights = ((model, 1.0),)
         ens_algo_eff = "avg"
         sep.eprint("[KaraokeBest] single model")
-    # Tahap-2 dereverb (v15): default MATI (opt-in via VOCALYX_DEREVERB=1).
-    # Terbukti menumpulkan mid/high pada lagu padat; masalah mendem bukan
-    # reverb. Gagal -> fallback mentah di dalam build_instrumental_from_models.
+    
+    
+    
     use_dereverb = (
         preset == "karaoke_aufr33"
         and device != "cpu"

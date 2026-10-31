@@ -74,7 +74,10 @@ function setAppLang(langCode) {
   try { renderDownloads(); } catch {}
   try { refreshCudaStatus(); } catch {}
   try { renderSearchView(); } catch {}
-  if (S.activeView === 'device') { try { loadIPhoneLibrary(); } catch {} }
+  if (S.activeView === 'device') {
+    if (S.deviceView === 'video') { try { import('./iphone.js').then(m => m.renderDeviceVideoView()); } catch {} }
+    else { try { loadIPhoneLibrary(); } catch {} }
+  }
 }
 document.getElementById('setLang')?.addEventListener('change', (e)=>{
   setAppLang(e.target.value);

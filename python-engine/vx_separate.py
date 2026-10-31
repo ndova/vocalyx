@@ -57,7 +57,7 @@ def _resolve_script(base: Path, stem: str) -> Path:
         p = base / f"{stem}{ext}"
         if p.is_file():
             return p
-    # Kembalikan `.py` apa adanya supaya pesan log menyebut nama yang diharapkan.
+    
     return base / f"{stem}.py"
 
 
@@ -69,14 +69,14 @@ DSP_SCRIPT = _resolve_script(ENGINE_DIR, "vx_karaoke_dsp")
 DEFAULT_VOCAL_KILL = 1.0
 DEFAULT_CENTRE_KILL = 1.0
 
-# VRAM minimum bebas sebelum job CUDA diterima. Di bawah ini model akan OOM
-# atau diam-diam jatuh ke CPU ( jauh lebih lambat ) tanpa error yang terlihat,
-# jadi job ditolak lebih awal dengan pesan yang bisa ditindaklanjuti.
-#
-# Diukur di RTX 3050 4 GB: Kim_Vocal_2 (preset Best) hanya 0.12 GB, sedangkan
-# RoFormer Resurrection butuh ~1.3 GB. Ambang 0.5 GB hanya menerima job ringan
-# yang jelas muat; preset RoFormer butuh lebih tinggi dan akan ditolak dengan
-# pesan yang bisa ditindaklanjuti.
+
+
+
+
+
+
+
+
 MIN_FREE_VRAM_GB = 0.5
 
 
@@ -94,7 +94,7 @@ def _clamp_float(raw, default: float, lo: float, hi: float) -> float:
         v = float(raw)
     except Exception:
         return default
-    if v != v:  # NaN
+    if v != v:  
         return default
     return max(lo, min(hi, v))
 
@@ -156,9 +156,9 @@ def _worker(job_id: str, raw: bytes, suffix: str, mode: str, quality: str,
         with _JOBS_LOCK:
             _JOBS[job_id]["device_info"] = dinfo
         if device == "cuda" and not dinfo.get("cuda"):
-            # CUDA dipilih tapi PC ini tidak punya PyTorch CUDA. Dulu job langsung
-            # failed, jadi appikan blocked total di PC tanpa GPU. Sekarang turunkan
-            # ke CPU dan catat polyethylene peringatan supaya user tahu.
+            
+            
+            
             with _JOBS_LOCK:
                 _JOBS[job_id]["warning"] = (
                     "CUDA tidak tersedia (torch.cuda.is_available()=False). "
@@ -166,8 +166,8 @@ def _worker(job_id: str, raw: bytes, suffix: str, mode: str, quality: str,
                 )
             log.warning(_JOBS[job_id]["warning"])
             device = "cpu"
-        # Fail-fast VRAM rendah. Dulu hanya log.warning, sehingga job tetap jalan
-        # lalu:OOM / fallback CPU diam-diam (user cuma lihat "process very lama").
+        
+        
         if dinfo.get("cuda"):
             free_gb = dinfo.get("vram_free_gb")
             if free_gb is not None and free_gb < MIN_FREE_VRAM_GB:
@@ -176,11 +176,11 @@ def _worker(job_id: str, raw: bytes, suffix: str, mode: str, quality: str,
                 with _JOBS_LOCK:
                     _JOBS[job_id].update(status="failed", at=time.time(), error=msg)
                 return
-        # Di CPU, preset default (karaoke_aufr33) terlalu berat (benchmark:
-        # Resurrection ~6x realtime, aufr33 MelBand-Roformer juga berat).
-        # Alihkan ke modul CPU terbaik dari benchmark: MDX Inst_HQ_4.
-        # Syaratnya perangkat nyata, bukan nilai device: device="cuda" yang
-        # fellback ke CPU di atas juga harus dapat preset yang ringan.
+        
+        
+        
+        
+        
         if not dinfo.get("cuda") and quality == "karaoke_aufr33":
             quality = "cpu_inst_hq"
             log.info("perangkat tanpa CUDA: karaoke_aufr33 dialihkan ke cpu_inst_hq (UVR-MDX-NET-Inst_HQ_4, benchmark CPU tercepat)")
@@ -194,8 +194,8 @@ def _worker(job_id: str, raw: bytes, suffix: str, mode: str, quality: str,
             src.write_bytes(raw)
             _set_job(job_id, pct=3.0, stage="probe", status="processing")
             orig_dur = _get_duration(src)
-            # Pisah selalu di direktori job ini, bukan langsung di folder musik:
-            # dulu semua job menimpa <music>/mdx_extra/in/ dan bisa saling tabrak.
+            
+            
             out_dir = td_p / "sep"
             out_dir.mkdir(parents=True, exist_ok=True)
             log_path = td_p / "karaoke_stderr.log"
@@ -236,19 +236,19 @@ def _worker(job_id: str, raw: bytes, suffix: str, mode: str, quality: str,
 
             wav_inst: Path | None = None
             wav_voc: Path | None = None
-            # Preset karaoke (lihat vx_sep_cache.KARAOKE_PRESETS):
-            #   karaoke_aufr33  -> MelBand RoFormer Karaoke Aufr33/Viperx, single
-            #                      overlap-8 (GPU/default; hapus lead saja)
-            #   karaoke_full    -> ensemble Kim_Vocal_2 + Inst_HQ_4 avg_wave
-            #                      (hapus semua vokal; CUDA & CPU)
-            #   cpu_inst_hq     -> UVR-MDX-NET-Inst_HQ_4 (CPU cepat)
-            # Tidak ada fallback otomatis (mode 'vocal'/Demucs sudah dihapus):
-            # bila preset terpilih gagal, job langsung ditandai failed.
-            #
-            # Jalur post-processing TIDAK memakai masking: stem instrumental
-            # dari model dipakai apa adanya lalu di-loudness-match. Versi
-            # sebelumnya menambah magnitude_subtract + adaptive_center_suppress
-            # + boost HF, dan itu yang menghasilkan "suara air".
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
             attempts = []
             if quality in KARAOKE_PRESETS:
                 missing = _missing_best_models(quality)
@@ -570,10 +570,10 @@ def karaoke_caps(device: str = "auto"):
         "quality_note": quality_note,
         "formats": ["flac", "ogg", "wav"],
         "dsp_version": KARAOKE_DSP_VERSION,
-        # Slider vocal_kill / centre_kill DIHAPUS dari UI karena masking sudah
-        # tidak ada (lihat vx_karaoke_sep.py). Field lama tidak diiklankan lagi
-        # supaya tidak menyesatkan; endpoint tetap menerima keduanya kalau ada
-        # build UI lama yang masih mengirim, dan mengabaikannya.
+        
+        
+        
+        
         "defaults": {
             "match_level": True,
         },

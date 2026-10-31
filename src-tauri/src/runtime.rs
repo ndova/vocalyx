@@ -1,13 +1,13 @@
-//! Runtime portable untuk installer Lite (Fase 3b).
-//!
-//! Installer Full (Fase 3a) sudah memaketkan runtime, jadi tidak perlu apa-apa.
-//! Installer Lite hanya membawa shell aplikasi; saat pertama jalan engine tidak
-//! ada karena PC user belum punya Python + torch. Modul ini mengunduh paket
-//! runtime dari repo rilis, memverifikasi sha256, lalu mengekstraknya ke
-//! `%APPDATA%\VocaLyx\runtime` supaya `engine.rs` memakainya otomatis.
-//!
-//! Alur: `runtime_status` -> (kalau belum ada) `runtime_install` -> event
-//! `runtime://progress` -> `runtime_status` lagi sampai `installed: true`.
+
+
+
+
+
+
+
+
+
+
 
 use std::fs;
 use std::io::{Seek, SeekFrom, Write};
@@ -22,13 +22,13 @@ pub const PROGRESS_EVENT: &str = "runtime://progress";
 const RUNTIME_DIRNAME: &str = "runtime";
 const PY_MARKER: &str = "Lib/site-packages";
 
-/// Penanda runtime yang sudah selesai diekstrak utuh.
-///
-/// Dulu `installed` hanya mengecek `python.exe` + folder `Lib/site-packages`.
-/// Itu terlalu dangkal: menutup app saat ekstraksi berjalan bisa meninggalkan
-/// dua item itu sudah ada sementara ribuan file lain belum, sehingga banner
-/// disembunyikan padahal engine tidak bisa jalan. Marker ini hanya ditulis
-/// setelah `extract_zip` selesai tanpa error.
+
+
+
+
+
+
+
 const READY_MARKER: &str = ".ready";
 const FAILED_MARKER: &str = ".failed";
 
@@ -42,11 +42,11 @@ pub struct RuntimeStatus {
     pub python: bool,
     pub engine: bool,
     pub cuda: bool,
-    /// Ada `runtime-bundle.zip` di paket installer (installer Full).
+    
     pub bundled: bool,
-    /// Ekstraksi terbundul sedang berjalan di thread startup.
+    
     pub extracting: bool,
-    /// Ekstraksi terakhir gagal; banner menawarkan ekstrak ulang.
+    
     pub failed: bool,
 }
 
@@ -62,24 +62,24 @@ pub fn app_data_dir() -> PathBuf {
     data_root().join(APP_DIRNAME)
 }
 
-/// `%APPDATA%` tempat folder data aplikasi hidup.
+
 fn data_root() -> PathBuf {
     std::env::var_os("APPDATA")
         .map(PathBuf::from)
         .unwrap_or_else(std::env::temp_dir)
 }
 
-/// Nama folder data aplikasi. Dulu `NetKara` (nama proyek sebelumnya), lalu
-/// diganti ke `VocaLyx` supaya tidak ada sisa nama proyek lama. Data lama
-/// dipindahkan sekali oleh `migrate_legacy_data_dir`.
+
+
+
 const APP_DIRNAME: &str = "VocaLyx";
 const LEGACY_APPNAME: &str = "NetKara";
 
-/// Pindahkan sisa data dari nama folder lama ke yang sekarang.
-///
-/// Dipakai `rename`, jadi untuk folder 1,9 GB di drive yang sama hanya_metadata
-/// yang berubah — tidak ada salinan file. Item yang sudah ada di tujuan tidak
-/// ditimpa supaya data terbaru tidak hilang.
+
+
+
+
+
 pub fn migrate_legacy_data_dir() {
     let legacy = data_root().join(LEGACY_APPNAME);
     if !legacy.is_dir() {
@@ -100,8 +100,8 @@ pub fn migrate_legacy_data_dir() {
             moved.push(name.to_string());
         }
     }
-    // Log lama digabung ke log yang sekarang, bukan dibuang, lalu sumbernya
-    // dihapus supaya folder lama benar-benar habis dan tidak menyesatkan.
+    
+    
     let old_log = legacy.join("engine.log");
     if old_log.is_file() {
         if let Ok(text) = fs::read_to_string(&old_log) {
@@ -117,7 +117,7 @@ pub fn migrate_legacy_data_dir() {
     for name in moved {
         crate::engine::write_log_note(&format!("migrasi {LEGACY_APPNAME}/{name} -> {APP_DIRNAME}/{name}"));
     }
-    // Folder lama yang sudah kosong ikut dibuang supaya tidak menyesatkan.
+    
     if fs::read_dir(&legacy).map(|mut d| d.next().is_none()).unwrap_or(false) {
         let _ = fs::remove_dir(&legacy);
     }
@@ -127,8 +127,8 @@ pub fn runtime_root() -> PathBuf {
     app_data_dir().join(RUNTIME_DIRNAME)
 }
 
-/// Terpasang kalau ada interpreter. `engine` dicek terpisah supaya UI bisa
-/// membedakan "runtime ada tapi engine gagal" dari "runtime belum diunduh".
+
+
 fn python_ok(root: &Path) -> bool {
     root.join("python.exe").is_file() || root.join("pythonw.exe").is_file()
 }
@@ -137,9 +137,9 @@ fn site_packages_ok(root: &Path) -> bool {
     root.join(PY_MARKER).is_dir()
 }
 
-/// Rilis mengirim bytecode `.pyc`, bukan source `.py` (lihat `compile_engine_stage`
-/// di `scripts/build_runtime.py`), jadi keduanya dikenali supaya runtime hasil
-/// build lama yang masih membawa `server.py` tidak dianggap rusak.
+
+
+
 fn engine_ok(root: &Path) -> bool {
     let e = root.join("engine");
     e.join("server.pyc").is_file() || e.join("server.py").is_file()
@@ -152,9 +152,9 @@ fn cuda_available(root: &Path) -> bool {
         .is_dir()
 }
 
-/// Tanda runtime sudah utuh, dipakai untuk略带-sdk install lama yang belum
-/// punya marker: kalau semua penanda besar ada, marker ditulis agar user tidak
-/// dipaksa ekstrak ulang 1,9 GB.
+
+
+
 fn looks_complete(root: &Path) -> bool {
     python_ok(root)
         && root.join(PY_MARKER).join("torch").is_dir()
@@ -167,10 +167,10 @@ fn mark_ready(root: &Path) {
     let _ = fs::remove_file(root.join(FAILED_MARKER));
 }
 
-/// Sidik bundel bawaan installer (ukuran + mtime): murah dibanding hash 700 MB
-/// tiap luncur, cukup untuk tahu bundle lebih baru dari hasil ekstrak.
-/// Marker lama (`v1`, tanpa baris sidik) otomatis dianggap basi supaya instalasi
-/// lama yang membawa engine bermasalah ikut sembuh sekali jalan.
+
+
+
+
 fn bundle_fingerprint(zip: &Path) -> String {
     match fs::metadata(zip) {
         Ok(m) => {
@@ -210,9 +210,9 @@ fn installed_now() -> bool {
     runtime_root().join(READY_MARKER).is_file() || looks_complete(&runtime_root())
 }
 
-/// true bila ada bundel bawaan yang lebih baru dari hasil ekstrak (atau hasil
-/// belum ada sama sekali). Tanpa bundel (Lite) selalu false: jangan pernah
-/// menghapus runtime hasil unduhan.
+
+
+
 fn needs_bundled_extract(app: &AppHandle) -> bool {
     if installed_now() {
         match bundled_zip(app) {
@@ -227,17 +227,17 @@ fn needs_bundled_extract(app: &AppHandle) -> bool {
     }
 }
 
-/// Ekstraksi terakhir gagal. Dipakai supaya banner bisa menawarkan "coba lagi"
-/// alih-alih tampil "menyiapkan" selamanya tanpa tombol apa pun.
+
+
 fn mark_failed(root: &Path) {
     if root.is_dir() {
         let _ = fs::write(root.join(FAILED_MARKER), b"v1\n");
     }
 }
 
-/// Status installation. Menyentuh marker berarti `installed` hanya true kalau
-/// ekstraksi selesai; instalasi lama yang sudah utuh dituliskan marker-nya di
-/// sini supaya tidak perlu ekstrak ulang.
+
+
+
 pub fn status_with(app: Option<&AppHandle>) -> RuntimeStatus {
     migrate_legacy_data_dir();
     let root = runtime_root();
@@ -275,11 +275,11 @@ fn extract_zip(zip_path: &Path, dest: &Path) -> Result<u64, String> {
     let file = fs::File::open(zip_path).map_err(|e| format!("gagal buka zip: {e}"))?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("zip rusak: {e}"))?;
 
-    // `build_runtime.py` menulis archive dengan satu folder teratas (`runtime/`)
-    // supaya zip bisa dipakai seperti folder biasa. Karena kita ekstrak ke
-    // `%APPDATA%\VocaLyx/runtime`, prefix itu harus dilepas; kalau tidak,
-    // interpreter mendarat di `runtime/runtime/python.exe` dan `runtime_status`
-    // selalu melaporkan runtime belum terpasang.
+    
+    
+    
+    
+    
     let strip = common_prefix_dir(&mut archive);
 
     fs::create_dir_all(dest).map_err(|e| format!("gagal buat folder: {e}"))?;
@@ -313,11 +313,11 @@ fn extract_zip(zip_path: &Path, dest: &Path) -> Result<u64, String> {
     Ok(count)
 }
 
-/// Satu folder teratas yang sama untuk semua entri, kalau ada.
-///
-/// Untuk zip dari `build_runtime.py` hasilnya `Some("runtime")` supaya
-/// `extract_zip` melepasnya. Kalau zip sudah datar, entri pertama berbeda-beda
-/// sehingga hasilnya `None` dan tidak ada yang dibuang.
+
+
+
+
+
 fn common_prefix_dir<R: std::io::Read + std::io::Seek>(
     archive: &mut zip::ZipArchive<R>,
 ) -> Option<PathBuf> {
@@ -339,8 +339,8 @@ fn common_prefix_dir<R: std::io::Read + std::io::Seek>(
     prefix
 }
 
-/// Unduh paket runtime, verifikasi sha256, ekstrak. Perintah Tauri sudah
-/// async, jadi jaringan tidak memblokir loop UI.
+
+
 #[tauri::command]
 pub async fn runtime_install(app: AppHandle, url: String, sha256: String) -> Result<(), String> {
     if url.trim().is_empty() {
@@ -369,15 +369,15 @@ pub async fn runtime_install(app: AppHandle, url: String, sha256: String) -> Res
         .build()
         .map_err(|e| format!("HTTP client gagal: {e}"))?;
 
-    // `sha256` boleh berupa digest langsung (64 hex) atau URL file `.sha256`.
-    // Frontend mengirim URL supaya tidak perlu tahu digest saat build, jadi
-    // dua bentuk ini diterima di sini.
+    
+    
+    
     let want = resolve_expected_hash(&client, &sha256).await?;
 
-    // Resume: potongan `.part` lama dipakai ulang lewat header Range, jadi
-    // unduhan 670MB yang putus tidak perlu diulang dari nol. Status 206 =
-    // server melanjutkan, 200 = mulai dari awal, 416 = potongan melebihi
-    // ukuran objek (dicek dulu apakah sudah lengkap dan hash cocok).
+    
+    
+    
+    
     let tmp = zip_path.with_extension("part");
     let mut resume_from = fs::metadata(&tmp).map(|m| m.len()).unwrap_or(0);
     let mut resp = {
@@ -483,11 +483,11 @@ pub fn runtime_remove() -> Result<(), String> {
     Ok(())
 }
 
-/// Terima digest sha256 langsung (64 hex) atau URL file `.sha256`.
-///
-/// Releases hanya menaruh file teks berisi `<digest>  <nama file>` (format
-/// `sha256sum`), jadi URL harus diunduh lebih dulu. Kalau tidak ada referensi
-/// digest, hasilnya `None` dan verifikasi dilewati.
+
+
+
+
+
 async fn resolve_expected_hash(client: &reqwest::Client, raw: &str) -> Result<Option<String>, String> {
     let raw = raw.trim();
     if raw.is_empty() {
@@ -514,7 +514,7 @@ async fn resolve_expected_hash(client: &reqwest::Client, raw: &str) -> Result<Op
     Ok(Some(digest))
 }
 
-/// Ambil token hex 64 karakter pertama, mengabaikan format lain.
+
 fn parse_sha256sum(text: &str) -> Option<String> {
     for token in text.split_whitespace() {
         if token.len() == 64 && token.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -524,13 +524,13 @@ fn parse_sha256sum(text: &str) -> Option<String> {
     None
 }
 
-/// Status prasyarat driver Apple untuk iPhone.
-///
-/// `pymobiledevice3` bicara lewat usbmux, dan di Windows service itu adalah
-/// "Apple Mobile Device Service" yang grudup di 127.0.0.1:27015. Driver-nya
-/// berasal dari paket resmi Apple Mobile Device Support / iTunes dan tidak
-/// boleh di-bundel ulang (batasan lisensi), jadi kita hanya mendeteksi dan
-/// menampilkan panduan, bukan memasangnya diam-diam.
+
+
+
+
+
+
+
 #[derive(Serialize)]
 pub struct AppleDriverStatus {
     pub ready: bool,
@@ -553,10 +553,10 @@ fn apple_usbmux_listening() -> bool {
 }
 
 fn apple_service_candidates() -> Vec<PathBuf> {
-    // iTunes klasik (32-bit) menaruh servis di bawah Program Files (x86),
-    // sementara Apple Devices / iTunes 64-bit di bawah Program Files biasa.
-    // Versi lama hanya mengecek satu lokasi sehingga instalasi yang sah
-    // dilaporkan "tidak ditemukan" dan user disuruh install ulang sia-sia.
+    
+    
+    
+    
     let mut roots: Vec<PathBuf> = Vec::new();
     for key in ["ProgramFiles", "ProgramFiles(x86)", "CommonProgramFiles", "CommonProgramFiles(x86)"] {
         if let Some(v) = std::env::var_os(key) {
@@ -589,7 +589,7 @@ fn apple_service_exe() -> PathBuf {
             return cand;
         }
     }
-    // Fallback lama untuk kompatibilitas log: kembalikan kandidat pertama.
+    
     apple_service_candidates().into_iter().next().unwrap_or_else(std::env::temp_dir)
 }
 
@@ -610,32 +610,32 @@ pub fn apple_driver_status() -> AppleDriverStatus {
     }
 }
 
-/// VC++ Redistributable: prasyarat native engine AI (torch/onnxruntime).
-///
-/// Tanpa MSVC runtime, `import torch` gagal saat engine boot sehingga karaoke
-/// (termasuk mode CPU) error dan endpoint iPhone ikut mati. Installer membundel
-/// `assets/vcredist/vc_redist.x64.exe` resmi Microsoft sebagai resource (lewat
-/// pemetaan `"../assets": "assets"` di tauri.conf.json); tiap startup
-/// dicek dan dipasang otomatis bila hilang.
-/// Daftar DLL MSVC yang benar-benar butuh torch. Diturunkan dari tabel import
-/// STATIC `torch_cpu.dll` (bukan tebakan): `msvcp140.dll`,
-/// `vcruntime140.dll`, `vcruntime140_1.dll`, dan `vcruntime140_threads.dll`.
-///
-/// `vcruntime140_threads.dll` sempat tidak masuk daftar sehingga Pc dengan
-/// MSVC runtime tak lengkap lolos: registry tetap melaporkan VC++ Redist
-/// terpasang, tiga DLL lama semuanya ada, tapi `torch_cpu.dll` gagal load dengan
-/// `WinError 126` karena satu dependensi statis hilang — persis gejala yang
-/// seharusnya dicegah fungsi ini. Daftar sengaja TIDAK dibuat longgar: satu DLL
-/// yang tak perlu membuat user dapat prompt UAC tanpa alasan.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 const VC_DLLS: [&str; 4] = [
     "msvcp140.dll",
     "vcruntime140.dll",
     "vcruntime140_1.dll",
     "vcruntime140_threads.dll",
 ];
-/// Path resource relatif ke `BaseDirectory::Resource`. Awas: karena seluruh
-/// folder `assets` dipetakan ke `assets`, prefix `assets/` WAJIB ikut — tanpa
-/// itu `resolve()` selalu gagal dan auto-install diam-diam tidak pernah jalan.
+
+
+
 const VC_RESOURCE: &str = "assets/vcredist/vc_redist.x64.exe";
 
 fn system32_dir() -> PathBuf {
@@ -656,9 +656,9 @@ fn bundled_vcredist(app: &AppHandle) -> Option<PathBuf> {
             return Some(p);
         }
     }
-    // Fallback dev / layout non-bundle: coba dua varian prefix karena resource
-    // rilis hidup di `assets/vcredist/`, sementara checkout lama / manual bisa
-    // menaruhnya di `vcredist/` sejajar exe.
+    
+    
+    
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             for base in ["", "_up_/", "../", "../../"] {
@@ -696,19 +696,19 @@ pub fn vc_runtime_status(app: AppHandle) -> VcRuntimeStatus {
     }
 }
 
-/// Pastikan MSVC runtime ada; pasang dari bundel bila hilang.
-///
-/// Dipanggil di thread startup sebelum engine dinyalakan. Installer resmi
-/// Microsoft dijalankan elevated (`-Verb RunAs` memicu prompt UAC; bila user
-/// menolak, lanjut tanpa itu dan log mencatatnya).
-///
-/// Dua tahap: `/install` dulu, lalu `/repair` bila DLL tetap hilang. Tahap
-/// kedua menutup kasus "produk tercatat terpasang tapi file-nya tak lengkap":
-/// registry melaporkan VC++ Redistributable ada (mis. v14.51) sehingga
-/// `/install` keluar sukses tanpa mengubah apa pun ("already installed"),
-/// sementara `torch_cpu.dll` tetap gagal load karena satu dependensi statis
-/// (`vcruntime140_threads.dll`) hilang. Tanpa `/repair`, kasus ini tidak
-/// pernah sembuh sendiri.
+
+
+
+
+
+
+
+
+
+
+
+
+
 pub fn ensure_vc_runtime(app: &AppHandle) -> bool {
     if vc_runtime_present() {
         return true;
@@ -717,8 +717,8 @@ pub fn ensure_vc_runtime(app: &AppHandle) -> bool {
         crate::engine::write_log_note("MSVC runtime hilang dan installer terbundel tak ditemukan");
         return false;
     };
-    // Salin dulu ke %TEMP%: folder resource bisa read-only / path-nya panjang
-    // ber-spasi sehingga Start-Process elevated gagal tanpa pesan jelas.
+    
+    
     let staged = std::env::temp_dir().join("vocalyx-vc_redist.x64.exe");
     let target = if same_file(&installer, &staged) {
         installer
@@ -734,12 +734,12 @@ pub fn ensure_vc_runtime(app: &AppHandle) -> bool {
         }
     };
     crate::engine::write_log_note("MSVC runtime hilang/tak lengkap, memasang VC Redist terbundel...");
-    // Helper nested (bukan item top-level) supaya guard smoke
-    // `rtNoVc` — yang mengupas `ensure_vc_runtime` lalu melarang
-    // `Start-Process` di luarnya — tetap mencakup seluruh pemanggil installer.
-    // Jalankan installer VC Redist resmi secara elevated dengan satu kata
-    // kerja (`install` atau `repair`). True bila proses keluar sukses;
-    // kehadiran DLL-nya dicek terpisah oleh pemanggil, bukan di sini.
+    
+    
+    
+    
+    
+    
     fn run_vcredist(installer: &Path, verb: &str) -> bool {
         let ps = format!(
             "Start-Process -FilePath '{}' -ArgumentList '/{}','/quiet','/norestart' -Verb RunAs -Wait",
@@ -768,8 +768,8 @@ pub fn ensure_vc_runtime(app: &AppHandle) -> bool {
         crate::engine::write_log_note("VC Redist terpasang");
         return true;
     }
-    // `/install` sukses tapi DLL tetap hilang = produk tercatat terpasang
-    // namun file-nya tak lengkap. Paksa perbaikan, bukan instalasi ulang.
+    
+    
     if !vc_runtime_present() {
         crate::engine::write_log_note("VC Redist install tidak melengkapi runtime, mencoba repair...");
         run_vcredist(&target, "repair");
@@ -787,7 +787,7 @@ pub fn ensure_vc_runtime(app: &AppHandle) -> bool {
     }
 }
 
-/// true bila dua path menunjuk file yang sama (untuk lewati salinan TEMP).
+
 fn same_file(a: &Path, b: &Path) -> bool {
     match (a.canonicalize(), b.canonicalize()) {
         (Ok(x), Ok(y)) => x == y,
@@ -795,11 +795,11 @@ fn same_file(a: &Path, b: &Path) -> bool {
     }
 }
 
-/// Pasang VC Redist dari bundel atas permintaan user (tombol banner).
-///
-/// `ensure_vc_runtime` memakan waktu puluhan detik (UAC + installer Microsoft),
-/// jadi dibungkus `spawn_blocking` agar jendela tidak "Not responding".
-/// `Ok(true)` = runtime hadir sesudahnya; `Err` = tetap hilang (detail di log).
+
+
+
+
+
 #[tauri::command]
 pub async fn vc_runtime_install(app: AppHandle) -> Result<bool, String> {
     if vc_runtime_present() {
@@ -816,7 +816,7 @@ pub async fn vc_runtime_install(app: AppHandle) -> Result<bool, String> {
     .map_err(|e| format!("gagal menjalankan perintah: {e}"))?
 }
 
-/// Lokasi zip runtime yang ikut dipaketkan installer Full.
+
 fn bundled_zip(app: &AppHandle) -> Option<PathBuf> {
     let mut cands: Vec<PathBuf> = Vec::new();
     if let Ok(p) = app.path().resolve("runtime-bundle.zip", tauri::path::BaseDirectory::Resource) {
@@ -847,13 +847,13 @@ fn emit_progress(app: &AppHandle, stage: &str, received: u64, total: u64) {
     );
 }
 
-/// Ekstrak runtime yang sudah dipaketkan. Dipakai installer Full supaya user
-/// tidak perlu mengunduh apa pun; installer Lite tidak punya file ini sehingga
-/// fungsi ini diam-diam dilewati dan banner unduh yang bekerja.
+
+
+
 pub fn extract_bundled(app: &AppHandle) -> Result<bool, String> {
     let root = runtime_root();
     if root.join(READY_MARKER).is_file() || looks_complete(&root) {
-        // Terpasang: lewati KECUALI bundel bawaan lebih baru dari hasil ekstrak.
+        
         if !needs_bundled_extract(app) {
             if !root.join(READY_MARKER).is_file() {
                 mark_ready(&root);
@@ -884,29 +884,29 @@ pub fn extract_bundled(app: &AppHandle) -> Result<bool, String> {
     Ok(true)
 }
 
-/// Command untuk dipakai frontend (mis. tombol "Pasang sekarang").
+
 #[tauri::command]
 pub fn runtime_extract_bundled(app: AppHandle) -> Result<bool, String> {
     extract_bundled(&app)
 }
 
-/// Dipanggil sekali saat start: ekstrak runtime terbundul bila ada, lalu start
-/// engine. Dijalankan di thread terpisah supaya jendela tetap responsif saat
-/// ekstrak ~1.9 GB pada installer Full.
+
+
+
 pub fn spawn_ensure_and_start(app: AppHandle) {
     migrate_legacy_data_dir();
-    // Ditandai sebelum thread dibuat: kalau tidak, frontend bisa membaca status
-    // "tidak sedang apa-apa" tepat di sela sebelum ekstraksi berjalan, lalu
-    // menampilkan "menyiapkan" tanpa progres atau tombol apa pun.
-    // Catatan: JANGAN tulis marker legacy di sini; itu menghapus sidik versi
-    // dan memicu ekstrak ulang tiap luncur. Marker hanya ditulis bila belum ada.
+    
+    
+    
+    
+    
     if needs_bundled_extract(&app) {
         EXTRACTING.store(true, Ordering::Relaxed);
     } else if installed_now() && !runtime_root().join(READY_MARKER).is_file() {
         mark_ready(&runtime_root());
     }
     tauri::async_runtime::spawn_blocking(move || {
-        // MSVC runtime dulu: engine (torch/onnxruntime) butuh DLL-nya untuk start.
+        
         ensure_vc_runtime(&app);
         match extract_bundled(&app) {
             Ok(true) => crate::engine::write_log_note("runtime terbundul diekstrak"),
@@ -1036,7 +1036,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// Susun folder runtime minimal yang dianggap utuh oleh `looks_complete`.
+    
     fn fake_complete(root: &Path) {
         fs::create_dir_all(root.join("Lib").join("site-packages").join("torch")).unwrap();
         fs::create_dir_all(root.join("Scripts")).unwrap();
@@ -1051,11 +1051,11 @@ mod tests {
         let root = dir.join("runtime");
         fs::create_dir_all(&root).unwrap();
 
-        // Hanya python.exe: belum utuh (kasus ekstraksi terputus).
+        
         fs::write(root.join("python.exe"), b"x").unwrap();
         assert!(!looks_complete(&root), "python.exe saja tidak boleh dianggap utuh");
 
-        // Tambah site-packages tapi tanpa Scripts/ffmpeg: masih belum utuh.
+        
         fs::create_dir_all(root.join("Lib").join("site-packages").join("torch")).unwrap();
         assert!(!looks_complete(&root), "site-packages tanpa Scripts/ffmpeg belum utuh");
 
@@ -1071,15 +1071,15 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         fake_complete(&root);
 
-        // Tanpa marker tapi utuh ->looks_complete true (installer lama).
+        
         assert!(looks_complete(&root));
 
-        // Tulis marker.
+        
         mark_ready(&root);
         assert!(root.join(READY_MARKER).is_file());
         assert!(!root.join(FAILED_MARKER).is_file());
 
-        // Tandai gagal -> marker failed ada (untuk banner "coba lagi").
+        
         mark_failed(&root);
         assert!(root.join(FAILED_MARKER).is_file());
         let _ = fs::remove_dir_all(&dir);
@@ -1107,11 +1107,11 @@ mod tests {
         assert_eq!(vc_runtime_present(), manual, "deteksi harus sama dengan cek file langsung");
     }
 
-    /// Regression guard: `vcruntime140_threads.dll` adalah import STATIS
-    /// `torch_cpu.dll`. Pc dengan tiga DLL lama utuh tapi DLL ini hilang membuat
-    /// `import torch` gagal WinError 126 walau registry melaporkan VC++
-    /// Redistributable terpasang - sehingga harus ikut dihitung "runtime
-    /// tidak lengkap", bukan lolos sebagai sehat.
+    
+    
+    
+    
+    
     #[test]
     fn vc_list_covers_torch_static_imports() {
         for d in ["msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll", "vcruntime140_threads.dll"] {

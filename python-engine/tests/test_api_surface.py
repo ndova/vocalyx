@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Runtime smoke test untuk fungsi backend karaoke.
 
 KENAPA ADA FILE INI
@@ -38,7 +38,7 @@ def section(title):
 
 
 def main():
-    # =============================================== import (tanpa efek samping)
+    
     import vx_separate as sep
     import vx_sep_cache as cache
     import vx_karaoke_sep as ksep
@@ -64,7 +64,7 @@ def main():
     check("quality aufr33 diterima (default)",
           "karaoke_aufr33" in cache.KARAOKE_PRESETS)
 
-    # ================================ _model_fingerprint (3x KAROKE typo dulu)
+    
     section("_model_fingerprint()")
     try:
         fp = cache._model_fingerprint()
@@ -74,7 +74,7 @@ def main():
         check("bisa dipanggil tanpa exception", False, f"{type(ex).__name__}: {ex}")
         fp = ""
 
-    # ================================ _persist_signature (dipanggil tiap job)
+    
     section("_persist_signature()")
     try:
         sig = cache._persist_signature("karaoke", "high", 1.0, 1.0, True, {})
@@ -86,7 +86,7 @@ def main():
     except Exception as ex:
         check("bisa dipanggil + version benar", False, f"{type(ex).__name__}: {ex}")
 
-    # ================================================= karaoke_caps (500 dulu)
+    
     section("karaoke_caps()")
     try:
         caps = sep.karaoke_caps("cpu")
@@ -112,7 +112,7 @@ def main():
     except Exception as ex:
         check("tidak melempar (dulu NameError)", False, f"{type(ex).__name__}: {ex}")
 
-    # ============================================================ combine stem
+    
     section("combine_instrumentals()")
     n = 8000
     a = np.zeros((2, n), dtype=np.float32)
@@ -139,7 +139,7 @@ def main():
     except Exception as ex:
         check("combine_instrumentals() jalan", False, f"{type(ex).__name__}: {ex}")
 
-    # ========================================== weighted_sum (masih dipakai)
+    
     section("weighted_sum()")
     try:
         ws = dsp.weighted_sum(mix, [(a, 1.0), (b, 1.0)], 2.0)
@@ -149,7 +149,7 @@ def main():
     except Exception as ex:
         check("weighted_sum() jalan", False, f"{type(ex).__name__}: {ex}")
 
-    # ============================== preset karaoke_best.py terbaca dari cache
+    
     section("skrip karaoke")
     for script in ("karaoke_best.py", "karaoke_standard.py", "karaoke_mdx.py"):
         p = Path(__file__).resolve().parent.parent / "scripts" / script

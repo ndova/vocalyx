@@ -1,6 +1,4 @@
-/* Tabler Icons v3 (MIT) - ikon yang dipakai VocaLyx.
-   Body di bawah adalah isi dalam <svg viewBox="0 0 24 24">.
-   Varian berakhiran -filled memakai fill="currentColor". */
+
 export const TABLER = {
   'activity': '<path d="M3 12h4l3 8l4 -16l3 8h4" />',
   'arrow-left': '<path d="M5 12l14 0" /> <path d="M5 12l6 6" /> <path d="M5 12l6 -6" />',

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Smoke end-to-end endpoint /separate VocaLyx (dev only).
 
     python python-engine/tests/smoke_separate_api.py <engine_base> <track> <quality>
@@ -154,9 +154,9 @@ def main():
     if tp is None or tp > -1.0:
         fails.append(f"true peak {tp} di atas -1 dBTP")
 
-    # Loudness sekarang di-MATCH ke lagu asli (finish() pakai --match-lufs ke
-    # track sumber), bukan dipatok konstan -13 LUFS. Jadi patokannya adalah
-    # loudness track referensi, supaya test ini tetap bermakna.
+    
+    
+    
     ref = TRACK
     if ref.is_file() and ref != out:
         ref_i, _ = measure(ref)
@@ -167,27 +167,27 @@ def main():
                 fails.append(f"loudness {lufs:.2f} LUFS tidak match lagu asli "
                              f"{ref_i:.2f} LUFS (delta {delta:+.2f} LU)")
         elif lufs is not None and abs(lufs - (-13.0)) > 1.5:
-            # tanpa referensi: jatuh ke fallback konstan -13 LUFS
+            
             fails.append(f"loudness {lufs:.2f} LUFS tidak di sekitar -13 LUFS")
     elif lufs is not None and abs(lufs - (-13.0)) > 1.5:
         fails.append(f"loudness {lufs:.2f} LUFS tidak di sekitar -13 LUFS")
 
-    # Ukuran wajar skala durasi: PCM 16-bit stereo 44.1k = dur*44100*4 byte.
-    # FLAC musik terkompres ke ~40-65%; encode 24-bit jatuh ~1.5x lebih besar.
+    
+    
     dur = duration_sec(out) or 0.0
     pcm16 = dur * 44100 * 2 * 2
     mb = size / 1024 / 1024
-    hi = pcm16 * 0.80 / 1024 / 1024  # di atas ini hampir pasti bukan 16-bit
+    hi = pcm16 * 0.80 / 1024 / 1024  
     print(f"size check: {mb:.2f} MB untuk {dur:.0f}s "
           f"(PCM16 {pcm16/1024/1024:.1f} MB, batas {hi:.2f} MB)")
     if pcm16 > 0 and size > pcm16 * 0.80:
         fails.append(f"keluaran {mb:.2f} MB melebihi batas 16-bit {hi:.2f} MB")
 
-    # Info vokal: korelasi output vs sumber di band 200-1kHz (mid).
-    # CATATAN: metrik ini TIDAK bisa membedakan file bagus vs jelek
-    # (file 2024 yang enak = +0.070, output gagal = +0.039 — sama saja).
-    # Dibiarkan sebagai info saja; penentu akhir = telinga manusia.
-    # Jangan jadikan gate gagal — sudah terbukti menyesatkan 3x.
+    
+    
+    
+    
+    
     if ref.is_file() and ref != out:
         try:
             import numpy as np
@@ -198,8 +198,8 @@ def main():
             b = dsp.load_audio(out)
             n = min(a.shape[-1], b.shape[-1])
             a, b = a[..., :n], b[..., :n]
-            # Sejajarkan per-file via lag korelasi terbaik (latensi model
-            # berbeda antar render; hardcoded LAG terbukti salah).
+            
+            
             def _best_lag(x, y, mx=1000):
                 N = 1 << int(np.ceil(np.log2(len(x) + mx)))
                 A = np.fft.rfft(x, N)

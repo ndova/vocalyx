@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Self-test untuk pipeline karaoke yang sekarang.
 
 Pipeline sengaja dibuat SESEDERHANA mungkin: stem instrumental dari model dipakai
@@ -35,7 +35,7 @@ def tone(freq, dur=1.0, sr=dsp.SAMPLE_RATE, amp=0.5):
 
 
 def main():
-    # ---------------------------------------------------------------- I/O
+    
     a = tone(220, 0.5)
     check("tone() stereo (2, N)", a.ndim == 1, f"{a.shape}")
 
@@ -54,7 +54,7 @@ def main():
     check("true_peak = max abs", abs(dsp.true_peak(np.array([-0.7, 0.3], dtype=np.float32)) - 0.7) < 1e-6)
     check("true_peak data kosong 0", dsp.true_peak(np.zeros((2, 0), dtype=np.float32)) == 0.0)
 
-    # ------------------------------------------------------- weighted_sum
+    
     mix = dsp.to_stereo(a)
     x = (a * 0.5).astype(np.float32)
     y = (a * 0.25).astype(np.float32)
@@ -65,7 +65,7 @@ def main():
     ws0 = dsp.weighted_sum(mix, [(x, 1.0)], 0.0)
     check("weighted_sum total_weight 0 -> silence", float(np.abs(ws0).max()) == 0.0)
 
-    # ------------------------------------------------------- roundtrip wav
+    
     if not dsp.ffmpeg_bin():
         print("\n(skip test WAV: ffmpeg tidak ditemukan)")
     else:
@@ -79,7 +79,7 @@ def main():
             rms_err = float(np.sqrt(((back - data) ** 2).mean()))
             check("write/load wav isi identik (FLOAT)", rms_err < 1e-4, f"rms {rms_err:.2e}")
 
-            # ---------------------------------------------------------- finish
+            
             quiet = tdp / "quiet.wav"
             loud = tdp / "loud.wav"
             t = np.arange(dsp.SAMPLE_RATE * 3) / dsp.SAMPLE_RATE
@@ -87,7 +87,7 @@ def main():
             dsp.write_wav(quiet, dsp.to_stereo((body * 0.05).astype(np.float32)))
             dsp.write_wav(loud, dsp.to_stereo((body * 0.50).astype(np.float32)))
 
-            # loudness harus mengikuti referensi, bukan konstan
+            
             i_q, _ = dsp.measure_loudness(quiet)
             i_l, _ = dsp.measure_loudness(loud)
             out_match = dsp.finish(quiet, tdp / "m.wav", reference=loud)
@@ -95,7 +95,7 @@ def main():
             out_const = dsp.finish(quiet, tdp / "c.wav")
             o_c, _ = dsp.measure_loudness(out_const)
             if None not in (i_q, i_l, o_m, o_c):
-                # match: hasil harus jauh lebih dekat ke i_l daripada ke i_q
+                
                 dm = abs(o_m - i_l)
                 dc = abs(o_m - i_q)
                 check("finish: match-lufs mengikuti referensi", dm < dc,
@@ -103,15 +103,15 @@ def main():
                 check("finish tanpa referensi tetap ada", o_c is not None,
                       f"{o_c:.2f} LUFS")
 
-            # kontrak true peak
+            
             out_tp = dsp.finish(loud, tdp / "t.wav", true_peak_db=-1.0)
             _, tp = dsp.measure_loudness(out_tp)
             check("finish: true peak di bawah -1 dBTP", tp is not None and tp <= -0.85,
                   f"TP {tp:+.2f} dBTP" if tp is not None else "TP tidak terbaca")
 
-            # high-pass harus MEMOTONG bass rendah dan tidak menyentuh band
-            # badan. Bandingkan dua hasil finish (bukan dengan sumber mentah,
-            # supaya gain loudness-match tidak mengotori pengukuran).
+            
+            
+            
             t2 = np.arange(dsp.SAMPLE_RATE * 4) / dsp.SAMPLE_RATE
             mixed = (0.35 * np.sin(2 * np.pi * 14 * t2)
                      + 0.40 * np.sin(2 * np.pi * 220 * t2)
@@ -139,7 +139,7 @@ def main():
             body_shift = 10 * np.log10(max(body_on, 1e-20) / max(body_off, 1e-20))
             check("high-pass 30 Hz menjaga band badan 200-240 Hz",
                   abs(body_shift) < 1.0, f"{body_shift:+.2f} dB")
-            # tidak ada NaN/Inf di keluaran
+            
             fin = dsp.load_audio(out_tp)
             check("tidak ada NaN/Inf di output", bool(np.isfinite(fin).all()))
 

@@ -95,9 +95,9 @@ def _search_soundcloud(query: str, n: int, cookies: str = ""):
             except Exception:
                 pass
             return None
-        # Berhenti awal: ambil hasil sesuai selesai (bukan tunggu semua),
-        # batalkan sisanya begitu kuota n terpenuhi. Tanpa ini satu probe
-        # lambat menahan semuanya sampai timeout future.
+        
+        
+        
         full, preview_only = [], []
         with ThreadPoolExecutor(max_workers=4) as ex:
             futs = {ex.submit(_probe, c): c for c in cands}
@@ -117,9 +117,9 @@ def _search_soundcloud(query: str, n: int, cookies: str = ""):
                 pass
             for f in futs:
                 f.cancel()
-        # Fallback: bila TIDAK ADA yang full, tampilkan kandidat preview-only
-        # ber-badge (lebih baik dari 0 total; user yang putuskan). Metadata
-        # kandidat sudah valid (halaman soundcloud.com + durasi disaring).
+        
+        
+        
         use_preview_fallback = not full and bool(preview_only)
         for (j, sid, dur, page) in (full or preview_only[:n]):
             title = str(j.get("title") or query)
@@ -214,8 +214,8 @@ def _search_archive(query: str, n: int):
             log.warning("Archive search bukan JSON: %s", (r.text or "")[:160])
             return out
         if isinstance(body, dict) and body.get("error"):
-            # Backend Elasticsearch menolak sintaks fielded (pernah terukur
-            # untuk pola tertentu) -> mundur ke query polos yang longgar.
+            
+            
             log.warning("Archive search backend error, coba query polos: %s", str(body.get("error"))[:120])
             plain = f"{query.strip()[:120]} AND mediatype:audio"
             r2 = requests.get("https://archive.org/advancedsearch.php",
@@ -265,9 +265,9 @@ def _search_archive(query: str, n: int):
                         dur = None
             clean = re.sub(r"\.[a-z0-9]{2,4}$", "", title, flags=re.I).replace("_", " ").strip() or query
             if not preview:
-                # Fallback: metadata gagal total, tapi itemnya ADA. Tampilkan
-                # entri halaman (bisa dibuka manual) alih-alih dibuang diam-diam;
-                # unduhan langsung tidak bisa tanpa URL file (page_only=True).
+                
+                
+                
                 out.append({
                     "id": f"ia-{ident}",
                     "title": clean,
@@ -496,7 +496,7 @@ def _search_fourshared(query: str, n: int):
         for _page in range(4):
             items = _fs_rest_search(q, offset, 12)
             if not items:
-                # Fallback terakhir: scraping HTML lama (markup 2024).
+                
                 if not out and offset == 0:
                     try:
                         r = _fs_fetch(
@@ -594,9 +594,9 @@ def _resolve_4shared(page_url: str, timeout: int = 20) -> dict:
             return {"error": f"Stream 4shared tak terjangkau: {str(e)[:120]}"}
         download_url = None
         try:
-            # Kelas karakter WAJIB mencakup `-`: segmen dlink asli mengandung
-            # strip (mis. `...Tulus_5F-_5FHati...`); tanpanya URL unduhan
-            # terpotong di tengah path (terbukti saat probing REST 2026).
+            
+            
+            
             dlink_m = re.search(r"(dlink_[A-Za-z0-9_.\-]+)", preview_url)
             if dlink_m:
 
@@ -777,9 +777,9 @@ async def search(payload: dict):
             continue
         seen.add(key)
         uniq.append(t)
-    # Urut relevansi: API longgar (Deezer fonetik, 4shared populer) menaruh
-    # "I Wanna/Akon" di atas untuk query "iwan fals". Exact-first yang stabil:
-    # cocok tetap di atas, sisanya tenggelam tapi tidak dihapus.
+    
+    
+    
     ql_all = query.lower()
     qwords = [w for w in ql_all.split() if len(w) > 2]
     def _score(t):

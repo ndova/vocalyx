@@ -77,13 +77,13 @@ if (!Number.isFinite(S.downloadOptions.replayGainPreAmp)) S.downloadOptions.repl
 S.downloadOptions.replayGainPreAmp = Math.max(-6, Math.min(6, S.downloadOptions.replayGainPreAmp));
 if (typeof S.downloadOptions.replayGainClipPrevention !== 'boolean') S.downloadOptions.replayGainClipPrevention = true;
 if (!S.downloadOptions.strictSources || typeof S.downloadOptions.strictSources !== 'object') {
-  S.downloadOptions.strictSources = { spotify:false, deezer:false, soundcloud:true, archive:true, '4shared':true };   // default install baru: hanya source tanpa akun (Spotify butuh Premium creds, Deezer butuh ARL)
+  S.downloadOptions.strictSources = { spotify:false, deezer:false, soundcloud:true, archive:true, '4shared':true };   
   S.downloadOptions.strictV = 3;
   delete S.downloadOptions.scStrict;
   try { localStorage.setItem('vocalyx_downloadOptions', JSON.stringify(S.downloadOptions)); } catch {}
 }
 if (S.downloadOptions.strictV !== 3) {
-  S.downloadOptions.strictV = 3;   // naikkan penanda saja: peta milik user lama tidak ditimpa
+  S.downloadOptions.strictV = 3;   
   try { localStorage.setItem('vocalyx_downloadOptions', JSON.stringify(S.downloadOptions)); } catch {}
 }
 if (!['off','auto','chrome','edge','firefox','brave','opera'].includes(S.downloadOptions.ytCookies)) S.downloadOptions.ytCookies = 'off';

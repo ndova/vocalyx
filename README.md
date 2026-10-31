@@ -48,7 +48,7 @@ If an installation breaks, just run the installer again — the runtime is part 
 | 📥 **Search & download** | YouTube/YT Music, SoundCloud, Archive.org, 4shared without an account; Spotify Premium via **Connect**; Deezer via saved ARL — per-source status on failure |
 | 🎚️ **10-band EQ** | Preset profiles (Rock/Pop/Jazz/…), VolumeGain loudness matching, Audio Cleaner (declip + normalize) |
 | 📝 **Synced lyrics** | `.lrc` display with per-line editor and time-offset control |
-| 📱 **iPhone transfer** | Two-way sync with your iPhone over USB |
+| 📱 **iPhone transfer** | Two-way music sync with your iPhone over USB. **Video import** via dropdown Musik/Video: files uploaded first, DB entry created only on success (no corrupt entries), per-file error reporting in progress bar. **Right-click** a video in the grid to edit its title |
 | 🌓 **Auto theme** | Follows the Windows light/dark mode automatically |
 
 ### Minimum requirements
@@ -61,14 +61,18 @@ If an installation breaks, just run the installer again — the runtime is part 
 | Internet | Required | Search/download, model downloads, updates |
 | GPU | Optional | NVIDIA driver + ±4 GB VRAM for CUDA karaoke; CPU mode is fully functional |
 | VC++ Redist | Required once | Auto-installed from the installer bundle when missing ([manual download](https://aka.ms/vs/17/release/vc_redist.x64.exe)) — the AI engine cannot start without it |
-| iPhone | Optional | [Apple Mobile Device Support](https://support.apple.com/en-us/103229) (with iTunes), run as administrator, tap **Trust** — VocaLyx only detects it |
+| iPhone | Optional | iPhone driver bundle included in repository (`driver.zip`): extract → right-click `usbaapl64` in the extracted folder → **Install** → restart PC; run VocaLyx as administrator, tap **Trust** on iPhone — VocaLyx only detects it. **Video import**: select **Video** in the Device dropdown, then Import → file → upload → TV app → Home Videos (force-quit TV app / reboot if not shown). Right-click a video → Edit to change its title |
 
 ### Install
 
 1. Download the **Setup.exe** or **MSI** from the table above.
 2. Run it — the Python runtime (±670 MB) is bundled and extracts to
    `%APPDATA%\VocaLyx` on first launch; AI models download on first use.
-3. Optional: enable CUDA with **Install CUDA dependencies** in the Karaoke card of
+3. **iPhone driver:** Install **AppleMobileDeviceSupport64.msi** (already in repository) like
+   usual. Then download **driver.zip** (also in repository), extract it, find
+   **usbaapl64** in the extracted folder, right-click → **Install**. When the
+   "installation successful" popup appears, **restart your PC**.
+4. Optional: enable CUDA with **Install CUDA dependencies** in the Karaoke card of
    Settings.
 
 <details>
@@ -150,7 +154,7 @@ Jika instalasi rusak, jalankan lagi saja installernya — runtime sudah bagian d
 | 📥 **Pencarian & unduh** | YouTube/YT Music, SoundCloud, Archive.org, 4shared tanpa akun; Spotify Premium via **Connect**; Deezer via ARL tersimpan — status per sumber saat gagal |
 | 🎚️ **EQ 10-band** | Profil preset (Rock/Pop/Jazz/…), VolumeGain penyamakan loudness, Pembersih Audio (declip + normalisasi) |
 | 📝 **Lirik sinkron** | Tampilan `.lrc` dengan editor per baris dan kontrol offset waktu |
-| 📱 **Transfer iPhone** | Sinkron dua arah dengan iPhone lewat USB |
+| 📱 **Transfer iPhone** | Sinkron dua arah musik dengan iPhone lewat USB. **Impor video** via dropdown Musik/Video: file di-upload dulu, entri DB baru dibuat jika upload sukses (tidak ada entri corrupt), pelaporan error per-file di progress bar |
 | 🌓 **Tema otomatis** | Mengikuti mode terang/gelap Windows |
 
 ### Persyaratan minimum
@@ -163,14 +167,18 @@ Jika instalasi rusak, jalankan lagi saja installernya — runtime sudah bagian d
 | Internet | Diperlukan | Pencarian/unduh, unduh model, pembaruan |
 | GPU | Opsional | Driver NVIDIA + ±4 GB VRAM untuk karaoke CUDA; mode CPU berfungsi penuh |
 | VC++ Redist | Sekali saja | Terpasang otomatis dari bundel installer bila belum ada ([unduh manual](https://aka.ms/vs/17/release/vc_redist.x64.exe)) — engine AI tidak bisa jalan tanpanya |
-| iPhone | Opsional | [Apple Mobile Device Support](https://support.apple.com/id-id/103229) (ikut iTunes), jalankan sebagai administrator, ketuk **Trust** — VocaLyx hanya mendeteksinya |
+| iPhone | Opsional | Bundle driver iPhone sudah ada di repository (`driver.zip`): ekstrak → klik kanan `usbaapl64` di folder hasil ekstrakan → **Instal** → restart PC; jalankan VocaLyx sebagai administrator, ketuk **Trust** di iPhone — VocaLyx hanya mendeteksinya |
 
 ### Instalasi
 
 1. Unduh **Setup.exe** atau **MSI** dari tabel di atas.
 2. Jalankan — runtime Python (±670 MB) sudah terbundel dan diekstrak ke
    `%APPDATA%\VocaLyx` saat pertama dibuka; model AI diunduh saat pertama dipakai.
-3. Opsional: aktifkan CUDA lewat **Install CUDA dependencies** di kartu Karaoke pada
+3. **Driver iPhone:** Instal **AppleMobileDeviceSupport64.msi** (sudah ada di repository)
+   seperti biasa. Lalu unduh **driver.zip** (juga sudah ada di repository), ekstrak, cari
+   **usbaapl64** di folder hasil ekstrakan, klik kanan → **Instal**. Saat muncul popup
+   "instalasi berhasil", **restart PC Anda**.
+4. Opsional: aktifkan CUDA lewat **Install CUDA dependencies** di kartu Karaoke pada
    Settings.
 
 <details>

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Hardening + vault staging engine. Dijalankan via interpreter runtime 3.11.
 
 Pemakaian:
@@ -21,9 +21,9 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "python-engine"))
 
-from _pyc_hardening import check_tree_hardened, compile_tree_hardened  # noqa: E402
-import vx_vault  # noqa: E402  (format+vault; stdlib only)
-from _vault_stage import fresh_share, key_loader_text, trial_import  # noqa: E402
+from _pyc_hardening import check_tree_hardened, compile_tree_hardened  
+import vx_vault  
+from _vault_stage import fresh_share, key_loader_text, trial_import  
 
 
 def log(msg: str) -> None:
@@ -97,17 +97,17 @@ def main() -> int:
             import_stems.append(stem)
     log(f"vault OK ({len(stems)} file: {', '.join(s + '.pyv' for s in stems)})")
 
-    # Trial impor via hook dalam SUBPROSES interpreter ini (= runtime): tanpa
-    # itu, `import vx_vault` memakai salinan repo (placeholder) yang sudah
-    # terlanjur di sys.modules proses ini. Skrip (scripts/*) bukan modul impor:
-    # ia dijalankan via loader sebagai __main__.
+    
+    
+    
+    
     ok, detail = trial_import(sys.executable, stage, import_stems)
     if not ok:
         log(f"GAGAL: trial impor ({detail})")
         return 1
     log("trial impor OK (%d modul)" % len(import_stems))
 
-    # Roundtrip skrip: karaoke_best dijalankan via loader sebagai __main__.
+    
     kb = stage / "scripts" / "karaoke_best.pyv"
     if kb.is_file():
         import subprocess

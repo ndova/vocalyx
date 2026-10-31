@@ -65,7 +65,7 @@ async function engineGet(path) {
   } catch {}
   return fetch('/api' + path, { cache: 'no-store' });
 }
-async function engineInfo() { // /health versi lengkap; engineHealth() cuma return boolean (JSON dibuang)
+async function engineInfo() { 
   for (const u of [ENG_BASE + '/health', '/api/health']) {
     try {
       const r = await fetch(u, { cache: 'no-store' });
@@ -568,7 +568,7 @@ const caps0 = await karaokeCaps().catch(() => null);
       try { syncKaraokeBtn(); } catch {}
       return;
     }
-    if (tIdx === S.idx) { const outUrl = URL.createObjectURL(outBlob);  // job baris lain tidak merampas playback
+    if (tIdx === S.idx) { const outUrl = URL.createObjectURL(outBlob);  
       const wasPlaying2 = !audio.paused;
       const pos2 = audio.currentTime;
       let fallbackOrig = null;

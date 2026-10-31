@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Stage paket premium (librespot Spotify / deemix Deezer) untuk bundel.
 
 Latar masalah: venv lokal (`scripts/*-venv`) di-gitignore dan tak pernah ikut
@@ -50,10 +50,10 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUT = ROOT / "build" / "premium"
 PY_TAG = (3, 11)
 
-# Bundel premium prebuilt untuk mesin tanpa venv (fresh clone / PC builder lain).
-# Format zip: root berisi `spotify/`, `deezer/`, `manifest.json` + file
-# `<nama>.sha256` di sampingnya. Konvensi tag sama seperti runtime-cpu
-# (lihat src/js/runtime.js): .../releases/download/runtime-<ver>/premium-<ver>.zip
+
+
+
+
 RELEASES = "https://github.com/ndova/vocalyx-releases/releases/download"
 
 SERVICES: dict[str, dict] = {
@@ -67,8 +67,8 @@ SERVICES: dict[str, dict] = {
     },
 }
 
-# Tutup impor glue script dgn site-packages sistem dibuang: setiap top-level
-# non-stdlib yang terimpor WAJIB berasal dari venv (owned), selain itu = gagal.
+
+
 DISCOVER = r"""
 import ast, importlib, json, os, sys
 site, = sys.argv[1:2]
@@ -117,7 +117,7 @@ json.dump({"roots": roots, "owned": sorted(owned),
            "failed": failed, "foreign": foreign}, sys.stdout)
 """
 
-# Verifikasi staged: hanya stdlib + paket staged yang boleh terlihat.
+
 VERIFY = r"""
 import importlib, sys
 dest, = sys.argv[1:2]
@@ -319,8 +319,8 @@ def stage_service(name: str, spec: dict, out: Path, force: bool) -> bool:
     for g in glues:
         shutil.copy2(g, dest / g.name)
 
-    # Loader vault: salinan python-engine/vx_vault.py dikunci shareA acak per
-    # service LALU ikut hardening (tetap .pyc clear, tak pernah di-vault).
+    
+    
     sys.path.insert(0, str(ROOT / "scripts"))
     try:
         from _pyc_hardening import check_tree_hardened, compile_tree_hardened
@@ -356,7 +356,7 @@ def stage_service(name: str, spec: dict, out: Path, force: bool) -> bool:
         shutil.rmtree(dest, ignore_errors=True)
         return False
 
-    # Vault glue: <stem>.pyc -> <stem>.pyv (dibuka di memori oleh loader).
+    
     glue_stems = [g.stem for g in glues]
     done, verr = vault_stems(dest, glue_stems, share)
     if verr:
@@ -365,8 +365,8 @@ def stage_service(name: str, spec: dict, out: Path, force: bool) -> bool:
         return False
     log(f"{name}: vault OK ({done} .pyv)")
 
-    # Roundtrip via loader + interpreter ini (paket staged sebagai PYTHONPATH,
-    # tanpa ARL/kredensial: arl kosong -> ARL_KOSONG, --help -> rc 0).
+    
+    
     loader_pyc = dest / "vx_vault.pyc"
     rt_env = {k: v for k, v in os.environ.items()
               if k not in ("PYTHONPATH", "DEEZER_ARL")}

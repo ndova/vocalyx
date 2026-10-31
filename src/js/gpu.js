@@ -36,7 +36,7 @@ function autoRefreshCudaStatus(engineOnline) {
   }
 }
 
-function autoRefreshWithHint(engineOnline) { // status + hint dari kondisi aktual; terpisah agar autoRefreshCudaStatus murni
+function autoRefreshWithHint(engineOnline) { 
   try { autoRefreshCudaStatus(engineOnline); } catch {}
   if (engineOnline) {
     try { applyDeviceHint(cached ? 'ready' : 'checking', lastDetected); } catch {}
@@ -56,7 +56,7 @@ function cudaGpuName(entries) {
 function applyDeviceHint(state, entries) {
   const hint = el('deviceCudaHint');
   if (!hint) return;
-  if (S._lastCudaOffline && !S._cudaRestartingAt && !S._deviceSwitching) { // offline: CPU pun butuh engine, jangan klaim model dipakai
+  if (S._lastCudaOffline && !S._cudaRestartingAt && !S._deviceSwitching) { 
     hint.style.color = '#e5484d';
     hint.textContent = t('set.deviceCudaHintOffline');
     return;
@@ -71,7 +71,7 @@ function applyDeviceHint(state, entries) {
   }
   const usingCuda = String((S.downloadOptions && S.downloadOptions.karaokeDevice) || 'cpu').toLowerCase() === 'cuda';
   const name = cudaGpuName(entries);
-  if (usingCuda && !S._prevCudaActive) { // venv ada tapi engine masih CPU: jangan klaim "dipakai otomatis"
+  if (usingCuda && !S._prevCudaActive) { 
     hint.textContent = t('set.deviceCudaHintPending', { gpu: name || 'CUDA' });
     return;
   }
@@ -129,7 +129,7 @@ async function runApplyDevice(device, gpuPython) {
       return null;
     }
     applyDeviceHint(cached ? 'ready' : 'checking', lastDetected);
-    try { const { engineToken } = await import('./engine-auth.js'); await engineToken(true); } catch {}  // ganti device = restart engine, dan engine menulis ulang `engine-token` di %APPDATA%\VocaLyx; tanpa refresh di sini wrapper fetch masih memegang token lama di cache dan setiap request sesudah switch membalas 401 (ratusan 401 setelah `device engine -> cpu`), jadi refresh SEBELUM request pertama, bukan retry pasif saat 401
+    try { const { engineToken } = await import('./engine-auth.js'); await engineToken(true); } catch {}  
     return cfg;
   } catch (e) {
     try { showToast(`${t('set.deviceSwitchFailed')}: ${e?.message || String(e)}`, 7000); } catch {}
@@ -307,9 +307,9 @@ function paintCudaSetup(st, prog) {
   }
   const progStage = String((prog && prog.stage) || (lastCudaProg && lastCudaProg.stage) || '');
   const sinceRef = Math.max(lastCudaGrowthAt, cudaSetupStartAt);
-  const stalled = state === 'installing'  // tahap pip/torch/deps wajib menumbuhkan byte; venv/precheck/verify memang sunyi sehingga tidak dinilai
+  const stalled = state === 'installing'  
     && (progStage === 'pip' || progStage === 'torch' || progStage === 'deps')
-    && sinceRef > 0 && (Date.now() - sinceRef) >= 180000;  // 3 menit tanpa byte baru = stall jaringan, bukan progres macet
+    && sinceRef > 0 && (Date.now() - sinceRef) >= 180000;  
   const show = state === 'missing' || state === 'failed' || state === 'installing';
   box.style.display = show ? '' : 'none';
   if (!show) {
@@ -325,7 +325,7 @@ function paintCudaSetup(st, prog) {
       : state === 'failed'
         ? t('set.cudaSetupFailed')
         : t('set.cudaSetupMissing');
-    status.textContent = (S._lastCudaOffline && state !== 'installing') // offline: jangan klaim CPU jalan, tambah catatan engine
+    status.textContent = (S._lastCudaOffline && state !== 'installing') 
       ? `${base} ${t('eng.offlineRun')}`
       : base + (stalled ? ' ' + t('set.cudaSetupStalled') : '');
     status.style.color = (S._lastCudaOffline && state !== 'installing') ? '#e5484d' : '';
@@ -444,7 +444,7 @@ async function pollCudaSetupDone() {
   try { await maybeAutoSwitchToCuda(); } catch {}
 }
 
-async function maybeAutoSwitchToCuda() { // penuhi niat CUDA terpilih begitu install selesai (tanpa klik tambahan)
+async function maybeAutoSwitchToCuda() { 
   if (!isTauri()) return false;
   if (String((S.downloadOptions && S.downloadOptions.karaokeDevice) || 'cpu').toLowerCase() !== 'cuda') return false;
   if (S._prevCudaActive) return false;
@@ -513,10 +513,10 @@ export async function retryEngine() {
     if (isTauri()) {
       try { await invokeTauri('restart_engine'); } catch (e) { throw e; }
     }
-    const ok = await waitEngineReady(90000); // import torch lambat, poll sampai 90 dtk
+    const ok = await waitEngineReady(90000); 
     S._deviceSwitching = false;
     S._cudaRestartingAt = false;
-    try { const { engineToken } = await import('./engine-auth.js'); await engineToken(true); } catch {}  // sama seperti ganti device: restart engine menulis ulang engine-token, segarkan sebelum request berikutnya, jangan andalkan retry saat 401
+    try { const { engineToken } = await import('./engine-auth.js'); await engineToken(true); } catch {}  
     try { await refreshCudaStatus(true); } catch {}
     try { await refreshCudaSetup(); } catch {}
     if (!ok) {

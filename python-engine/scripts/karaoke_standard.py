@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Karaoke Standard — satu model RoFormer instrumental (Resurrection Inst).
 
 Instrumental dipakai langsung dari stem primer model (primary=other/
@@ -14,11 +14,11 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-import win_nowindow  # noqa: E402
+import win_nowindow  
 
 win_nowindow.hide_child_consoles()
 
-import vx_karaoke_sep as sep  # noqa: E402
+import vx_karaoke_sep as sep  
 
 MODEL = "bs_roformer_instrumental_resurrection_unwa.ckpt"
 WEIGHTS = ((MODEL, 1.0),)

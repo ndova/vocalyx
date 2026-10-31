@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Download 1 track Spotify via akun Premium (librespot, venv terisolasi).
 
 Dipakai HANYA oleh python-engine/vx_download.py. WAJIB memakai file
@@ -25,8 +25,8 @@ import os
 import sys
 import tempfile
 
-# Self-bootstrap: lihat spotify_premium_auth.py (isolated interpreter
-# mengabaikan PYTHONPATH; paket staging ada di direktori file ini).
+
+
 def _vx_bootstrap():
     try:
         here = os.path.dirname(os.path.abspath(__file__))
@@ -40,7 +40,7 @@ def _vx_bootstrap():
 _vx_bootstrap()
 del _vx_bootstrap
 
-# Matikan log librespot yang berisik (tetap ke stderr, tak pernah ke stdout JSON)
+
 logging.basicConfig(level=logging.CRITICAL)
 
 
@@ -78,15 +78,15 @@ def main():
     except Exception as e:
         fail("Paket librespot belum terinstall di paket premium: " + str(e)[:200])
 
-    # Anti-banned: cache persist 24h (hemat auth) — hanya tmp download yang per-invocation.
-    # tmpdir = session temp (dibersihkan), cache_dir = persist bila --cache-dir diberikan.
+    
+    
     import time as _time
     tmpdir = tempfile.mkdtemp(prefix="sp-prem-")
     cache_dir = args.cache_dir.strip() if hasattr(args, "cache_dir") else ""
     if cache_dir:
         try:
             os.makedirs(cache_dir, exist_ok=True)
-            # TTL 24h: jika cache lebih tua, bersihkan agar token segar (hindari expired reuse)
+            
             try:
                 marker = os.path.join(cache_dir, ".cache_at")
                 now = _time.time()
@@ -119,7 +119,7 @@ def main():
         .set_cache_dir(eff_cache)
         .set_stored_credential_file(os.path.join(tmpdir, "creds.json"))
     )
-    # Device ID per-install (anti fingerprint statis) — librespot pakai device_id bila didukung
+    
     try:
         _dev = (args.device_id.strip() if hasattr(args, "device_id") else "")[:64]
         if _dev:
@@ -172,7 +172,7 @@ def main():
         except Exception as e:
             _msg = str(e)[:500]
             _low = _msg.lower()
-            # Ban / throttle signal — bubble ke Node agar backoff, bukan retry buta
+            
             if "429" in _low or "too many" in _low or "rate" in _low or "throttl" in _low:
                 emit({"ok": False, "error": "rate_limited: CDN Spotify sibuk, jeda lalu retry", "retry_after": 60})
                 sys.exit(2)
@@ -200,7 +200,7 @@ def main():
                     break
                 f.write(chunk)
                 total += len(chunk)
-                # heartbeat tiap ~2MB agar pemanggil tahu masih hidup
+                
                 if total - last_tick >= 2 * 1024 * 1024:
                     last_tick = total
                     emit({"progress": 0, "bytes": total})
@@ -212,7 +212,7 @@ def main():
 
         if total < 1024 or not os.path.exists(tmp_out):
             fail("File audio Spotify kosong")
-        # retry rename untuk WinError 32 (file terkunci Defender/antivirus sesaat)
+        
         for _attempt in range(4):
             try:
                 if os.path.exists(out):
@@ -235,7 +235,7 @@ def main():
             session.close()
         except Exception:
             pass
-        # Bersihkan cache temp (berisi potongan cache + kredensial tersimpan)
+        
         try:
             import shutil
 

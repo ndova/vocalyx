@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Bersihkan resource engine basi sebelum Tauri menyalin staging.
 
 Tauri menyalin `bundle.resources` dengan cara MERGE, bukan replace: folder tujuan
@@ -25,8 +25,8 @@ ROOT = Path(__file__).resolve().parent.parent
 TAURI_TARGET = ROOT / "src-tauri" / "target" / "release"
 STAGE = ROOT / "build" / "engine"
 
-# Folder yang pernah menjadi tujuan salin resource engine. `_up_` muncul saat
-# resource dir keluar dari `target/release` (Tauri kadang menambah satu tingkat).
+
+
 RESOURCE_DIRS = [TAURI_TARGET / "python-engine", TAURI_TARGET / "_up_" / "python-engine"]
 LEAK_SUFFIX = ".py"
 
@@ -40,7 +40,7 @@ def clean(dry: bool = False) -> int:
     for d in RESOURCE_DIRS:
         if not d.exists():
             continue
-        # Guard: staging source (build/engine) harus utuh dan tidak boleh tersentuh.
+        
         if STAGE.resolve() == d.resolve():
             log(f"LEWATI: {d} menunjuk staging, jangan dihapus")
             continue

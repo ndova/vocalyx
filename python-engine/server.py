@@ -1,19 +1,19 @@
 """VocaLyx Python engine: FastAPI + BS-RoFormer/RoFormer (GPU) + m4a/mp3 handling."""
-# Folder engine harus ada di sys.path SEBELUM `import vx_vault` di bawah.
-#
-# Interpreter normal menambahkan folder script ke sys.path secara otomatis,
-# tapi runtime embeddable yang kita bundle punya `python*._pth` yang menimpa
-# sys.path sepenuhnya: isinya saja yang dipakai, `PYTHONPATH` diabaikan, dan
-# folder script tidak pernah ditambahkan. Akibatnya `import vx_vault` (dan
-# semua `vx_*` lain) gagal dengan:
-#
-#     ModuleNotFoundError: No module named 'vx_vault'
-#
-# Engine lalu mati seketika, port 8001 tidak pernah listen, dan endpoint
-# premium (Connect / Verify / Test) gagal fetch sehingga UI hanya
-# menampilkan error generik. Bootstrap di bawah membuat lokasi engine tidak
-# bergantung pada `._pth` maupun PYTHONPATH, jadi folder resource, repo dev,
-# dan runtime/engine semuanya bisa dipakai apa adanya.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 import os as _os
 import sys as _sys
 
@@ -98,9 +98,9 @@ def health():
         "bs_available": bs_available,
         "torch": torch.__version__,
         "cover_upload": True,
-        # Penanda protokol: engine LAMA (sebelum resolver backend premium)
-        # tidak punya field ini, jadi frontend/Rust bisa mendeteksi engine yatim
-        # basi di 8001 dan mengambil alihnya. Jangan dibuat dinamis.
+        
+        
+        
         "premium_backend": True,
     }
 

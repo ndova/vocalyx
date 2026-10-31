@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Perakit runtime portable VocaLyx (Fase 2 bundler).
 
 Menghasilkan satu folder `runtime/` yang berisi Python embeddable + dependensi
@@ -53,10 +53,10 @@ PY_MAJOR_MINOR = (3, 11)
 PY_EMBED_URL = f"https://www.python.org/ftp/python/{PY_VERSION}/python-{PY_VERSION}-embed-amd64.zip"
 GET_PIP_URL = "https://bootstrap.pypa.io/get-pip.py"
 TORCH_CPU_INDEX = "https://download.pytorch.org/whl/cpu"
-# Pasangan torch/torchvision resmi. Torchvision wajib ikut dipin: torchvision
-# mengikat torch ke versi pasangannya, dan `pip install -r requirements-cpu.txt`
-# menarik onnx2torch-py313 -> torchvision, yang tanpa pin akan menaikkan torch
-# melewati nilai di sini. Lihat python-engine/constraints-cpu.txt.
+
+
+
+
 TORCH_PIN = "torch==2.14.1"
 TORCHVISION_PIN = "torchvision==0.29.1"
 CONSTRAINTS = ENGINE_SRC / "constraints-cpu.txt"
@@ -66,11 +66,11 @@ CPU_MODEL = "UVR-MDX-NET-Inst_HQ_4.onnx"
 
 ENGINE_ENTRY = "server.py"
 ENGINE_EXTRA_SCRIPTS = ("scripts/karaoke_best.py",)
-# Source `.py` TIDAK ikut dikirim. Staging dikompilasi ke bytecode `.pyc` dulu
-# (lihat `compile_engine_stage`) supaya installer/runtime tidak memuat source
-# Python plaintext. Bytecode 3.11 belum bisa di-decompile oleh decompiler
-# mainstream (uncompyle6/decompyle3 mentok di 3.10), jadi ini menutup kebocoran
-# paling serius yang dulu ada di `python-engine/`.
+
+
+
+
+
 KEEP_SOURCE = "--keep-source"
 EXCLUDE_NAMES = {
     "__pycache__", ".pytest_cache", ".mypy_cache", "tests", "tmp",
@@ -246,8 +246,8 @@ def compile_engine_stage(py: Path, dry: bool = False) -> int:
          str(STAGE_ENGINE)],
         capture_output=True, text=True,
     )
-    # Helper sudah mengunci loader + hardening + vault + trial impor.
-    # Di sini tinggal teruskan log-nya dan hitung hasilnya.
+    
+    
     if proc.stdout.strip():
         for ln in proc.stdout.strip().splitlines():
             log(f"  stage: {ln}")
@@ -258,7 +258,7 @@ def compile_engine_stage(py: Path, dry: bool = False) -> int:
         log("GAGAL: hardening+vault staging gagal (lihat di atas)")
         return 0
     removed = sum(1 for _ in STAGE_ENGINE.rglob("*.pyc") if _.is_file())
-    # `__pycache__` tidak dipakai dengan -b, tapi bersihkan kalau ada sisa.
+    
     for cache in sorted(STAGE_ENGINE.rglob("__pycache__"), reverse=True):
         shutil.rmtree(cache, ignore_errors=True)
     left = sorted(p.relative_to(STAGE_ENGINE).as_posix() for p in STAGE_ENGINE.rglob("*.py"))
@@ -323,8 +323,8 @@ def install_python_deps(py: Path, dry: bool = False) -> bool:
     if dry:
         log("[dry-run] pip install torch+torchvision (cpu) + requirements-cpu.txt (dengan constraints)")
         return True
-    # torch + torchvision dipasang bersama dari indeks CPU. Kalau dipisah,
-    # torchvision dari PyPI menarik varian CUDA besertaCUDA runtime ~3 GB.
+    
+    
     if run([str(py), "-m", "pip", "install", "--no-warn-script-location", "--upgrade",
             TORCH_PIN, TORCHVISION_PIN, "--index-url", TORCH_CPU_INDEX]) != 0:
         log("GAGAL: install torch/torchvision CPU")
@@ -417,8 +417,8 @@ def main() -> int:
         return True
 
     if args.staging_only or args.repack:
-        # `--repack`/`--staging-only` dijalankan berulang pada runtime yang sudah
-        # ada, jadi interpreter 3.11 harus sudah tersedia dari rakitan sebelumnya.
+        
+        
         ok = ensure_compiled(engine_python(args.dry_run))
         if not ok and not args.dry_run:
             return 1
@@ -441,9 +441,9 @@ def main() -> int:
         return 0
     if not py:
         return 1
-    # Build penuh: interpreter baru siap setelah `prepare_python()`, jadi staging
-    # baru bisa dikompilasi di sini. Kalau dilewati, `.py` plaintext ikut masuk
-    # installer - kebocoran yang justru sedang ditutup di sini.
+    
+    
+    
     if not ensure_compiled(py):
         return 1
     if not install_python_deps(py):

@@ -34,11 +34,11 @@ def _spawn_env(force_cpu: bool = False) -> dict:
 
 _KARAOKE_PY_CACHE: dict[str, tuple] = {}
 _KARAOKE_PROBE_CODE = "import audio_separator, torch, onnxruntime"
-# Probe CUDA: selain paket wajib, torch harus benar-benar MELIHAT GPU.
-# BUG LAMA yang diperbaiki di sini: tanpa syarat ini, interpreter CPU
-# (runtime bawaan, torch 2.14.1+cpu) selalu lolos probe pertama dan karaoke
-# diam-diam jalan di CPU meski user memilih CUDA. Terukur di RTX 3050 4 GB:
-# aufr33 audio 30 dtk = 391 dtk di CPU vs 28 dtk di GPU (14x).
+
+
+
+
+
 _KARAOKE_PROBE_CUDA_CODE = (
     "import audio_separator, torch, onnxruntime\n"
     "assert torch.cuda.is_available(), 'torch tanpa CUDA'\n"
@@ -136,12 +136,12 @@ def _karaoke_python(device: str = "cpu") -> tuple:
                      dev, exe)
         return _KARAOKE_PY_CACHE[dev]
 
-    # Pass 1: probe sesuai device (cuda -> wajib torch.cuda.is_available()).
+    
     for exe in _interpreter_candidates(dev):
         if _probe_karaoke_python(exe, require_cuda=want_cuda):
             return _pick(exe, True)
-    # Pass 2 (cuda saja): tak ada CUDA di mana pun -> pakai kandidat ber-deps
-    # apa adanya, dengan peringatan supaya user tahu ini jadi CPU.
+    
+    
     if want_cuda:
         log.warning("karaoke[cuda]: tak ada interpreter dengan torch CUDA; "
                     "karaoke dijalankan di CPU (lebih lambat)")
@@ -233,8 +233,8 @@ def _tqdm_watch(job_id: str, log_path: Path, stop_ev: threading.Event) -> None:
 def _run_script(job_id: str, script: Path, args: list, log_path: Path,
                Heartbeat_stage: str = "separate"):
     final = {}
-    # Device job ini (args[2]) menentukan pemilihan interpreter: tanpa ini,
-    # karaoke CUDA bisa diam-diam jatuh ke interpreter CPU (bug 14x lambat).
+    
+    
     dev_for_py = str(args[2]).lower() if len(args) >= 3 else "cpu"
     py_exe, py_ok = _karaoke_python(dev_for_py)
     if not py_ok:

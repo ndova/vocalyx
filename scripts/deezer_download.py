@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Download 1 track Deezer kualitas TERBAIK yang diizinkan akun (tanpa upscale).
 
 - ARL HANYA via env DEEZER_ARL (tidak pernah argv/log/output).
@@ -19,8 +19,8 @@ import time
 from copy import deepcopy
 from pathlib import Path
 
-# Self-bootstrap: lihat spotify_premium_auth.py (isolated interpreter
-# mengabaikan PYTHONPATH; paket staging deemix/deezer ada di direktori ini).
+
+
 def _vx_bootstrap():
     try:
         here = os.path.dirname(os.path.abspath(__file__))

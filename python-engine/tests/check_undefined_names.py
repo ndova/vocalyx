@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Static check: nama yang dibaca tapi tidak pernah didefinisikan.
 
 Melengkapi test runtime. Ini menangkap NameError yang tersembunyi di badan
@@ -21,14 +21,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# Nama yang selalu ada di level modul tapi tidak ada di dir(builtins).
+
 IMPLICIT = {
     "__file__", "__name__", "__doc__", "__package__", "__spec__",
     "__loader__", "__builtins__", "__debug__", "__path__", "__cached__",
     "__annotations__", "__class__",
 }
 
-# Modul yang bukan kode produksi (fixture / catatan).
+
 SKIP_DIRS = {"__pycache__", ".venv", "venv", "node_modules"}
 
 
@@ -61,7 +61,7 @@ def analyse(path: Path):
         elif isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):
             defined.add(n.id)
         elif isinstance(n, ast.Lambda):
-            # parameter lambda juga scope-nya sendiri (mis. max(xs, key=lambda i: ...))
+            
             for a in list(n.args.posonlyargs) + list(n.args.args) + list(n.args.kwonlyargs):
                 defined.add(a.arg)
             if n.args.vararg:

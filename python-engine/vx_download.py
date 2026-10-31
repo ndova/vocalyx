@@ -289,8 +289,8 @@ def _unlink_quiet(p) -> None:
 
 
 _INTERPRETER_PROBE: dict = {}
-_PREMIUM_MISSING: dict = {}  # alasan terakhir `_premium_backend` gagal resolve, per layanan, supaya pesan ke user menyebut penyebab nyata dan bukan selalu "paket tidak terbundel"
-_PREMIUM_PROCS: list = []  # child Spotify Connect milik proses server ini, supaya disconnect bisa menghentikannya (tanpa registry, proses yatim dari server lama tidak ikut)
+_PREMIUM_MISSING: dict = {}  
+_PREMIUM_PROCS: list = []  
 
 
 def _interpreter_usable(exe: str) -> bool:
@@ -1475,7 +1475,7 @@ async def deezer_arl(payload: dict):
         return JSONResponse({"ok": False, "error": str(e)[:300]}, status_code=500)
 
 
-_PREMIUM_RAW_HINTS = (  # pola output mentah child premium yang TIDAK pernah jadi JSON, dipetakan ke aksi yang bisa dilakukan user; tanpa ini `connect-status` hanya melihat baris non-JSON, deempatkan `waiting: True`, dan UI baru memberi tahu "timeout 120 detik" padahal prosesnya sudah mati di detik pertama karena sebab yang jauh lebih jelas
+_PREMIUM_RAW_HINTS = (  
     ("no python at",
      "Interpreter venv Spotify Premium rusak - Python yang membuat venv sudah "
      "tidak ada di mesin ini. Rebuild paket premium: python scripts/stage_premium.py"),
@@ -1524,14 +1524,14 @@ async def spotify_premium(payload: dict):
     if action == "status":
         return {"connected": cred_path.exists() and cred_path.stat().st_size > 16, "deviceName": f"VocaLyx-{device_path.read_text().strip()[-4:] if device_path.exists() else 'XXXX'}"}
     if action == "disconnect":
-        for p in list(_PREMIUM_PROCS):  # hentikan sisa child Connect (librespot) supaya tidak jalan tanpa sesi
+        for p in list(_PREMIUM_PROCS):  
             try:
                 if p.poll() is None:
                     p.terminate()
             except Exception:
                 pass
         _PREMIUM_PROCS[:] = [p for p in _PREMIUM_PROCS if p.poll() is None]
-        for f in (cred_path, device_path, cred_path.parent / "connect-last.log"):  # creds + sisa sesi basi (device/log lama membingungkan connect-status berikutnya)
+        for f in (cred_path, device_path, cred_path.parent / "connect-last.log"):  
             try:
                 if f.exists():
                     f.unlink()
@@ -1612,11 +1612,11 @@ async def spotify_premium(payload: dict):
             )
             if log_f:
                 try:
-                    log_f.close()  # child memegang dup-nya sendiri
+                    log_f.close()  
                 except Exception:
                     pass
-            _PREMIUM_PROCS.append(proc)  # catat supaya disconnect bisa terminate; entri mati dibersihkan di sana
-            await asyncio.sleep(1.2)  # child yang langsung mati (venv rusak, import gagal, PYTHONPATH keliru) terlihat sebagai `returncode` dalam hitungan milidetik; tanpa jeda ini UI menganggap Connect berjalan lalu menunggu 120 detik dan menampilkan "timeout", padahal prosesnya sudah selesai di detik pertama. `await`, bukan `time.sleep`, supaya loop event engine tetap melayani request lain selama jeda.
+            _PREMIUM_PROCS.append(proc)  
+            await asyncio.sleep(1.2)  
             rc = proc.poll()
             if rc is not None:
                 detail = ""
@@ -1639,7 +1639,7 @@ async def spotify_premium(payload: dict):
         if cred_path.exists() and cred_path.stat().st_size > 16:
             did = device_path.read_text().strip()[-4:] if device_path.exists() else "XXXX"
             return {"connected": True, "deviceName": f"VocaLyx-{did}"}
-        try:  # kegagalan auth (Zeroconf/firewall/timeout/import) ada di log: tampilkan, jangan waiting buta
+        try:  
             logp = cred_path.parent / "connect-last.log"
             if logp.exists():
                 plain = ""
@@ -1647,7 +1647,7 @@ async def spotify_premium(payload: dict):
                     line = line.strip()
                     if not line:
                         continue
-                    if not line.startswith("{"):  # launcher venv yang rusak, galat runtime, atau traceback tidak pernah jadi JSON; simpan baris pertamanya supaya penyebabnya bisa dilaporkan, bukan dibiarkan jadi "menunggu" sampai UI ke timeout 120 detik
+                    if not line.startswith("{"):  
                         if not plain:
                             plain = line
                         continue

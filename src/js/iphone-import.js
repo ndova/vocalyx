@@ -4,7 +4,7 @@ import { showToast } from './engine.js';
 import { showModal } from './modal.js';
 import { isTauri } from './tauri.js';
 import { readCoverPathDrop } from './download-start.js';
-import { loadIPhoneLibrary } from './iphone.js';
+import { loadIPhoneLibrary, renderDeviceVideoView, setVideoImportProgress, VIDEO_EXT_RE } from './iphone.js';
 
 
 
@@ -36,26 +36,28 @@ function dropPositionOverList(position) {
   } catch { return false; }
 }
 
-export async function handleLibraryDrop(paths) {
+export async function handleLibraryDrop(paths, opts = {}) {
+  const isVideo = !!opts.isVideo;
   const all = paths || [];
-  const audio = all.filter(p => AUDIO_EXT_RE.test(p));
-  if (all.length > audio.length) {
-    showToast(t('iph.skippedNonAudio', { n: all.length - audio.length }), 3000);
+  const picked = all.filter(p => isVideo ? VIDEO_EXT_RE.test(p) : AUDIO_EXT_RE.test(p));
+  if (all.length > picked.length) {
+    showToast(t('iph.skippedNonAudio', { n: all.length - picked.length }), 3000);
   }
-  if (!audio.length) { showToast(t('iph.noDroppedAudio'), 3000); return; }
+  if (!picked.length) { showToast(t('iph.noDroppedAudio'), 3000); return; }
   if (S._prevIPhoneConnected === false) { showToast(t('iph.notConnectedShort'), 4000); return; }
   if (S.importRunning) { showToast(t('iph.waitRunning'), 4000); return; }
-  const entries = audio.map(p => {
+  const entries = picked.map(p => {
     const basename = p.split(/[\\/]/).pop() || p;
     return { path: p, ...parseAudioMeta(basename) };
   });
+  const libTracks = isVideo ? S.iphoneVideos : S.iphoneTracks;
   const libKeyToPid = new Map();
-  for (const t of S.iphoneTracks) {
+  for (const t of libTracks) {
     libKeyToPid.set(normKey(t.title) + '\0' + normKey(t.artist), String(t.item_pid));
   }
   const dupEntries = [], freshEntries = [], dupPids = [];
   const libSizeToPid = new Map();
-  for (const t of S.iphoneTracks) {
+  for (const t of libTracks) {
     if (t.file_size > 0 && !libSizeToPid.has(t.file_size)) libSizeToPid.set(t.file_size, String(t.item_pid));
   }
   const seenPid = new Set();
@@ -92,7 +94,7 @@ export async function handleLibraryDrop(paths) {
     if (replace) deletePids = dupPids;
   }
   S.importQueue = [...freshEntries, ...dupEntries];
-  await startIPhoneImport(deletePids);
+  await startIPhoneImport(deletePids, isVideo);
 }
 
 if (isTauri()) {
@@ -167,16 +169,19 @@ function setImportProgress(pct, text) {
   if (cancel) cancel.style.display = pct >= 0 && pct < 100 && S.importRunning ? '' : 'none';
 }
 
-async function startIPhoneImport(deletePids = []) {
+async function startIPhoneImport(deletePids = [], isVideo = false) {
   if (!S.importQueue.length || S.importRunning) return;
   S.importRunning = true;
+  S._importIsVideo = isVideo;
   const total = S.importQueue.length;
-  setImportProgress(0, `0% — Import 0/${total}`);
-  showToast(t('dl.importingCount', { n: total }), 3000);
+  const progressFn = isVideo ? setVideoImportProgress : setImportProgress;
+  progressFn(0, `0% — Import 0/${total}`);
+  showToast(t(isVideo ? 'iph.videoImportingCount' : 'dl.importingCount', { n: total }), 3000);
 
   const files = S.importQueue.map(f => ({ path: f.path, title: f.title, artist: f.artist, album: f.album }));
+  const url = isVideo ? 'http://127.0.0.1:8001/iphone/import_batch_video' : 'http://127.0.0.1:8001/iphone/import_batch';
   try {
-    const res = await fetch('http://127.0.0.1:8001/iphone/import_batch', {
+    const res = await fetch(url, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ files, delete_pids: deletePids }),
     });
@@ -186,9 +191,9 @@ async function startIPhoneImport(deletePids = []) {
     S.importQueue = [];
     pollImportProgress();
   } catch (e) {
-    showToast(t('iph.importFail', { n: e?.message || e }), 5000);
+    showToast(t('iph.importFail', { n: String(e?.message || e || 'unknown error') }), 5000);
     S.importRunning = false;
-    setImportProgress(-1, '');
+    (isVideo ? setVideoImportProgress : setImportProgress)(-1, '');
   }
 }
 
@@ -206,6 +211,8 @@ function pollImportProgress() {
   if (S.importPollTimer) clearInterval(S.importPollTimer);
   S.importPollTimer = setInterval(async () => {
     if (!S.importJobId) return;
+    const isVideo = S._importIsVideo;
+    const progressFn = isVideo ? setVideoImportProgress : setImportProgress;
     try {
       const res = await fetch('http://127.0.0.1:8001/iphone/import_progress?job_id=' + S.importJobId);
       const j = await res.json();
@@ -215,26 +222,29 @@ function pollImportProgress() {
         S.importPollTimer = null;
         S.importRunning = false;
         S.importJobId = null;
-        setImportProgress(100, `100% ${t('iph.importDone')}`);
-        showToast(`${j.done} ${t('dl.imported')}`, 6000);
-        if (S.activeView === 'device') { try { loadIPhoneLibrary(); } catch {} }
-        setTimeout(() => setImportProgress(-1, ''), 4000);
+        progressFn(100, `100% ${t('iph.importDone')}`);
+        showToast(t(isVideo ? 'iph.videoImported' : 'dl.imported', { n: j.done }), 6000);
+        if (S.activeView === 'device') {
+          if (isVideo && S.deviceView === 'video') { try { renderDeviceVideoView(); } catch {} }
+          else if (!isVideo) { try { loadIPhoneLibrary(); } catch {} }
+        }
+        setTimeout(() => progressFn(-1, ''), 4000);
       } else if (j.status === 'error') {
         clearInterval(S.importPollTimer);
         S.importPollTimer = null;
         S.importRunning = false;
         S.importJobId = null;
-        setImportProgress(0, t('std.error', { n: j.error || t('dl.unknownErr') }));
-        showToast(t('std.error', { n: j.error }), 5000);
-        setTimeout(() => setImportProgress(-1, ''), 4000);
+        progressFn(0, t('std.error', { n: j.error || t('dl.unknownErr') }));
+        showToast(t('std.error', { n: String(j.error || t('dl.unknownErr')) }), 5000);
+        setTimeout(() => progressFn(-1, ''), 4000);
       } else if (j.status === 'cancelled') {
         clearInterval(S.importPollTimer);
         S.importPollTimer = null;
         S.importRunning = false;
         S.importJobId = null;
-        setImportProgress(0, t('std.cancelled'));
+        progressFn(0, t('std.cancelled'));
         showToast(t('iph.importCancelled'), 3000);
-        setTimeout(() => setImportProgress(-1, ''), 2000);
+        setTimeout(() => progressFn(-1, ''), 2000);
       } else {
         const total = j.total || 1, done = j.done || 0;
         const pct = j.pct || 0;
@@ -242,12 +252,12 @@ function pollImportProgress() {
         const delDone = j.delete_done || 0;
         if (j.phase === 'delete' && delTotal) {
           const cur = j.current ? ` — ${j.current}` : t('iph.deleting', { a: delDone, b: delTotal });
-          setImportProgress(pct, `${pct}%${cur}`);
+          progressFn(pct, `${pct}%${cur}`);
         } else {
           const cur = j.current ? ` — ${j.current}` : '';
           const delPart = delTotal && delDone < delTotal
             ? ` • ${t('iph.deleteCounter', { a: delDone, b: delTotal })}` : '';
-          setImportProgress(pct, `${pct}% — Import ${done}/${total}${delPart}${cur}`);
+          progressFn(pct, `${pct}% — Import ${done}/${total}${delPart}${cur}`);
         }
       }
     } catch {}

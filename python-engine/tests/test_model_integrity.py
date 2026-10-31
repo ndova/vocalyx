@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """Self-test untuk proteksi model corrupt (vx_karaoke_sep).
 
 Kasus nyata: .ckpt 91,9 MB (lolos cek ukuran >= 8 MB) ternyata bukan zip
@@ -70,25 +70,25 @@ def main():
     tmp = Path(tempfile.mkdtemp(prefix="vocalyx-model-"))
     old_dir, old_min = sep.MODEL_DIR, sep.MIN_MODEL_BYTES
     sep.MODEL_DIR = tmp
-    # Kecilkan ambang supaya test cepat (file MB-an tidak perlu ditulis).
+    
     sep.MIN_MODEL_BYTES = 1024
     try:
-        # ------------------------------------------------- have_model dasar
+        
         check("have_model hilang -> False", sep.have_model("m.ckpt") is False)
 
         small = tmp / "m.ckpt"
         small.write_bytes(b"0" * 100)
         check("have_model kecil -> False", sep.have_model("m.ckpt") is False)
 
-        # --------------------------------- ckpt terpotong tapi "besar" palsu
+        
         trunc = tmp / "t.ckpt"
-        trunc.write_bytes(b"\x50\x4b\x03\x04" + b"0" * 2048)  # header zip + sampah
+        trunc.write_bytes(b"\x50\x4b\x03\x04" + b"0" * 2048)  
         check("have_model ckpt terpotong -> False",
               sep.have_model("t.ckpt") is False, f"{trunc.stat().st_size} byte")
 
-        # ------------------------------------------------- ckpt zip valid
-        # Payload acak (tak termampatkan) supaya ukuran > ambang test dengan
-        # isi zip yang tetap valid — tanpa menempel sampah setelah EOCD.
+        
+        
+        
         good = tmp / "g.ckpt"
         import random
         rng = random.Random(1234)
@@ -96,13 +96,13 @@ def main():
         check("have_model ckpt zip valid -> True", sep.have_model("g.ckpt") is True,
               f"{good.stat().st_size} byte")
 
-        # --------------------------------------- onnx tidak dicek sebagai zip
+        
         onnx = tmp / "m.onnx"
         onnx.write_bytes(b"9" * 2048)
         check("have_model onnx biner acak -> True (bukan zip)",
               sep.have_model("m.onnx") is True)
 
-        # ------------------------------------------------- _looks_corrupt
+        
         corrupt_err = RuntimeError(
             "PytorchStreamReader failed reading zip archive: failed finding "
             "central directory. This is an internal miniz error.")
@@ -113,7 +113,7 @@ def main():
         check("_looks_corrupt config -> False",
               sep._looks_corrupt(ValueError("unexpected key in yaml")) is False)
 
-        # ------------------------------------------------- _quarantine
+        
         q = tmp / "q.ckpt"
         q.write_bytes(b"1" * 2048)
         qp = tmp / "q.ckpt.part"
@@ -122,12 +122,12 @@ def main():
         check("_quarantine hapus file + .part",
               not q.exists() and not qp.exists())
 
-        # --------------------------------- _download_one tolak sukses palsu
+        
         import urllib.request
         real_urlopen = urllib.request.urlopen
         full = b"D" * 5000
         try:
-            # Kasus 1: server janji 5000 byte, koneksi putus di 2000.
+            
             urllib.request.urlopen = lambda req, timeout=120: FakeResp(full[:2000], 5000)
             dest = tmp / "dl1.ckpt"
             ok = sep._download_one("http://x/dl1.ckpt", dest)
@@ -137,14 +137,14 @@ def main():
             check(".part disimpan untuk resume",
                   part.is_file() and part.stat().st_size == 2000)
 
-            # Kasus 2: unduhan utuh tetap diterima.
+            
             urllib.request.urlopen = lambda req, timeout=120: FakeResp(full, 5000)
             dest2 = tmp / "dl2.yaml"
             ok2 = sep._download_one("http://x/dl2.yaml", dest2)
             check("unduhan utuh diterima",
                   ok2 is True and dest2.is_file() and dest2.stat().st_size == 5000)
 
-            # Kasus 3: server error -> False, tidak crash.
+            
             def boom(req, timeout=120):
                 raise URLError("putus")
             urllib.request.urlopen = boom
@@ -153,9 +153,9 @@ def main():
         finally:
             urllib.request.urlopen = real_urlopen
 
-        # ------------------------- ensure_model force_fresh buang yang rusak
-        # Pakai nama model asli (terdaftar di ROFORMER_CONFIGS) supaya jalur
-        # unduh ckpt+yaml ditempuh; _download_one di-mock agar tanpa internet.
+        
+        
+        
         real_ckpt = "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt"
         bad = tmp / real_ckpt
         bad.write_bytes(b"\x50\x4b\x03\x04" + b"7" * 2048)
@@ -170,7 +170,7 @@ def main():
         finally:
             sep._download_one = real_dl
 
-        # ------------------------------------------- _looks_network
+        
         check("_looks_network ConnectionReset -> True",
               sep._looks_network(ConnectionResetError(10054, "diputus")) is True)
         check("_looks_network pesan requests -> True",
@@ -186,7 +186,7 @@ def main():
         check("_looks_network OOM -> False",
               sep._looks_network(RuntimeError("CUDA out of memory")) is False)
 
-        # ------------------------------------------- meta JSON valid/korup
+        
         good_meta = tmp / "mdx_model_data.json"
         good_meta.write_text(json.dumps({"abc123": {"stems": ["a"]}}), encoding="utf-8")
         check("_meta_ok JSON valid -> True", sep._meta_ok(good_meta) is True)
@@ -195,7 +195,7 @@ def main():
         check("_meta_ok JSON terpotong -> False", sep._meta_ok(trunc_meta) is False)
         check("_meta_ok hilang -> False", sep._meta_ok(tmp / "tak-ada.json") is False)
 
-        # ------------------------------------------- _fetch_meta + retry
+        
         old_backoff = sep._NET_BACKOFF_S
         sep._NET_BACKOFF_S = (0, 0)
         try:
@@ -239,7 +239,7 @@ def main():
             urllib.request.urlopen = real_urlopen
             sep._NET_BACKOFF_S = old_backoff
 
-        # ------------------------------------------- ensure_model retry tumbuh
+        
         real_dl2 = sep._download_one
         tries = {"n": 0}
 
