@@ -11,6 +11,7 @@ import { showConfirm } from './modal.js';
 import { invokeTauri } from './tauri.js';
 import { AUDIO_EXT_RE, closePortalMenu, handleLibraryDrop, openPortalMenu } from '../app.js';
 import { refreshIPhoneCovers, setupIPhoneCoverLazy } from './iphone-cover.js';
+import { openMediaPlayer } from './media-player.js';
 
 export const VIDEO_EXT_RE = /\.(mp4|mov|mkv|avi|wmv|flv|webm|m4v)$/i;
 
@@ -92,7 +93,12 @@ async function checkIPhoneConnected() {
       const extra = d0.connection_type && String(d0.connection_type).toLowerCase() !== 'usb' ? ` • ${d0.connection_type}` : '';
       if (dot) dot.style.background = 'var(--accent)';
       const st = d('deviceStatusText');
-      if (st) st.textContent = t('iph.connected', { n: `${d0.name || 'iPhone'} • iOS ${d0.ios || '?'}${extra}` });
+      if (st) {
+        const devLabel = `${d0.name || 'iPhone'} • iOS ${d0.ios || '?'}${extra}`;
+        st.innerHTML = t('iph.connected', {
+          n: `<span style="color:var(--accent)">${escAttr(devLabel)}</span>`,
+        });
+      }
       // Sembunyikan detail tambahan (model+identifier dan badge lagu) — sudah tercakup di status di atas
       const meta = d('deviceMeta');
       if (meta) { meta.style.display = 'none'; meta.textContent = ''; }
@@ -169,6 +175,7 @@ export function iphoneTypeOf(t){
 }
 function iphoneSizeStr(bytes){
   if (!bytes) return '--';
+  if (bytes >= 1073741824) return `${(bytes / 1073741824).toFixed(2)} GB`;
   if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(1)} MB`;
   if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${bytes} B`;
@@ -222,7 +229,12 @@ export async function loadIPhoneLibrary(){
       if (cb) {
         cb.onchange = ()=>{ const pid=String(tk.item_pid); if (cb.checked) S.iphoneSelected.add(pid); else S.iphoneSelected.delete(pid); updateIPhoneSelectionUI(); };
       }
-      b.onclick = (e)=>{ if (e.target.closest('input') || e.target.closest('.more-menu') || !hasFile) return; const pid=String(tk.item_pid); if (S.iphoneSelected.has(pid)) S.iphoneSelected.delete(pid); else S.iphoneSelected.add(pid); const c=b.querySelector('[data-iphone-sel]'); if(c) c.checked=S.iphoneSelected.has(pid); updateIPhoneSelectionUI(); };
+      b.onclick = (e)=>{
+        if (e.target.closest('input') || e.target.closest('.more-menu')) return;
+        if (!hasFile) { showToast(t('iph.fileNotOnDevice'), 2500); return; }
+        if (e.target.closest('.t-main')) { openMediaPlayer(tk, { isVideo: false, rowEl: b }); return; }
+        const pid=String(tk.item_pid); if (S.iphoneSelected.has(pid)) S.iphoneSelected.delete(pid); else S.iphoneSelected.add(pid); const c=b.querySelector('[data-iphone-sel]'); if(c) c.checked=S.iphoneSelected.has(pid); updateIPhoneSelectionUI();
+      };
       listEl.appendChild(b);
     });
     applyGridWidths();
@@ -435,28 +447,131 @@ async function openIPhoneEditModal(pid) {
 async function openIPhoneVideoEditModal(pid) {
   const vk = videoTrackByPid(pid);
   if (!vk) return;
+  let pendingVidDrop = null;
+  // Embedded cover/tags are only writable for MP4-family containers.
+  const canCover = ['MP4', 'M4V', 'MOV', 'M4A'].includes(String(vk.ext || '').toUpperCase());
   const cleanupForm = _iphModalShell(t('me.editInfoVideoPhone'), `
     <div style="display:flex; flex-direction:column; gap:8px;">
       <label style="font-size:11px; color:var(--muted); display:flex; flex-direction:column; gap:4px">${t('me.fieldTitle')}<input class="modal-input" id="iphVideoEditTitle" value="${_iphEsc(vk.title)}" /></label>
+      <label style="font-size:11px; color:var(--muted); display:flex; flex-direction:column; gap:4px">${t('me.fieldArtist')}<input class="modal-input" id="iphVideoEditArtist" value="${_iphEsc(vk.artist)}" /></label>
+      <label style="font-size:11px; color:var(--muted); display:flex; flex-direction:column; gap:4px">${t('me.fieldAlbum')}<input class="modal-input" id="iphVideoEditAlbum" value="${_iphEsc(vk.album)}" /></label>
     </div>
-  `, async (cleanup) => {
+    <div style="padding-top:8px; border-top:1px solid var(--line); display:flex; flex-direction:column; gap:10px; margin-top:8px;">
+      <div>
+        <label style="font-size:11px; color:var(--muted); display:block; margin-bottom:4px;">${t('me.coverCurrent')}</label>
+        <div id="iphVideoCoverPrev" style="display:flex; align-items:center; gap:8px;">
+          <span id="iphVideoCoverSpin" style="font-size:11px; color:var(--muted);">${t('dl.loadingCover')}</span>
+          <img src="http://127.0.0.1:8001/iphone/track/cover?item_pid=${Number(pid)}&v=${vk.file_size || 0}" alt="cover" style="max-width:120px; max-height:120px; border-radius:8px; border:1px solid var(--line);" onload="__iphCoverLoaded(this)" onerror="__iphCoverFallback(this)" />
+        </div>
+        <input type="file" id="iphVideoCoverFileInput" accept="image/jpeg,image/png,image/webp" hidden>
+      </div>
+      <div>
+        <label style="font-size:11px; color:var(--muted); display:block; margin-bottom:4px;">${t('me.coverUrlManual')}</label>
+        <input type="url" id="iphVideoCoverUrlInput" class="modal-input" placeholder="${t('ph.coverUrl')}" style="width:100%;">
+        <div style="font-size:11px; color:var(--muted); margin-top:4px;">${t('me.coverAutoResolve')}</div>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <input type="checkbox" id="iphVideoAutoResolveCover" ${canCover ? 'checked' : ''}>
+        <label for="iphVideoAutoResolveCover" style="font-size:12px; cursor:pointer">${t('me.coverUrlAuto')}</label>
+      </div>
+      <button id="iphVideoBtnRemoveCover" class="btn-more" style="background:var(--card2); color:var(--muted); border:1px solid var(--line);">${ICON.trash} ${t('me.removeCover')}</button>
+    </div>`, async (cleanup) => {
     const title = document.getElementById('iphVideoEditTitle')?.value?.trim() || '';
+    const artist = document.getElementById('iphVideoEditArtist')?.value?.trim() || '';
+    const album = document.getElementById('iphVideoEditAlbum')?.value?.trim() || '';
+    const url = document.getElementById('iphVideoCoverUrlInput')?.value?.trim() || '';
+    const auto = document.getElementById('iphVideoAutoResolveCover')?.checked !== false;
     cleanup();
     if (!title) { showToast(t('iph.titleEmpty'), 3000); return; }
     try {
       const r = await fetch('http://127.0.0.1:8001/iphone/track/edit', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ item_pid: Number(pid), title }),
+        body: JSON.stringify({ item_pid: Number(pid), title, artist, album }),
       });
       const j = await r.json();
       if (!j.ok) throw new Error(j.error || '');
-      if (j.changed !== false) showToast(t('iph.infoUpdated'), 3000);
+      const coverData = pendingVidDrop || undefined;
+      let coverUpdated = false;
+      let coverError = '';
+      if (url || auto || coverData) {
+        try {
+          const rc = await fetch('http://127.0.0.1:8001/iphone/track/cover', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ item_pid: Number(pid), mode: coverData ? 'url' : (url ? 'url' : 'auto'), coverUrl: url || undefined, coverData, title, artist, album, spotifyClientId: localStorage.getItem('spotify_client_id') || '', spotifyClientSecret: localStorage.getItem('spotify_client_secret') || '' }),
+          });
+          const jc = await rc.json();
+          if (!jc.ok) throw new Error(jc.error || '');
+          vk._iphHasCover = true;
+          coverUpdated = true;
+        } catch (ce) {
+          coverError = String(ce?.message || ce || 'unknown error');
+        }
+      }
+      if (coverError) showToast(t('me.coverFailed', { n: coverError }), 6000);
+      else if (coverUpdated) showToast(t('dl.coverUpdated'), 5000);
+      else if (j.changed !== false) showToast(t('iph.infoUpdated'), 3000);
+      else showToast(t('iph.noChange'), 3000);
       renderDeviceVideoView();
     } catch (e) {
       showToast(t('iph.saveFail', { n: String(e?.message || e || 'unknown error') }), 5000);
     }
   });
   setTimeout(() => document.getElementById('iphVideoEditTitle')?.focus(), 50);
+  document.getElementById('iphVideoBtnRemoveCover')?.addEventListener('click', async () => {
+    const rmBtn = document.getElementById('iphVideoBtnRemoveCover');
+    if (rmBtn?.disabled) return;
+    cleanupForm();
+    const sure = await showConfirm(t('me.deleteCover'), t('me.delCoverQ', { n: _iphEsc(vk.title) }));
+    if (!sure) return;
+    try {
+      const r = await fetch('http://127.0.0.1:8001/iphone/track/cover', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_pid: Number(pid), mode: 'remove' }),
+      });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error || '');
+      vk._iphHasCover = false;
+      showToast(t('iph.coverDeleted'), 3000);
+      renderDeviceVideoView();
+    } catch (e) { showToast(t('iph.coverDeleteFail', { n: String(e?.message || e || 'unknown error') }), 4000); }
+  });
+  try {
+    const vidRmBtn = document.getElementById('iphVideoBtnRemoveCover');
+    if (vidRmBtn) {
+      const setVidRmBtn = (has, checking) => {
+        if (!vidRmBtn.isConnected) return;
+        vidRmBtn.disabled = !has;
+        vidRmBtn.innerHTML = `${ICON.trash} ${checking ? t('dl.checkingCover') : t('dl.removeCover')}`;
+        if (!has && !checking) vidRmBtn.title = t('iph.noCoverYet');
+        else vidRmBtn.removeAttribute('title');
+      };
+      if (vk._iphHasCover === true) {
+        setVidRmBtn(true, false);
+      } else if (vk._iphHasCover === false) {
+        setVidRmBtn(false, false);
+      } else {
+        setVidRmBtn(false, true);
+        const probe = new Image();
+        let settled = false;
+        const finish = (has) => {
+          if (settled) return; settled = true;
+          clearTimeout(timer);
+          vk._iphHasCover = has;
+          setVidRmBtn(has, false);
+        };
+        const timer = setTimeout(() => finish(false), 10000);
+        probe.onload = () => finish(true);
+        probe.onerror = () => finish(false);
+        probe.src = `http://127.0.0.1:8001/iphone/track/cover?item_pid=${pid}&v=${vk.file_size || 0}`;
+      }
+    }
+  } catch {}
+  wireCoverDrop(document.getElementById('iphVideoCoverPrev'), document.getElementById('iphVideoCoverFileInput'), (url) => {
+    if (!String(url || '').startsWith('data:image/')) return;
+    pendingVidDrop = url;
+    const box = document.getElementById('iphVideoCoverPrev');
+    if (box) box.innerHTML = `<img src="${url}" alt="cover" style="max-width:120px; max-height:120px; border-radius:8px; border:1px solid var(--line);" />`;
+  });
 }
 checkIPhoneConnected();
 document.getElementById('btnDeviceRefresh')?.addEventListener('click', () => { checkIPhoneConnected(); if (S.deviceView === 'video') renderDeviceVideoView(); else loadIPhoneLibrary(); showToast(t('dl.refreshed'), 2000); });
@@ -629,13 +744,21 @@ function setDeviceView(view) {
   if (isVideo) { renderDeviceVideoView(); } else { loadIPhoneLibrary(); }
 }
 
-function setVideoImportProgress(pct, text) {
+function setVideoImportProgress(pct, text, indeterminate) {
   const bar = document.getElementById('importProgressBar');
   const fill = document.getElementById('importProgressFill');
   const txt = document.getElementById('importProgressText');
   const cancel = document.getElementById('btnCancelImport');
   if (bar) bar.style.display = pct >= 0 ? '' : 'none';
-  if (fill) fill.style.width = Math.min(100, pct) + '%';
+  if (fill) {
+    if (indeterminate) {
+      fill.classList.add('import-indeterminate');
+      fill.style.width = '';
+    } else {
+      fill.classList.remove('import-indeterminate');
+      fill.style.width = Math.min(100, pct) + '%';
+    }
+  }
   if (txt) txt.textContent = text || '';
   if (cancel) cancel.style.display = pct >= 0 && pct < 100 ? '' : 'none';
 }
@@ -695,16 +818,29 @@ async function renderDeviceVideoView(){
         const dur = v.duration_ms ? fmt(Math.floor(v.duration_ms/1000)) : '--:--';
         const sizeStr = iphoneSizeStr(v.file_size || 0);
         const type = (v.ext || 'VIDEO').toUpperCase();
-        b.innerHTML = `<input type="checkbox" data-video-sel="${pid}" ${S.videoSelected.has(pid)?'checked':''}><span class="t-main"><span><div class="t-title">${escAttr(v.title || v.name || 'Video')}</div><div class="t-sub">${escAttr(v.artist || '')} • ${type}</div></span></span><span class="c-type">${type}</span><span class="c-size">${sizeStr}</span><span class="c-dur">${dur}</span>`;
+        const sub = [v.artist, v.album, type].filter(Boolean).join(' • ');
+        let cov = coverHtml({ artist: v.artist || '', title: v.title || v.name || 'Video' });
+        cov = cov.replace('class="t-cover placeholder"',
+          `class="t-cover placeholder" data-iph-cover="${pid}" data-iph-cover-v="${v.file_size || 0}"`);
+        b.innerHTML = `<input type="checkbox" data-video-sel="${pid}" ${S.videoSelected.has(pid)?'checked':''}><span class="t-main">${cov}<span><div class="t-title">${escAttr(v.title || v.name || 'Video')}</div><div class="t-sub">${escAttr(sub)}</div></span></span><span class="c-type">${type}</span><span class="c-size">${sizeStr}</span><span class="c-dur">${dur}</span>`;
         const cb = b.querySelector('[data-video-sel]');
         if (cb) {
           cb.onchange = ()=>{ if (cb.checked) S.videoSelected.add(pid); else S.videoSelected.delete(pid); updateVideoSelectionUI(); };
         }
-        b.onclick = (e)=>{ if (e.target.closest('input')) return; if (S.videoSelected.has(pid)) S.videoSelected.delete(pid); else S.videoSelected.add(pid); const c=b.querySelector('[data-video-sel]'); if(c) c.checked=S.videoSelected.has(pid); updateVideoSelectionUI(); };
-        b.oncontextmenu = (e)=>{ e.preventDefault(); closePortalMenu(); openIPhoneVideoEditModal(pid); };
+        b.onclick = (e)=>{
+          if (e.target.closest('input')) return;
+          if (e.target.closest('.t-main')) {
+            if (!(v.full_path || v.location)) { showToast(t('iph.fileNotOnDevice'), 2500); return; }
+            openMediaPlayer(v, { isVideo: true, rowEl: b });
+            return;
+          }
+          if (S.videoSelected.has(pid)) S.videoSelected.delete(pid); else S.videoSelected.add(pid); const c=b.querySelector('[data-video-sel]'); if(c) c.checked=S.videoSelected.has(pid); updateVideoSelectionUI();
+        };
+        b.oncontextmenu = (e)=>{ e.preventDefault(); e.stopPropagation(); closePortalMenu(); openIPhoneVideoEditModal(pid); };
         listEl.appendChild(b);
       });
       applyGridWidths();
+      setupIPhoneCoverLazy(listEl);
       updateVideoSelectionUI();
     }
   } catch (e) {

@@ -48,6 +48,7 @@ export default {
   'btn.viewMusic': 'Musik',
   'btn.viewVideo': 'Video',
   'btn.refreshLibrary': 'Segarkan pustaka (pindai ulang folder musik)',
+  'btn.refresh': 'Segarkan',
   'btn.refreshDownloads': 'Segarkan daftar unduhan',
   'btn.searchLocal': 'Cari di lagu lokal',
   'btn.searchDownloads': 'Cari di unduhan',
@@ -241,7 +242,7 @@ export default {
   'me.deleteCover': 'Hapus Sampul',
   'me.editInfoCover': 'Edit Info & Sampul',
   'me.editInfoCoverPhone': 'Edit Info & Sampul (iPhone)',
-  'me.editInfoVideoPhone': 'Edit Info (Video iPhone)',
+  'me.editInfoVideoPhone': 'Edit Info & Sampul (Video iPhone)',
   'me.save': 'Simpan',
   'me.cancel': 'Batal',
   'me.coverRemoved': 'Sampul dihapus',
@@ -282,6 +283,11 @@ export default {
 
   'player.notDoneFull': 'File belum selesai di-download, tunggu hingga 100%.',
   'player.notFoundFile': 'File tidak ditemukan:\n{n}\nMungkin dipindah atau dihapus.',
+  'player.title': 'Pemutar Media',
+  'player.loading': 'Memuat dari iPhone…',
+  'player.loadingLocal': 'Memuat file lokal…',
+  'player.playFail': 'Tidak bisa memutar "{n}" — format tidak didukung atau file tidak ada di perangkat.',
+  'player.codecUnsupported': '"{n}" mungkin menggunakan codec yang tidak didukung (mis. HEVC/H.265). Coba konversi ke H.264.',
 
   'local.tauriOnly': 'Tambah Folder hanya tersedia di aplikasi Tauri. Jalankan via npx tauri dev / exe build.',
   'local.noAudio': 'Tidak ada file mp3/m4a/wav/flac/ogg di folder tersebut.',
@@ -392,8 +398,8 @@ export default {
   'tr.noArtistMatch': 'Tidak ada artis yang cocok',
   'tr.noArtistMatchHint': 'Coba kata kunci lain',
   'tr.playArtist': 'Putar artis',
-  'tr.noAlbumMatch': 'Tidak ada album yang cocok',
   'tr.playAlbum': 'Putar album',
+  'tr.play': 'Putar',
 
   'ds.dropHint': 'Klik untuk pilih gambar, atau drag & drop file gambar ke sini',
   'ds.dlFailed': 'Download gagal',

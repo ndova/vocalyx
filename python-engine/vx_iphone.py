@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 
 from fastapi import APIRouter
-from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 
 from vx_core import log
 
@@ -50,7 +50,7 @@ def _extract_embedded_cover(path: Path):
             data = bytes(best.data)
             mime = best.mime or "image/jpeg"
             return data, mime
-        if suf in (".m4a", ".mp4", ".aac"):
+        if suf in (".m4a", ".mp4", ".aac", ".m4v", ".mov"):
             from mutagen.mp4 import MP4, MP4Cover
             try:
                 mp4 = MP4(str(path))
@@ -488,11 +488,15 @@ async def iphone_video_list():
                 cur.execute("""
                     SELECT item.item_pid, item_extra.title,
                            item_extra.total_time_ms, item_extra.file_size,
-                           item_extra.location, base_location.path
+                           item_extra.location, base_location.path,
+                           item_artist.item_artist, album.album
                     FROM item
                     JOIN item_extra ON item.item_pid=item_extra.item_pid
                     LEFT JOIN base_location ON
                         item.base_location_id=base_location.base_location_id
+                    LEFT JOIN item_artist ON
+                        item.item_artist_pid=item_artist.item_artist_pid
+                    LEFT JOIN album ON item.album_pid=album.album_pid
                     WHERE item.media_type=2048
                     ORDER BY item_extra.title COLLATE NOCASE
                 """)
@@ -505,13 +509,14 @@ async def iphone_video_list():
                     pass
             videos = []
             for r in rows:
-                pid, title, tms, fsize, loc, base = r
+                pid, title, tms, fsize, loc, base, artist, album = r
                 full = f"/{base}/{loc}" if base and loc else ""
                 ext = (Path(loc).suffix.lstrip('.') if loc else '').upper()
                 videos.append({
                     "item_pid": pid, "title": title, "ext": ext,
                     "duration_ms": int(tms or 0), "file_size": int(fsize or 0),
                     "location": loc, "base_path": base, "full_path": full,
+                    "artist": artist or "", "album": album or "",
                 })
         return {"ok": True, "videos": videos, "total": len(videos)}
     except Exception as e:
@@ -570,7 +575,7 @@ async def iphone_track_cover(item_pid: int = 0):
                                 headers={"Cache-Control": "private, max-age=3600",
                                          "X-Item-Pid": str(item_pid)})
             ext = ('.' + loc.rsplit('.', 1)[-1].lower()) if '.' in loc else ''
-            if ext not in ('.m4a', '.mp3', '.mp4', '.aac'):
+            if ext not in ('.m4a', '.mp3', '.mp4', '.aac', '.m4v', '.mov'):
                 return JSONResponse({"ok": False, "error": "unsupported type"}, status_code=415)
             data = await asyncio.wait_for(afc.get_file_contents(full_path), 180)
             fd, tmp_audio = tempfile.mkstemp(suffix=ext)
@@ -595,6 +600,101 @@ async def iphone_track_cover(item_pid: int = 0):
                                      "X-Item-Pid": str(item_pid)})
     except Exception as e:
         log.error("iphone track cover fail: %s", e, exc_info=True)
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+    finally:
+        if lockdown:
+            try:
+                await lockdown.close()
+            except Exception:
+                pass
+
+
+_IPHON_MEDIA_MIME = {
+    ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac",
+    ".wav": "audio/wav", ".flac": "audio/flac", ".ogg": "audio/ogg",
+    ".opus": "audio/ogg", ".mp4": "video/mp4", ".m4v": "video/mp4",
+    ".mov": "video/quicktime", ".mkv": "video/x-matroska",
+    ".avi": "video/x-msvideo", ".webm": "video/webm",
+    ".wmv": "video/x-ms-wmv", ".flv": "video/x-flv",
+}
+
+
+@router.get("/iphone/track/file")
+async def iphone_track_file(item_pid: int = 0):
+    """Stream one device track/video to the browser media player.
+
+    The file is AFC-pulled once into a local cache dir and then served by
+    FileResponse, so the HTML5 <audio>/<video> element can seek (HTTP
+    Range) without re-downloading the whole file over USB for every seek.
+    """
+    if not item_pid:
+        return JSONResponse({"ok": False, "error": "item_pid required"}, status_code=400)
+    lockdown = None
+    try:
+        from pymobiledevice3.lockdown import create_using_usbmux
+        from pymobiledevice3.services.afc import AfcService
+
+        lockdown = await _open_lockdown(timeout=90)
+        async with AfcService(lockdown) as afc:
+            tmp = await _pull_media_db(afc)
+            conn = sqlite3.connect(tmp)
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT item_extra.location, base_location.path,
+                       item_extra.file_size, item_extra.title, item.media_type
+                FROM item_extra
+                JOIN item ON item_extra.item_pid=item.item_pid
+                JOIN base_location ON
+                    item.base_location_id=base_location.base_location_id
+                WHERE item_extra.item_pid=?
+            """, (item_pid,))
+            row = cur.fetchone()
+            conn.close()
+            for sfx in ("", "-wal", "-shm"):
+                try:
+                    os.remove(tmp + sfx)
+                except Exception:
+                    pass
+            if not row or not row[0] or not row[1]:
+                return JSONResponse({"ok": False, "error": "track file not found"},
+                                    status_code=404)
+            loc, base, fsize, _title, media_type = row
+            full_path = f"/{base}/{loc}"
+            ext = ('.' + loc.rsplit('.', 1)[-1].lower()) if '.' in loc else ''
+            is_video = (media_type == 2048) or ext in (
+                '.mp4', '.m4v', '.mov', '.mkv', '.avi', '.wmv', '.flv', '.webm')
+            mime = _IPHON_MEDIA_MIME.get(ext, 'application/octet-stream')
+
+            cache_dir = os.path.join(tempfile.gettempdir(), 'vocalyx_iphone_media')
+            os.makedirs(cache_dir, exist_ok=True)
+            cache_name = f"{item_pid}_{int(fsize or 0)}{ext}"
+            cache_path = os.path.join(cache_dir, cache_name)
+            # Drop stale copies for this pid (re-imported / re-edited file).
+            try:
+                for fn in os.listdir(cache_dir):
+                    if fn.startswith(f"{item_pid}_") and fn != cache_name:
+                        try:
+                            os.remove(os.path.join(cache_dir, fn))
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+            if not (os.path.isfile(cache_path) and os.path.getsize(cache_path) > 0):
+                data = await asyncio.wait_for(
+                    afc.get_file_contents(full_path),
+                    900 if is_video else 300)
+                part = cache_path + '.part'
+                with open(part, 'wb') as f:
+                    f.write(data)
+                os.replace(part, cache_path)
+
+        return FileResponse(
+            cache_path, media_type=mime,
+            headers={"Cache-Control": "private, max-age=3600",
+                     "Accept-Ranges": "bytes"})
+    except Exception as e:
+        log.error("iphone track file fail: %s", e, exc_info=True)
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
     finally:
         if lockdown:
@@ -1031,8 +1131,8 @@ async def iphone_track_cover(payload: dict):
             db_title, db_artist, db_album, loc, base = row
             full_path = f"/{base}/{loc}"
             ext = ('.' + loc.rsplit('.', 1)[-1].lower()) if '.' in loc else ''
-            if ext not in ('.m4a', '.mp3'):
-                return JSONResponse({"ok": False, "error": "only m4a/mp3 supported"}, status_code=400)
+            if ext not in ('.m4a', '.mp3', '.mp4', '.m4v', '.mov'):
+                return JSONResponse({"ok": False, "error": "only m4a/mp3/mp4/mov supported"}, status_code=400)
 
             data = await asyncio.wait_for(afc.get_file_contents(full_path), 180)
             fd, tmp_audio = tempfile.mkstemp(suffix=ext)
@@ -1120,7 +1220,7 @@ def _strip_cover_file(tmp_audio: str, ext: str) -> bool:
             tags.delall("APIC")
             tags.save(tmp_audio)
             return True
-        if ext == ".m4a":
+        if ext in (".m4a", ".mp4", ".m4v", ".mov"):
             from mutagen.mp4 import MP4
             tags = MP4(tmp_audio)
             if tags.tags and "covr" in tags.tags:
@@ -1168,7 +1268,8 @@ async def iphone_track_edit(payload: dict):
             cur.execute("""
                 SELECT item_extra.title, item_artist.item_artist, album.album,
                        item_extra.location, base_location.path,
-                       item.item_artist_pid, item.album_pid, album.album_artist_pid
+                       item.item_artist_pid, item.album_pid, album.album_artist_pid,
+                       item.album_artist_pid
                 FROM item_extra
                 JOIN item ON item_extra.item_pid=item.item_pid
                 JOIN base_location ON item.base_location_id=base_location.base_location_id
@@ -1182,6 +1283,11 @@ async def iphone_track_edit(payload: dict):
                 return JSONResponse({"ok": False, "error": "track not found"}, status_code=404)
             cur_title, cur_artist, cur_album, loc, base = row[0], row[1], row[2], row[3], row[4]
             cur_artist_pid, cur_album_pid, cur_album_artist_pid = row[5], row[6], row[7]
+            # Video rows have no album row (album_pid=0), so the album join
+            # yields NULL; fall back to item.album_artist_pid (0) to avoid
+            # writing NULL over the original 0 reference.
+            if cur_album_artist_pid is None:
+                cur_album_artist_pid = row[8] or 0
             new_title = want_title or (cur_title or "")
             new_artist = want_artist or (cur_artist or "")
             new_album = want_album or (cur_album or "")
@@ -1198,24 +1304,41 @@ async def iphone_track_edit(payload: dict):
                 return JSONResponse({"ok": False, "error": "track file not found"}, status_code=404)
             full_path = f"/{base}/{loc}"
             ext = ('.' + loc.rsplit('.', 1)[-1].lower()) if '.' in loc else ''
-            if ext not in ('.m4a', '.mp3'):
+            # Tag/cover writing works for MP3 + MP4-family containers. Other
+            # video containers (mkv/avi/wmv/flv/webm) can still be edited in
+            # the DB, without rewriting the file.
+            tag_exts = ('.m4a', '.mp3', '.mp4', '.m4v', '.mov')
+            video_exts = ('.mp4', '.m4v', '.mov', '.mkv', '.avi',
+                          '.wmv', '.flv', '.webm')
+            is_video = ext in video_exts
+            if ext not in tag_exts and not is_video:
                 conn.close()
-                return JSONResponse({"ok": False, "error": "only m4a/mp3 supported"}, status_code=400)
+                return JSONResponse({"ok": False, "error": "only m4a/mp3/mp4/mov/mkv supported"}, status_code=400)
 
-            data = await asyncio.wait_for(afc.get_file_contents(full_path), 180)
-            fd, tmp_audio = tempfile.mkstemp(suffix=ext)
-            try:
-                os.close(fd)
-                open(tmp_audio, 'wb').write(data)
-                if not _write_tags(Path(tmp_audio), new_title, new_artist, new_album):
-                    return JSONResponse({"ok": False, "error": "gagal menulis tag"}, status_code=500)
-                new_bytes = open(tmp_audio, 'rb').read()
-                await asyncio.wait_for(afc.set_file_contents(full_path, new_bytes), 300)
-            finally:
+            data = await asyncio.wait_for(afc.get_file_contents(full_path), 600 if is_video else 180)
+            new_size = len(data)
+            tags_written = False
+            if ext in tag_exts:
+                fd, tmp_audio = tempfile.mkstemp(suffix=ext)
                 try:
-                    os.remove(tmp_audio)
-                except Exception:
-                    pass
+                    os.close(fd)
+                    open(tmp_audio, 'wb').write(data)
+                    tags_written = _write_tags(Path(tmp_audio), new_title, new_artist, new_album)
+                    if tags_written:
+                        new_bytes = open(tmp_audio, 'rb').read()
+                        await asyncio.wait_for(afc.set_file_contents(full_path, new_bytes), 900 if is_video else 300)
+                        new_size = len(new_bytes)
+                finally:
+                    try:
+                        os.remove(tmp_audio)
+                    except Exception:
+                        pass
+                if not tags_written and not is_video:
+                    conn.close()
+                    return JSONResponse({"ok": False, "error": "gagal menulis tag"}, status_code=500)
+                if not tags_written:
+                    log.warning("edit video tag skipped pid=%s ext=%s (DB-only)",
+                                item_pid, ext)
 
             now_ms = int((time.time() - 978307200) * 1000)
             title_ord, title_sec = _title_hash(new_title), _section_index(new_title)
@@ -1279,9 +1402,14 @@ async def iphone_track_edit(payload: dict):
                         (title_ord, title_sec, new_artist_pid, artist_ord, artist_sec,
                          new_album_pid, album_ord, album_sec,
                          new_album_artist_pid, artist_ord, artist_sec, item_pid))
-            cur.execute("""UPDATE item_extra SET title=?, sort_title=?, file_size=?, date_modified=?, integrity=NULL
-                           WHERE item_pid=?""",
-                        (new_title, new_title, len(new_bytes), now_ms, item_pid))
+            if tags_written:
+                cur.execute("""UPDATE item_extra SET title=?, sort_title=?, file_size=?,
+                               date_modified=?, integrity=NULL WHERE item_pid=?""",
+                            (new_title, new_title, new_size, now_ms, item_pid))
+            else:
+                cur.execute("""UPDATE item_extra SET title=?, sort_title=?, integrity=NULL
+                               WHERE item_pid=?""",
+                            (new_title, new_title, item_pid))
             cur.execute("UPDATE item_state SET title=? WHERE item_pid=?", (new_title, item_pid))
             cur.execute("UPDATE item_search SET search_title=?, search_album=?, search_artist=?, search_album_artist=? WHERE item_pid=?",
                         (title_ord, album_ord, artist_ord, artist_ord, item_pid))
@@ -1304,7 +1432,7 @@ async def iphone_track_edit(payload: dict):
                 pass
         return {"ok": True, "changed": True, "item_pid": item_pid,
                 "title": new_title, "artist": new_artist, "album": new_album,
-                "file_size": len(new_bytes)}
+                "file_size": new_size, "tags_written": tags_written}
     except Exception as e:
         log.error("iphone edit fail: %s", e, exc_info=True)
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
@@ -2174,6 +2302,57 @@ async def iphone_import(payload: dict):
                 pass
 
 
+# Upper bound per AFC WRITE op; the effective size is derived from the file
+# size so even small files get a handful of progress steps.
+_UPLOAD_CHUNK_MAX = 4 * 1024 * 1024
+_UPLOAD_CHUNK_MIN = 128 * 1024
+
+
+async def _afc_upload_progress(afc, remote_path, source, job_id=None,
+                               base=0.0, span=1.0, timeout=600):
+    """Write `source` (bytes or local path) to the device, reporting bytes.
+
+    Progress is stored in ``_import_jobs[job_id]["done"]`` as
+    ``base + span * (sent / total)`` so the /iphone/import_progress endpoint
+    can translate it into a percentage while the file is still uploading.
+    Streaming from a path also avoids loading whole video files into RAM.
+    """
+    is_path = isinstance(source, (str, os.PathLike))
+    total = os.path.getsize(source) if is_path else (len(source) if source else 0)
+    job = _import_jobs.get(job_id) if job_id else None
+    # ~64 progress steps per file, clamped to a sane AFC payload size.
+    chunk_size = max(_UPLOAD_CHUNK_MIN,
+                     min(_UPLOAD_CHUNK_MAX, (total // 64) or _UPLOAD_CHUNK_MIN))
+
+    def _report(sent):
+        if job is None:
+            return
+        frac = (sent / total) if total else 1.0
+        job["done"] = base + span * frac
+
+    _report(0)
+    handle = await asyncio.wait_for(afc.fopen(remote_path, "w"), timeout)
+    try:
+        if is_path:
+            sent = 0
+            with open(source, 'rb') as fh:
+                while True:
+                    chunk = fh.read(chunk_size)
+                    if not chunk:
+                        break
+                    await asyncio.wait_for(afc.fwrite(handle, chunk), timeout)
+                    sent += len(chunk)
+                    _report(sent)
+        else:
+            for off in range(0, total, chunk_size):
+                chunk = source[off:off + chunk_size]
+                await asyncio.wait_for(afc.fwrite(handle, chunk), timeout)
+                _report(off + len(chunk))
+    finally:
+        await asyncio.wait_for(afc.fclose(handle), timeout)
+    _report(total)
+
+
 @router.post("/iphone/import_batch")
 async def iphone_import_batch(payload: dict):
     """Batch import music files to iPhone.
@@ -2206,7 +2385,10 @@ async def _run_import_batch(job_id: str, files: list, delete_pids=None):
 
         lockdown = await _open_lockdown(timeout=90)
         async with AfcService(lockdown) as afc:
+            # Nudge the bar off 0% while the MediaLibrary snapshot downloads.
+            _import_jobs[job_id]["done"] = 0.01
             tmp = await _pull_media_db(afc)
+            _import_jobs[job_id]["done"] = 0.03
             try:
                 _del = sqlite3.connect(tmp)
                 _dcur = _del.cursor()
@@ -2299,6 +2481,7 @@ async def _run_import_batch(job_id: str, files: list, delete_pids=None):
                     fname = Path(file_path).name
 
                     _import_jobs[job_id]["current"] = fname
+                    _import_jobs[job_id]["done"] = i + 0.02
 
                     meta = _audio_meta(file_path)
                     title = meta.get('title') or title or Path(file_path).stem
@@ -2314,15 +2497,16 @@ async def _run_import_batch(job_id: str, files: list, delete_pids=None):
                         cover_bytes, cover_mime = None, None
                         audio_data = open(file_path, 'rb').read()
                         file_size = len(audio_data)
-
                     pid = _add_track_to_db(tmp, loc_filename, title, artist, album, file_size, meta)
                     pids.append(pid)
 
-                    await asyncio.wait_for(
-                        afc.set_file_contents(
-                            f'/iTunes_Control/Music/F00/{loc_filename}',
-                            audio_data),
-                        300)
+                    _import_jobs[job_id]["done"] = i + 0.15
+                    await _afc_upload_progress(
+                        afc,
+                        f'/iTunes_Control/Music/F00/{loc_filename}',
+                        audio_data,
+                        job_id=job_id, base=i + 0.15, span=0.70, timeout=300)
+                    _import_jobs[job_id]["done"] = i + 0.88
 
                     try:
                         await _apply_track_artwork(afc, tmp, pid, cover_bytes, cover_mime)
@@ -2446,7 +2630,9 @@ async def _run_import_batch_video(job_id: str, files: list, delete_pids=None):
 
         lockdown = await _open_lockdown(timeout=90)
         async with AfcService(lockdown) as afc:
+            _import_jobs[job_id]["done"] = 0.01
             tmp = await _pull_media_db(afc)
+            _import_jobs[job_id]["done"] = 0.03
             try:
                 _del = sqlite3.connect(tmp)
                 _dcur = _del.cursor()
@@ -2521,10 +2707,9 @@ async def _run_import_batch_video(job_id: str, files: list, delete_pids=None):
                     ext = Path(file_path).suffix.lower() or ".mp4"
                     loc_filename = _random_name(4) + ext
                     _import_jobs[job_id]["current"] = fname
+                    _import_jobs[job_id]["done"] = i + 0.02
 
-                    with open(file_path, 'rb') as fh:
-                        audio_data = fh.read()
-                    if not audio_data:
+                    if not file_size:
                         last_error = f"{fname}: file kosong"
                         _import_jobs[job_id]["results"].append(
                             {"path": file_path, "ok": False, "error": "empty file"})
@@ -2540,11 +2725,14 @@ async def _run_import_batch_video(job_id: str, files: list, delete_pids=None):
                         duration_ms = 0
 
                     # 1) Upload file first — DB only touched on success.
-                    await asyncio.wait_for(
-                        afc.set_file_contents(
-                            f'/iTunes_Control/Music/F00/{loc_filename}',
-                            audio_data),
-                        600)
+                    # Streamed from disk in 4 MB chunks so /import_progress
+                    # can report a real 0→100% for this file.
+                    await _afc_upload_progress(
+                        afc,
+                        f'/iTunes_Control/Music/F00/{loc_filename}',
+                        file_path,
+                        job_id=job_id, base=i + 0.05, span=0.85, timeout=600)
+                    _import_jobs[job_id]["done"] = i + 0.92
 
                     # 2) Register the video row in the device DB.
                     pid = _add_video_track_to_db(

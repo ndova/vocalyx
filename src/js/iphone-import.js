@@ -135,7 +135,7 @@ if (isTauri()) {
           }
         } catch {}
         if (S.activeView === 'device' && dropPositionOverList(event.payload.position)) {
-          handleLibraryDrop(paths).catch(() => {});
+          handleLibraryDrop(paths, { isVideo: S.deviceView === 'video' }).catch(() => {});
         } else if (S.activeView === 'device') {
           showToast(t('iph.dropHint'), 3500);
         }
@@ -158,13 +158,21 @@ if (iphoneTrackListEl) {
 }
 
 
-function setImportProgress(pct, text) {
+function setImportProgress(pct, text, indeterminate) {
   const bar = document.getElementById('importProgressBar');
   const fill = document.getElementById('importProgressFill');
   const txt = document.getElementById('importProgressText');
   const cancel = document.getElementById('btnCancelImport');
   if (bar) bar.style.display = pct >= 0 ? '' : 'none';
-  if (fill) fill.style.width = Math.min(100, Math.max(0, pct)) + '%';
+  if (fill) {
+    if (indeterminate) {
+      fill.classList.add('import-indeterminate');
+      fill.style.width = '';
+    } else {
+      fill.classList.remove('import-indeterminate');
+      fill.style.width = Math.min(100, Math.max(0, pct)) + '%';
+    }
+  }
   if (txt) txt.textContent = text || '';
   if (cancel) cancel.style.display = pct >= 0 && pct < 100 && S.importRunning ? '' : 'none';
 }
@@ -175,7 +183,7 @@ async function startIPhoneImport(deletePids = [], isVideo = false) {
   S._importIsVideo = isVideo;
   const total = S.importQueue.length;
   const progressFn = isVideo ? setVideoImportProgress : setImportProgress;
-  progressFn(0, `0% — Import 0/${total}`);
+  progressFn(0, `0% — Import 0/${total}`, true);
   showToast(t(isVideo ? 'iph.videoImportingCount' : 'dl.importingCount', { n: total }), 3000);
 
   const files = S.importQueue.map(f => ({ path: f.path, title: f.title, artist: f.artist, album: f.album }));
@@ -222,7 +230,7 @@ function pollImportProgress() {
         S.importPollTimer = null;
         S.importRunning = false;
         S.importJobId = null;
-        progressFn(100, `100% ${t('iph.importDone')}`);
+        progressFn(100, t('iph.importDone'), false);
         showToast(t(isVideo ? 'iph.videoImported' : 'dl.imported', { n: j.done }), 6000);
         if (S.activeView === 'device') {
           if (isVideo && S.deviceView === 'video') { try { renderDeviceVideoView(); } catch {} }
@@ -234,7 +242,7 @@ function pollImportProgress() {
         S.importPollTimer = null;
         S.importRunning = false;
         S.importJobId = null;
-        progressFn(0, t('std.error', { n: j.error || t('dl.unknownErr') }));
+        progressFn(0, t('std.error', { n: j.error || t('dl.unknownErr') }), false);
         showToast(t('std.error', { n: String(j.error || t('dl.unknownErr')) }), 5000);
         setTimeout(() => progressFn(-1, ''), 4000);
       } else if (j.status === 'cancelled') {
@@ -242,25 +250,32 @@ function pollImportProgress() {
         S.importPollTimer = null;
         S.importRunning = false;
         S.importJobId = null;
-        progressFn(0, t('std.cancelled'));
+        progressFn(0, t('std.cancelled'), false);
         showToast(t('iph.importCancelled'), 3000);
         setTimeout(() => progressFn(-1, ''), 2000);
       } else {
         const total = j.total || 1, done = j.done || 0;
-        const pct = j.pct || 0;
+        let pct = j.pct || 0;
+        if (!pct && done > 0 && total > 0) pct = Math.round(done / total * 100);
         const delTotal = j.delete_total || 0;
         const delDone = j.delete_done || 0;
         if (j.phase === 'delete' && delTotal) {
           const cur = j.current ? ` — ${j.current}` : t('iph.deleting', { a: delDone, b: delTotal });
-          progressFn(pct, `${pct}%${cur}`);
+          progressFn(pct, `${pct}%${cur}`, false);
         } else {
           const cur = j.current ? ` — ${j.current}` : '';
           const delPart = delTotal && delDone < delTotal
             ? ` • ${t('iph.deleteCounter', { a: delDone, b: delTotal })}` : '';
-          progressFn(pct, `${pct}% — Import ${done}/${total}${delPart}${cur}`);
+          const doneInt = Math.floor(done);
+          // Only fall back to the slider while the backend has reported no
+          // progress at all (job just created, MediaLibrary pull pending).
+          const indeterminate = (pct === 0 && j.status === 'running');
+          const label = indeterminate
+            ? `Importing${cur}` : `${pct}% — Import ${doneInt}/${total}${delPart}${cur}`;
+          progressFn(pct, label, indeterminate);
         }
       }
     } catch {}
-  }, 800);
+  }, 500);
 }
 export { parseAudioMeta, normKey, dropPositionOverList, iphoneTrackListEl, setImportProgress, startIPhoneImport, pollImportProgress };

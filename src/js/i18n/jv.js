@@ -48,6 +48,7 @@ export default {
   'btn.viewMusic': 'Musik',
   'btn.viewVideo': 'Video',
   'btn.refreshLibrary': 'Segaharake pustaka (sacan maneh folder musik)',
+  'btn.refresh': 'Segarake',
   'btn.refreshDownloads': 'Segaharake daftar unduhan',
   'btn.searchLocal': 'Golèki ing lagu lokal',
   'btn.searchDownloads': 'Golèki ing unduhan',
@@ -241,7 +242,7 @@ export default {
   'me.deleteCover': 'Busak Sampul',
   'me.editInfoCover': 'Owahi Info & Sampul',
   'me.editInfoCoverPhone': 'Owahi Info & Sampul (iPhone)',
-  'me.editInfoVideoPhone': 'Owahi Info (Video iPhone)',
+  'me.editInfoVideoPhone': 'Owahi Info & Sampul (Video iPhone)',
   'me.save': 'Simpen',
   'me.cancel': 'Batal',
   'me.coverRemoved': 'Sampul wis dibusak',
@@ -282,6 +283,11 @@ export default {
 
   'player.notDoneFull': 'File durung rampung diunduh, ngenteng nganti teka 100%.',
   'player.notFoundFile': 'File ora ketemu:\n{n}\nMbokané wis dipindah utawa dibusak.',
+  'player.title': 'Pamuter Media',
+  'player.loading': 'Ngundhuh saka iPhone…',
+  'player.loadingLocal': 'Ndowongake file lokal…',
+  'player.playFail': 'Ora bisa muter "{n}" — format ora didhukung utawa file ora ana ing piranti.',
+  'player.codecUnsupported': '"{n}" mungkin nganggo codec sing ora didukung (contone HEVC/H.265). Coba konversi menyang H.264.',
 
   'local.tauriOnly': 'Nambah Folder mung ana ing aplikasi Tauri. Jalankan via npx tauri dev / exe build.',
   'local.noAudio': 'Ora ana file mp3/m4a/wav/flac/ogg ing folder kasebut.',
@@ -391,8 +397,8 @@ export default {
   'tr.noArtistMatch': 'Ora ana artif kanggo cocog',
   'tr.noArtistMatchHint': 'Coba kata kunci liya',
   'tr.playArtist': 'Mainke artif',
-  'tr.noAlbumMatch': 'Ora ana album kanggo cocog',
   'tr.playAlbum': 'Mainke album',
+  'tr.play': 'Mainke',
   'ab.newVerTitle': 'Anyaran anyar ana',
 
   'ds.dropHint': 'Klik kanggo milih gambar, utawa seret & lebokke file gambar menyang kene iki',

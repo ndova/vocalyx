@@ -32,6 +32,7 @@ python-engine/.gain-cache.json
 # Scratch folders: test imports, manual backups, rendered output.
 test_import/
 backup/
+*.bak
 
 # Scratch hasil uji pemisahan (wav, log, folder kerja job).
 tmp_*

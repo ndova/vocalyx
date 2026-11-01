@@ -7,6 +7,7 @@ import { karaokeBadgeHtml, karaokeProgressHtml, showToast, separate, isKaraokeBl
 import { coverHtml, escAttr } from './format.js';
 import { ICON } from './icons.js';
 import { load } from './player.js';
+import { openMediaPlayer } from './media-player.js';
 import { prefetchVolumeGain } from './audio-core.js';
 import { applyGridWidths } from './grid.js';
 import { paintEnhanceItem, enhanceOneFile } from './enhance.js';
@@ -111,13 +112,14 @@ export function renderTracks(filter = '') {
     if (selBox) {
       selBox.onchange = ()=>{ toggleSelLocal(tk.path); };
     }
-    b.ondblclick = (e) => {
-      if (e.target.closest('.more-menu') || e.target.closest('[data-sel]')) return;
+    b.onclick = async (e) => {
+      if (e.target.closest('input') || e.target.closest('.more-menu') || e.target.closest('button')) return;
       if (S.selectMode.local) { toggleSelLocal(tk.path); return; }
+      if (!tk.path) return;
       clearPlaylistPlayback();
       clearCollectionPlayback();
       clearDownloadPlayback();
-      load(i, true);
+      openMediaPlayer(tk, { rowEl: b });
     };
     b.addEventListener('mouseenter', () => prefetchVolumeGain(tk.path), { once: true });
     trackListEl.appendChild(b);

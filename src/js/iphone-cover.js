@@ -74,17 +74,22 @@ export function setupIPhoneCoverLazy(root) {
 }
 
 export function refreshIPhoneCovers() {
-  const root = document.getElementById('iphoneTrackList');
-  if (!root) return;
-  const pend = [...root.querySelectorAll('[data-iph-cover]')].filter(_iphCoverPending);
+  const roots = [
+    document.getElementById('iphoneTrackList'),
+    document.getElementById('videoTrackList'),
+  ].filter(Boolean);
+  if (!roots.length) return;
+  const pend = roots
+    .flatMap((r) => [...r.querySelectorAll('[data-iph-cover]')])
+    .filter(_iphCoverPending);
   if (!pend.length) return;
   try {
-    const rr = root.getBoundingClientRect();
+    const vh = window.innerHeight || 0;
     pend.sort((a, b) => {
       const ra = a.getBoundingClientRect();
       const rb = b.getBoundingClientRect();
-      const va = (ra.top < rr.bottom && ra.bottom > rr.top) ? 0 : 1;
-      const vb = (rb.top < rr.bottom && rb.bottom > rr.top) ? 0 : 1;
+      const va = (ra.top < vh && ra.bottom > 0) ? 0 : 1;
+      const vb = (rb.top < vh && rb.bottom > 0) ? 0 : 1;
       return va - vb || ra.top - rb.top;
     });
   } catch {}

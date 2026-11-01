@@ -377,7 +377,7 @@ def _has_cover(path: Path) -> bool:
             except Exception:
                 return False
             return any(k.startswith("APIC") for k in tags.keys())
-        if suf == ".m4a":
+        if suf in (".m4a", ".mp4", ".m4v", ".mov"):
 
             try:
                 tags = MP4(str(path))
@@ -410,7 +410,7 @@ def _write_tags(path: Path, title: str, artist: str, album: str) -> bool:
                 tags.add(TALB(encoding=3, text=album))
             tags.save(str(path))
             return True
-        if suf == ".m4a":
+        if suf in (".m4a", ".mp4", ".m4v", ".mov"):
 
             mp4 = MP4(str(path))
             if mp4.tags is None:
@@ -452,7 +452,7 @@ def _embed_cover(path: Path, title: str, artist: str, album: str, cover: bytes, 
             tags.add(APIC(encoding=3, mime=mime, type=3, desc="Cover", data=cover))
             tags.save(str(path))
             return True
-        if suf == ".m4a":
+        if suf in (".m4a", ".mp4", ".m4v", ".mov"):
 
             fmt = MP4Cover.FORMAT_JPEG if mime == "image/jpeg" else MP4Cover.FORMAT_PNG
             mp4 = MP4(str(path))

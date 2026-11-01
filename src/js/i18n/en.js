@@ -48,6 +48,7 @@ export default {
   'btn.viewMusic': 'Music',
   'btn.viewVideo': 'Video',
   'btn.refreshLibrary': 'Refresh library (rescan music folders)',
+  'btn.refresh': 'Refresh',
   'btn.refreshDownloads': 'Refresh downloads',
   'btn.searchLocal': 'Search local songs',
   'btn.searchDownloads': 'Search downloads',
@@ -241,7 +242,7 @@ export default {
   'me.deleteCover': 'Delete Cover',
   'me.editInfoCover': 'Edit Info & Cover',
   'me.editInfoCoverPhone': 'Edit Info & Cover (iPhone)',
-  'me.editInfoVideoPhone': 'Edit Info (iPhone Video)',
+  'me.editInfoVideoPhone': 'Edit Info & Cover (iPhone Video)',
   'me.save': 'Save',
   'me.cancel': 'Cancel',
   'me.coverRemoved': 'Cover removed',
@@ -282,6 +283,11 @@ export default {
 
   'player.notDoneFull': 'The file is not fully downloaded yet, wait until it reaches 100%.',
   'player.notFoundFile': 'File not found:\n{n}\nIt may have been moved or deleted.',
+  'player.title': 'Media Player',
+  'player.loading': 'Loading from iPhone…',
+  'player.loadingLocal': 'Loading local file…',
+  'player.playFail': 'Cannot play "{n}" — unsupported format or the file is missing on the device.',
+  'player.codecUnsupported': '"{n}" may use an unsupported codec (e.g. HEVC/H.265). Try converting to H.264.',
 
   'local.tauriOnly': 'Add Folder is only available in the Tauri app. Run it via npx tauri dev / built exe.',
   'local.noAudio': 'No mp3/m4a/wav/flac/ogg files in that folder.',
@@ -392,8 +398,8 @@ export default {
   'tr.noArtistMatch': 'No matching artists',
   'tr.noArtistMatchHint': 'Try another keyword',
   'tr.playArtist': 'Play artist',
-  'tr.noAlbumMatch': 'No matching albums',
   'tr.playAlbum': 'Play album',
+  'tr.play': 'Play',
 
   'ds.dropHint': 'Click to pick an image, or drag and drop an image file here',
   'ds.dlFailed': 'Download failed',

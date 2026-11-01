@@ -48,7 +48,7 @@ If an installation breaks, just run the installer again — the runtime is part 
 | 📥 **Search & download** | YouTube/YT Music, SoundCloud, Archive.org, 4shared without an account; Spotify Premium via **Connect**; Deezer via saved ARL — per-source status on failure |
 | 🎚️ **10-band EQ** | Preset profiles (Rock/Pop/Jazz/…), VolumeGain loudness matching, Audio Cleaner (declip + normalize) |
 | 📝 **Synced lyrics** | `.lrc` display with per-line editor and time-offset control |
-| 📱 **iPhone transfer** | Two-way music sync with your iPhone over USB. **Video import** via dropdown Musik/Video: files uploaded first, DB entry created only on success (no corrupt entries), per-file error reporting in progress bar. **Right-click** a video in the grid to edit its title |
+| 📱 **iPhone transfer** | Two-way music sync with your iPhone over USB. **Video import** via dropdown Musik/Video: files uploaded first, DB entry created only on success (no corrupt entries), per-file error reporting in progress bar. **Right-click** a video in the grid to edit its title, artist, album and cover |
 | 🌓 **Auto theme** | Follows the Windows light/dark mode automatically |
 
 ### Minimum requirements
@@ -61,7 +61,7 @@ If an installation breaks, just run the installer again — the runtime is part 
 | Internet | Required | Search/download, model downloads, updates |
 | GPU | Optional | NVIDIA driver + ±4 GB VRAM for CUDA karaoke; CPU mode is fully functional |
 | VC++ Redist | Required once | Auto-installed from the installer bundle when missing ([manual download](https://aka.ms/vs/17/release/vc_redist.x64.exe)) — the AI engine cannot start without it |
-| iPhone | Optional | iPhone driver bundle included in repository (`driver.zip`): extract → right-click `usbaapl64` in the extracted folder → **Install** → restart PC; run VocaLyx as administrator, tap **Trust** on iPhone — VocaLyx only detects it. **Video import**: select **Video** in the Device dropdown, then Import → file → upload → TV app → Home Videos (force-quit TV app / reboot if not shown). Right-click a video → Edit to change its title |
+| iPhone | Optional | iPhone driver bundle included in repository (`driver.zip`): extract → right-click `usbaapl64` in the extracted folder → **Install** → restart PC; run VocaLyx as administrator, tap **Trust** on iPhone — VocaLyx only detects it. **Video import**: select **Video** in the Device dropdown, then Import → file → upload → TV app → Home Videos (force-quit TV app / reboot if not shown). Right-click a video → Edit to change title/artist/album and its cover |
 
 ### Install
 

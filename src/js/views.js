@@ -5,6 +5,7 @@ import { ICON } from './icons.js';
 import { hashStr, coverHtml, escAttr } from './format.js';
 import { karaokeBadgeHtml, karaokeProgressHtml, syncKaraokeBtn } from './engine.js';
 import { load, loadSettingsUI } from './player.js';
+import { openMediaPlayer } from './media-player.js';
 import { showPrompt, showConfirm } from './modal.js';
 import { setVizHidden } from './viz.js';
 import { renderDownloads } from './downloads.js';
@@ -136,7 +137,7 @@ export function renderPlaylistDetail(pid){
     b.className = 'track' + (origIdx===S.idx ? ' active' : '');
     if (t.path) b.dataset.tpath = t.path;
     b.innerHTML = `<span style="color:#8b93a9">${i+1}</span><span class="t-main">${coverHtml(t)}<span><div class="t-title">${t.title}${karaokeBadgeHtml(t)}</div><div class="t-sub">${t.artist}</div>${karaokeProgressHtml(t)}</span></span><span class="c-type">${(t.ext||'').toUpperCase()}</span><span class="c-size">${t.size_str||'--'}</span><span class="c-dur">${t.dur||'--:--'}</span><span class="c-more" style="position:relative"><button class="btn-more" data-rm="${t.path}">${ICON.x}</button></span>`;
-    b.ondblclick = (e)=>{ if(e.target.closest('[data-rm]')) return; setPlaylistPlayback(pid, t.path); load(origIdx,true); };
+    b.onclick = async (e)=>{ if(e.target.closest('[data-rm]')) return; openMediaPlayer(t, { rowEl: b }); };
     b.querySelector('[data-rm]').onclick=(e)=>{ e.stopPropagation(); const rmIdx = plPathIndex(pl, t.path); if (rmIdx >= 0) pl.trackPaths.splice(rmIdx, 1); savePlaylists(); renderPlaylistDetail(pid); renderPlaylistsOverview(); };
     listEl.appendChild(b);
   });
@@ -196,7 +197,7 @@ export function renderAlbumDetail(key){
     b.className = 'track' + (origIdx===S.idx ? ' active' : '');
     if (t.path) b.dataset.tpath = t.path;
     b.innerHTML = `<span style="color:#8b93a9">${i+1}</span><span class="t-main">${coverHtml(t)}<span><div class="t-title">${t.title}${karaokeBadgeHtml(t)}</div><div class="t-sub">${t.artist}</div>${karaokeProgressHtml(t)}</span></span><span class="c-type">${(t.ext||'').toUpperCase()}</span><span class="c-size">${t.size_str||'--'}</span><span class="c-dur">${t.dur||'--:--'}</span>`;
-    b.ondblclick = ()=>{ setAlbumPlayback(g.name, g.tracks.map(x=>x.path)); load(origIdx, true); };
+    b.onclick = async ()=>{ openMediaPlayer(t, { rowEl: b }); };
     listEl.appendChild(b);
   });
   applyGridWidths();
@@ -219,7 +220,7 @@ export function renderArtistDetail(key){
     b.className = 'track' + (origIdx===S.idx ? ' active' : '');
     if (t.path) b.dataset.tpath = t.path;
     b.innerHTML = `<span style="color:#8b93a9">${i+1}</span><span class="t-main">${coverHtml(t)}<span><div class="t-title">${t.title}${karaokeBadgeHtml(t)}</div><div class="t-sub">${albumKeyOf(t)}</div>${karaokeProgressHtml(t)}</span></span><span class="c-type">${(t.ext||'').toUpperCase()}</span><span class="c-size">${t.size_str||'--'}</span><span class="c-dur">${t.dur||'--:--'}</span>`;
-    b.ondblclick = ()=>{ setArtistPlayback(g.name, g.tracks.map(x=>x.path)); load(origIdx, true); };
+    b.onclick = async ()=>{ openMediaPlayer(t, { rowEl: b }); };
     listEl.appendChild(b);
   });
   applyGridWidths();
