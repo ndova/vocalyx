@@ -8,6 +8,12 @@ src-tauri/target/
 # Portable ffmpeg binary staged locally (87MB, recreated from imageio-ffmpeg).
 ffmpeg/
 
+# Portable installer toolchains: downloaded by Tauri/npm on demand, not repo assets.
+tools/wix311/
+tools/wix311-binaries.zip
+assets/vcredist/
+assets/get-pip.py
+
 # Spotify session state and cached credentials.
 .spotify-premium/
 

@@ -107,6 +107,10 @@ npx tauri build                                 # MSI + NSIS under src-tauri/tar
 `npm run stage:engine` runs automatically inside `npx tauri build`
 (`beforeBuildCommand`) — a stale stage would ship old engine code.
 
+Vendored installer toolchains (`tools/wix311*`, `assets/vcredist/`) are **not** in
+this repo: Tauri downloads WiX/NSIS on the first bundle run and the VC++ runtime
+redistributable comes from Microsoft. Keep local copies only for offline builds.
+
 </details>
 
 <details>
@@ -212,6 +216,10 @@ npx tauri build                                 # MSI + NSIS di src-tauri/target
 
 `npm run stage:engine` berjalan otomatis di dalam `npx tauri build`
 (`beforeBuildCommand`) — stage basi akan mengirim kode engine lama.
+
+Toolchain installer (`tools/wix311*`, `assets/vcredist/`) **tidak** ada di repo ini:
+Tauri mengunduh WiX/NSIS sendiri saat bundling pertama, dan redistributable VC++
+diambil dari Microsoft. Simpan salinan lokal hanya untuk build offline.
 
 </details>
 
