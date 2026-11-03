@@ -28,7 +28,7 @@
 collection, search and download songs, turn any track into a karaoke instrumental with
 AI, shape the sound with a 10-band EQ, follow synced lyrics, and move music to and from
 your iPhone. Built with **Tauri (frontend) + Python (audio engine)** by
-[Arif Mundhofir](https://github.com/ndova), licensed under [MIT](LICENSE).
+[GATHEL](https://github.com/ndova), licensed under [MIT](LICENSE).
 
 ### Download
 
@@ -128,7 +128,7 @@ redistributable comes from Microsoft. Keep local copies only for offline builds.
 
 </details>
 
-<p align="center">Built by <b>Arif Mundhofir</b> · <a href="LICENSE">MIT License</a> · <a href="NOTICE">Third-party attributions</a></p>
+<p align="center">Built by <b>GATHEL</b> · <a href="LICENSE">MIT License</a> · <a href="NOTICE">Third-party attributions</a></p>
 
 ---
 
@@ -138,7 +138,7 @@ redistributable comes from Microsoft. Keep local copies only for offline builds.
 lokal, cari & unduh lagu, ubah lagu apa pun menjadi trek karaoke instrumental dengan AI,
 rapikan suara lewat EQ 10-band, ikuti lirik sinkron, dan pindahkan musik ke dan dari
 iPhone Anda. Dibangun dengan **Tauri (frontend) + Python (audio engine)** oleh
-[Arif Mundhofir](https://github.com/ndova), berlisensi [MIT](LICENSE).
+[GATHEL](https://github.com/ndova), berlisensi [MIT](LICENSE).
 
 ### Unduh
 
@@ -238,4 +238,4 @@ diambil dari Microsoft. Simpan salinan lokal hanya untuk build offline.
 
 </details>
 
-<p align="center">Dibuat oleh <b>Arif Mundhofir</b> · <a href="LICENSE">Lisensi MIT</a> · <a href="NOTICE">Atribusi pihak ketiga</a></p>
+<p align="center">Dibuat oleh <b>GATHEL</b> · <a href="LICENSE">Lisensi MIT</a> · <a href="NOTICE">Atribusi pihak ketiga</a></p>
